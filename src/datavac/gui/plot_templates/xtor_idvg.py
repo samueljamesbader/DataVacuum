@@ -51,12 +51,12 @@ class StandardIdVgPlotter(AllAroundFilterPlotter):
             idvg=pre_sources[0]
             self.extract_gm(idvg)
 
-            if 'color_by' not in self.param:
-                color=['blue']*(len(idvg)*len(self.vds))
-            else:
-                if self.param.color_by=='vds':
-                    color=
-            color_by=self.color_by if ('color_by' in self.param)
+            #if 'color_by' not in self.param:
+            #    color=['blue']*(len(idvg)*len(self.vds))
+            #else:
+            #    if self.param.color_by=='vds':
+            #        color=
+            #color_by=self.color_by if ('color_by' in self.param)
 
             norm_by=self.norm_by if ('norm_by' in self.param and self.norm_by!='None') else '1'
             norm_deets=self.normalizations.get(norm_by,{'endunits':'A','shorthand':''})
