@@ -11,6 +11,10 @@ class AllAroundFilterPlotter(FilterPlotter):
                             if k in ['Structure','LotWafer','DieLB']}
         bottom_filter_widgets={k:v for k,v in filter_widgets.items() \
                              if k in ['FileName']}
+        side_filter_widgets['LotWafer'].sizing_mode='stretch_height'
+        side_filter_widgets['LotWafer'].width=130
+        side_filter_widgets['DieLB'].sizing_mode='stretch_height'
+        side_filter_widgets['DieLB'].width=80
         side=pn.Column(
             side_filter_widgets['Structure'],
             pn.Row(side_filter_widgets['LotWafer'],side_filter_widgets['DieLB']),

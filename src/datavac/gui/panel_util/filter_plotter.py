@@ -19,8 +19,9 @@ class SelectionHint(Enum):
 
 class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _prefilter_measgroup = None
-    _sources:list[ColumnDataSource] =[]
-    _pre_sources:list[DataFrame]=[]
+    _sources:list[ColumnDataSource] =None
+    _pre_sources:list[DataFrame]=None
+    _built_in_view_settings=['color_by']
 
     _prefilter_updated_count=hvparam.Event()
     _filter_param_updated_count=hvparam.Event()
@@ -28,6 +29,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     filter_settings=hvparam.Parameter()
     view_settings=hvparam.Parameter()
     meas_groups=hvparam.Parameter()
+    color_by=hvparam.Selector()
 
     def __init__(self, hose:Hose=None, *args, **kwargs):
         super().__init__(*args,**kwargs)
@@ -35,7 +37,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.set_hose(hose)
 
         self._filter_param_widgets = self._make_filter_params(self.filter_settings)
-        self._view_param_widgets = self._make_view_params(self.view_settings)
+        self._view_param_widgets = self._make_view_params(
+                                            dict(**self.view_settings,
+                                                 **{k:None for k in self._built_in_view_settings}))
         self.update_sources(pre_sources=None)
         self._fig=self.recreate_figures
         self._composite[:]=[self._make_layout(
@@ -46,7 +50,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.param.watch(self._filter_param_updated,'_filter_param_updated_count')
         self.param.watch((lambda *args,**kwargs:self.param.trigger('_filter_param_updated_count')),list(self._filter_param_widgets.keys()))
         # ?
-        self.param.watch((lambda *args,**kwargs:self.update_sources_and_figures()),list(self._view_param_widgets.keys()))
+        self.param.watch(self.update_sources_and_figures,list(self._view_param_widgets.keys()))
 
     def _make_filter_params(self,filter_settings):
             return self._make_params_from_settings(filter_settings)
@@ -56,12 +60,14 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def _make_params_from_settings(self,settings):
         widgets={}
         for param_name,elt in settings.items():
+            if (already_added:=(elt is None)):
+                elt=self.param[param_name]
             if type(elt) is list:
-                self.param.add_parameter(param_name,hvparam.ListSelector())
+                if not already_added: self.param.add_parameter(param_name,hvparam.ListSelector())
                 widgets[param_name]=MultiSelect.from_param(
                     self.param[param_name],  sizing_mode='stretch_both')
             elif isinstance(elt,hvparam.Parameter):
-                self.param.add_parameter(param_name,elt)
+                if not already_added: self.param.add_parameter(param_name,elt)
                 if isinstance(elt,hvparam.ListSelector):
                     widgets[param_name]=MultiSelect.from_param(self.param[param_name], sizing_mode='stretch_both')
                 elif isinstance(elt,hvparam.Selector):
@@ -134,7 +140,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         if event.type!="triggered":
             return
         self._update_data()
-        self.update_sources_and_figures()
+        self.update_sources_and_figures(event)
 
     def update_sources(self,pre_sources):
         raise NotImplementedError
@@ -142,6 +148,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def _update_data(self):
         logger.info(f"Update data for {type(self).__name__}")
         factors={param:getattr(self,param) for param in self.filter_settings}
+        factors={k:v for k,v in factors.items() if v is not None}
         factors.update({param:w.value for param,w in self._pre_filters.items()})
         #if not len(factors.get('LotWafer',[]) or []):
         #    if not len(self.lots_preselection):
@@ -169,13 +176,13 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def fetch_data(self, factors, sort_by):
         scalar_columns = self.get_scalar_column_names()
         raw_columns = self.get_raw_column_names()
-        logger.info(f"About to ask hose")  # , scalar: {scalar_columns}, raw: {raw_columns}")
+        logger.info(f"About to ask hose {factors}")  # , scalar: {scalar_columns}, raw: {raw_columns}")
         data: list[DataFrame] = [self._hose.get_data(meas_group,
                                                      scalar_columns=sc, raw_columns=rc, on_missing_column='none',
                                                      **factors)
                                  for sc, rc, meas_group
                                  in zip(scalar_columns, raw_columns, self.meas_groups)]
-        logger.info("Got data from hose")
+        logger.info(f"Got data from hose, lengths {[len(d) for d in data]}")
 
         for d in data:
             if sort_by in d.columns:
@@ -208,6 +215,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def polish_figures(self):
         pass
 
-    def update_sources_and_figures(self):
+    def update_sources_and_figures(self,event):
+        logger.debug(f"Updating sources and figures because: {event.name}")
         self.update_sources(self._pre_sources)
         self.polish_figures()

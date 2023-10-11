@@ -13,10 +13,9 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
     hose_analysis: str
     lot_prefetch_measgroup: str
     _need_to_update_lot_filter=hvparam.Event()
-    def __init__(self,
-                 plotters: dict[str, FilterPlotter]):
+    def __init__(self, plotters: dict[str, FilterPlotter],*args,**kwargs):
         super().__init__()
-        hvparam.Parameterized.__init__(self)
+        hvparam.Parameterized.__init__(self,*args,**kwargs)
         self.hose=DBHose(self.hose_source,self.hose_analysis)
         self.lots_preselector=VerticalCrossSelector(
             value=[], options=[], width=170, height=500)
