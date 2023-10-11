@@ -13,6 +13,8 @@ from datavac.gui.bokeh_util.util import make_serializable
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
 from datavac.io.hose import Hose
 from datavac.logging import logger
+from datavac.util import Normalizer
+
 
 class SelectionHint(Enum):
     FIRST=1
@@ -21,15 +23,17 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _prefilter_measgroup = None
     _sources:list[ColumnDataSource] =None
     _pre_sources:list[DataFrame]=None
-    _built_in_view_settings=['color_by']
 
+    _built_in_view_settings=['color_by']
     _prefilter_updated_count=hvparam.Event()
     _filter_param_updated_count=hvparam.Event()
     _need_to_recreate_figure=hvparam.Event()
+
     filter_settings=hvparam.Parameter()
-    view_settings=hvparam.Parameter()
     meas_groups=hvparam.Parameter()
     color_by=hvparam.Selector()
+
+    normalization_details = hvparam.Parameter(instantiate=True)
 
     def __init__(self, hose:Hose=None, *args, **kwargs):
         super().__init__(*args,**kwargs)
@@ -38,7 +42,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
 
         self._filter_param_widgets = self._make_filter_params(self.filter_settings)
         self._view_param_widgets = self._make_view_params(
-                                            dict(**self.view_settings,
+                                            dict(#**self.view_settings,
                                                  **{k:None for k in self._built_in_view_settings}))
         self.update_sources(pre_sources=None)
         self._fig=self.recreate_figures
@@ -51,6 +55,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.param.watch((lambda *args,**kwargs:self.param.trigger('_filter_param_updated_count')),list(self._filter_param_widgets.keys()))
         # ?
         self.param.watch(self.update_sources_and_figures,list(self._view_param_widgets.keys()))
+        self._normalizer=Normalizer(self.normalization_details)
 
     def _make_filter_params(self,filter_settings):
             return self._make_params_from_settings(filter_settings)
@@ -71,7 +76,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                 if isinstance(elt,hvparam.ListSelector):
                     widgets[param_name]=MultiSelect.from_param(self.param[param_name], sizing_mode='stretch_both')
                 elif isinstance(elt,hvparam.Selector):
-                    widgets[param_name]=Select.from_param(self.param[param_name], sizing_mode='stretch_both')
+                    widgets[param_name]=Select.from_param(self.param[param_name], sizing_mode='stretch_width')
             else:
                 raise NotImplementedError
         return widgets
@@ -173,10 +178,17 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         #self._post_update_data()
 
 
+    def get_raw_column_names(self):
+        raise NotImplementedError
+
+    def get_scalar_column_names(self):
+        return [self._normalizer.normalizer_columns()+list(self.filter_settings.keys())]
+
     def fetch_data(self, factors, sort_by):
         scalar_columns = self.get_scalar_column_names()
         raw_columns = self.get_raw_column_names()
-        logger.info(f"About to ask hose {factors}")  # , scalar: {scalar_columns}, raw: {raw_columns}")
+        #logger.info(f"About to ask hose for {raw_columns,scalar_columns} with {factors}")  # , scalar: {scalar_columns}, raw: {raw_columns}")
+        logger.info(f"About to ask hose with {factors}")  # , scalar: {scalar_columns}, raw: {raw_columns}")
         data: list[DataFrame] = [self._hose.get_data(meas_group,
                                                      scalar_columns=sc, raw_columns=rc, on_missing_column='none',
                                                      **factors)

@@ -4,6 +4,8 @@ from time import perf_counter
 from contextlib import contextmanager
 import pandas as pd
 from pandas import DataFrame
+
+from datavac import units
 from datavac.logging import logger
 
 def last(it):
@@ -77,3 +79,94 @@ def check_dtypes(dataframe:DataFrame):
         assert str(dtype)!='object', \
             f"Column '{c}' has dtype object! Usually this is supposed to be string or some nullable type"
     return dataframe
+
+class Normalizer():
+    # Example: deets=\
+    #   {'Width [um]': ('W',
+    #       {('ID','IG') : {'type':'/','end_units':'mA/um','start_units':'A'}
+    #       {'GM'        : {'type':'/','end_units':'mS/um','start_units':'S'}
+    #       {'Ron [Ohm]' : {'type':'*','end_units':'Ohm*um'}})
+    #
+    def __init__(self, deets):
+        self._udeets={}
+        self._shorthands={}
+        for n,(shorthand,ninfo) in deets.items():
+            self._shorthands[n]=shorthand
+            self._udeets[n]={}
+            if '[' in n:
+                norm_units=units.parse_expression(n.split('[')[1].split(']')[0])
+            else:
+                norm_units=units.parse_units('1')
+            for ks,kinfo in ninfo.items():
+                if type(ks) is not tuple:
+                    ks=(ks,)
+                for k in ks:
+                    self._udeets[n][k]=kinfo.copy()
+                    if '[' in k:
+                        start_units_from_name=k.split('[')[1].split(']')[0]
+                        if ('start_units' in self._udeets[n][k]) \
+                                and self._udeets[n][k]['start_units']!=start_units_from_name:
+                            raise Exception(f"Under '{n}', column '{k}'" \
+                                            f"has conflicting start units {self._udeets[n][k]['start_units']}")
+                        else:
+                            self._udeets[n][k]['start_units']=start_units_from_name
+                    else:
+                        if 'start_units' not in self._udeets[n][k]:
+                            raise Exception(f"Under '{n}', no start_units provided or read from column '{k}'")
+                    start_units=units.parse_expression(self._udeets[n][k]['start_units'])
+                    end_units=units.parse_units(self._udeets[n][k]['end_units'])
+                    assert (ntype:=self._udeets[n][k]['type']) in ['*', '/']
+                    nstart_units=start_units/norm_units if ntype=='/' else start_units*norm_units
+                    try:
+                        self._udeets[n][k]['units_scale_factor']=nstart_units.to(end_units).magnitude
+                    except Exception as e:
+                        logger.error(f"Couldn't convert '{k}' in {start_units} with normalization '{n}' to {end_units}")
+                        raise e
+
+    def get_scaled(self, df, column, normalizer):
+        ntype=self._udeets[normalizer][column]['type']
+        scale=self._udeets[normalizer][column]['units_scale_factor']
+        column=df[column]
+        normalizer=df[normalizer] if normalizer!='None' else 1
+        return (column/normalizer if ntype=='/' else column*normalizer)*scale
+
+    def shorthand(self, column, normalizer):
+        t={'/':'/','*':''}[self._udeets[normalizer][column]['type']]
+        sh=self._shorthands[normalizer]
+        return f"{t}{sh}" if sh!="" else ""
+
+    def formatted_endunits(self, column, normalizer):
+        eu=self._udeets[normalizer][column]['end_units']
+        return eu
+
+    def normalizer_columns(self):
+        return [k for k in self._udeets if k != 'None']
+
+    @property
+    def norm_options(self):
+        return list(self._udeets.keys())
+
+
+
+def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None):
+    restrict_dirs=restrict_dirs if restrict_dirs else ('f','r')
+    potential_starts=[f"{d}{y}@{swv}" for y in ys for d in restrict_dirs]
+    yheaders=[k for k in df.columns if k.split("=")[0] in potential_starts]
+    vals=list(set([yheader.split("=")[1] for yheader in yheaders]))
+    if restrict_swv: vals=[v for v in vals if v in restrict_swv]
+    bystanders=[c for c in df.columns if c not in yheaders and c!=x]
+    subtabs=[]
+    for v in vals:
+        for d in restrict_dirs:
+            yheaders_in_subtab=[yheader for yheader in yheaders
+                                if yheader.startswith(d) and yheader.endswith(f"@{swv}={v}")]
+            if not len(yheaders_in_subtab): continue
+            subtabs.append(
+                df[[x]+yheaders_in_subtab+bystanders] \
+                    .rename(columns={yheader:yheader[1:].split("@")[0] \
+                                     for yheader in yheaders_in_subtab}) \
+                    .assign(**{swv:v,'SweepDir':d}))
+    if len(subtabs):
+        return pd.concat(subtabs)
+    else:
+        return pd.DataFrame({k:[] for k in [x]+ys+bystanders})

@@ -1,4 +1,5 @@
 import logging
+from copy import deepcopy
 
 import numpy as np
 import bokeh.layouts
@@ -13,7 +14,7 @@ import param as hvparam
 from bokeh.plotting import figure
 
 from datavac import units
-from datavac.gui.bokeh_util.palettes import get_sam_palette
+from datavac.gui.bokeh_util.util import make_color_col, smaller_legend
 from datavac.logging import logger
 
 #def extract_gm(self,data):
@@ -24,63 +25,44 @@ from datavac.logging import logger
 #            data[f'fGM@VD={vd}']=list((np.gradient(id,axis=1).T/(vg[:,1]-vg[:,0])).T)
 #        else:
 #            data[f'fGM@VD={vd}']=[]
-def smaller_legend(fig):
-    fig.legend.margin=0
-    fig.legend.spacing=0
-    fig.legend.padding=4
-    fig.legend.label_text_font_size='8pt'
-    fig.legend.label_height=10
-    fig.legend.label_text_line_height=10
-    fig.legend.glyph_height=10
 
-def get_norm_scale(start_units, normalizer, end_units):
-    #start=units.parse_units(start.split("[")[-1].split("]")[0] if "[" in start else "1")
-    start=units.parse_units(start_units)
-    normalizer=units.parse_units(normalizer.split("[")[-1].split("]")[0] if "[" in normalizer else "1")
-    end=units.parse_units(end_units)
-    scale=(1*start/normalizer).to(end).magnitude
-    return scale
 
-def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None):
-    restrict_dirs=restrict_dirs if restrict_dirs else ('f','r')
-    potential_starts=[f"{d}{y}@{swv}" for y in ys for d in restrict_dirs]
-    yheaders=[k for k in df.columns if k.split("=")[0] in potential_starts]
-    vals=list(set([yheader.split("=")[1] for yheader in yheaders]))
-    if restrict_swv: vals=[v for v in vals if v in restrict_swv]
-    bystanders=[c for c in df.columns if c not in yheaders and c!=x]
-    subtabs=[]
-    for v in vals:
-        for d in restrict_dirs:
-            yheaders_in_subtab=[yheader for yheader in yheaders
-                                if yheader.startswith(d) and yheader.endswith(f"@{swv}={v}")]
-            if not len(yheaders_in_subtab): continue
-            subtabs.append(
-                df[[x]+yheaders_in_subtab+bystanders]\
-                    .rename(columns={yheader:yheader[1:].split("@")[0]\
-                                     for yheader in yheaders_in_subtab})\
-                    .assign(**{swv:v,'SweepDir':d}))
-    if len(subtabs):
-        return pd.concat(subtabs)
-    else:
-        return pd.DataFrame({k:[] for k in [x]+ys+bystanders})
+#def get_norm_scale(start_units, normalizer, end_units):
+#    #start=units.parse_units(start.split("[")[-1].split("]")[0] if "[" in start else "1")
+#    start=units.parse_units(start_units)
+#    normalizer=units.parse_units(normalizer.split("[")[-1].split("]")[0] if "[" in normalizer else "1")
+#    end=units.parse_units(end_units)
+#    scale=(1*start/normalizer).to(end).magnitude
+#    return scale
+from datavac.util import stack_sweeps
 
 
 class StandardIdVgPlotter(AllAroundFilterPlotter):
-    normalizations=hvparam.Parameter({}, instantiate=True)
+
+    # Whether plotting nMOS or pMOS
     pol=hvparam.Selector(objects=['p','n'])
 
-    def __init__(self,*args,**kwargs):
+    # View settings
+    sweep_dirs=hvparam.ListSelector(default=['f'],objects=['f','r'])
+    vds=hvparam.ListSelector()
+    norm_by=hvparam.Selector()
+    _built_in_view_settings = ['norm_by','color_by','vds','sweep_dirs']
+
+    def __init__(self,vds_options,*args,**kwargs):
         super().__init__(*args,**kwargs)
+
+        # Set options and defaults for the view settings
         self.param.color_by.objects=list(self.filter_settings.keys())+['VD','SweepDir']
         if self.color_by is None: self.color_by='LotWafer'
+        self.param.vds.objects=vds_options
+        if self.vds is None: self.vds=[next(iter(sorted(vds_options,key=lambda x: abs(float(x)),reverse=True)))]
+        self.param.norm_by.objects=self._normalizer.norm_options
+        if self.norm_by is None: self.norm_by=self.param.norm_by.objects[0]
 
     def get_raw_column_names(self):
         return [['VG']+[f'fI{term}@VD={vd}' for vd in self.param.vds.objects for term in ['G','D']]]
 
-    def get_scalar_column_names(self):
-        return [list(self.normalizations.keys())+list(self.filter_settings.keys())]
-
-    def extract_gm(self,stacked_data):
+    def _extract_gm(self, stacked_data):
         if len(stacked_data[f'ID']):
             try:
                 id=np.vstack(stacked_data[f'ID'])
@@ -94,45 +76,61 @@ class StandardIdVgPlotter(AllAroundFilterPlotter):
             stacked_data[f'GM']=[]
 
     def update_sources(self, pre_sources):
+
+        # If no data to work with yet, make an empty prototype for figure creation
         if pre_sources is None:
-            # Be sure to never remake a ColumnDataSource!
+
+            # Wrap this in a check for pre-existing self._sources
+            # to ensure we never remake a ColumnDataSource!
             if self._sources is None:
-                self._sources={'curves':ColumnDataSource({}),'ylabels':None}
+                self._sources={'curves':ColumnDataSource({})}
 
             # Empty prototype
             self._sources['curves'].data={'VG':[],'ID':[],'IG':[],'GM':[], 'legend':[], 'color':[]}
+            self._sources['ylabels']=None
+
+        # Otherwise, analyze the real data
         else:
-            directions=self.sweep_dirs if 'sweep_dirs' in self.param and self.sweep_dirs!=[] else None
-            vds=self.vds if 'vds' in self.param and self.vds!=[] else None
-            idvg=stack_sweeps(pre_sources[0],'VG',['ID','IG'],'VD',restrict_dirs=directions,restrict_swv=vds)
 
-            self.extract_gm(idvg)
+            # Stack the various columns (ie fID@VD=1 and fID@VD=2 get stacked to one column 'ID')
+            idvg=stack_sweeps(pre_sources[0],'VG',['ID','IG'],'VD',
+                              restrict_dirs=(self.sweep_dirs if self.sweep_dirs!=[] else None),
+                              restrict_swv=(self.vds if  self.vds!=[] else None))
+            # Add the GM column
+            self._extract_gm(idvg)
 
-            factors=list(sorted(idvg[self.color_by].unique()))
-            palette=get_sam_palette(len(factors))
-            color_col=idvg[self.color_by].map(dict(zip(factors,palette))).astype('string')
-
-            norm_by=self.norm_by if ('norm_by' in self.param and self.norm_by!='None') else '1'
-            norm_deets=self.normalizations.get(norm_by,{'endunits':'A','shorthand':''})
-            end_units=norm_deets['endunits']
-            divstr=("/"+norm_deets['shorthand']) if norm_deets['shorthand']!='' else ''
-            scale=get_norm_scale('A',norm_by,end_units=end_units)
-            norm=(idvg[self.norm_by] if ('norm_by' in self.param and self.norm_by!='None') else 1)/scale
+            # Compile it all to right columns
             self._sources['curves'].data={
                 'VG':idvg[f'VG'],
-                'ID':idvg[f'ID']/norm,
-                'IG':idvg[f'IG']/norm,
-                'GM':idvg[f'GM']/norm,
+                'ID':self._normalizer.get_scaled(idvg,f'ID',self.norm_by),
+                'IG':self._normalizer.get_scaled(idvg,f'IG',self.norm_by),
+                'GM':self._normalizer.get_scaled(idvg,f'GM',self.norm_by),
                 'legend':idvg[self.color_by],
-                'color':color_col
+                'color':make_color_col(idvg[self.color_by])
             }
+            #self._sources['curves'].data={
+            #    'VG':list(idvg[f'VG'])[:3],
+            #    'ID':list(idvg[f'ID'])[:3],
+            #    'IG':list(idvg[f'IG'])[:3],
+            #    'GM':list(idvg[f'GM'])[:3],
+            #    'legend':list(idvg[self.color_by])[:3],
+            #    'color':list(make_color_col(idvg[self.color_by]))[:3]
+            #}
+
+            # And make the y_axis names
+            divstr=self._normalizer.shorthand('ID',self.norm_by)
+            end_units_id=self._normalizer.formatted_endunits('ID',self.norm_by)
+            end_units_gm=self._normalizer.formatted_endunits('GM',self.norm_by)
             self._sources['ylabels']={
-                'idlog':fr'$$I_{{D,G}}{divstr}\text{{ [{end_units}]}}$$',
-                'idlin':fr'$$I_{{D,G}}{divstr}\text{{ [{end_units}]}}$$',
-                'gm':fr'$$G_{{M}}{divstr}\text{{ [{end_units.replace("A","S")}]}}$$'}
+                'idlog':fr'$$I_{{D,G}}{divstr}\text{{ [{end_units_id}]}}$$',
+                'idlin':fr'$$I_{{D,G}}{divstr}\text{{ [{end_units_id}]}}$$',
+                'gm':fr'$$G_{{M}}{divstr}\text{{ [{end_units_gm}]}}$$'
+            }
 
         #print("Updated sources")
-        #print(self._sources['curves'].data)
+        #import pdb; pdb.set_trace()
+        print(self._sources['curves'].data)
+        print(self._sources['ylabels'])
 
 
     @pn.depends('_need_to_recreate_figure')
