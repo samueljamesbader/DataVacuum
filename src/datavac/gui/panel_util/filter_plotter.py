@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Union, Any
 
+import bokeh
 from bokeh.models import ColumnDataSource
 from bokeh.plotting import figure
 from pandas import DataFrame
@@ -8,8 +9,9 @@ from panel.widgets import Widget, MultiSelect, Select
 import panel as pn
 import param as hvparam
 import pandas as pd
+import numpy as np
 
-from datavac.gui.bokeh_util.util import make_serializable
+from datavac.gui.bokeh_util.util import make_serializable, make_color_col, smaller_legend
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
 from datavac.io.hose import Hose
 from datavac.logging import logger
@@ -24,7 +26,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _sources:list[ColumnDataSource] =None
     _pre_sources:list[DataFrame]=None
 
-    _built_in_view_settings=['color_by']
+    _built_in_view_settings=['color_by','norm_by']
     _prefilter_updated_count=hvparam.Event()
     _filter_param_updated_count=hvparam.Event()
     _need_to_recreate_figure=hvparam.Event()
@@ -32,6 +34,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     filter_settings=hvparam.Parameter()
     meas_groups=hvparam.Parameter()
     color_by=hvparam.Selector()
+    norm_by=hvparam.Selector()
 
     normalization_details = hvparam.Parameter(instantiate=True)
 
@@ -41,21 +44,28 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.set_hose(hose)
 
         self._filter_param_widgets = self._make_filter_params(self.filter_settings)
-        self._view_param_widgets = self._make_view_params(
-                                            dict(#**self.view_settings,
-                                                 **{k:None for k in self._built_in_view_settings}))
+        self._view_param_widgets = self._make_view_params({k:None for k in self._built_in_view_settings})
         self.update_sources(pre_sources=None)
+
         self._fig=self.recreate_figures
         self._composite[:]=[self._make_layout(
                                     filter_widgets=self._filter_param_widgets,
                                     view_widgets=self._view_param_widgets,
                                     figure_pane=self._fig)]
+
         self.param.watch(self._prefilter_updated,'_prefilter_updated_count')
         self.param.watch(self._filter_param_updated,'_filter_param_updated_count')
-        self.param.watch((lambda *args,**kwargs:self.param.trigger('_filter_param_updated_count')),list(self._filter_param_widgets.keys()))
-        # ?
+        self.param.watch((lambda *args,**kwargs:self.param.trigger('_filter_param_updated_count')),
+                         list(self._filter_param_widgets.keys()))
         self.param.watch(self.update_sources_and_figures,list(self._view_param_widgets.keys()))
+
         self._normalizer=Normalizer(self.normalization_details)
+        self.param.norm_by.objects=self._normalizer.norm_options
+        if self.norm_by is None: self.norm_by=self.param.norm_by.objects[0]
+
+        if self.param.color_by.objects==[]:
+            self.param.color_by.objects=list(self.filter_settings.keys())
+        if self.color_by is None: self.color_by='LotWafer'
 
     def _make_filter_params(self,filter_settings):
             return self._make_params_from_settings(filter_settings)
@@ -155,28 +165,8 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         factors={param:getattr(self,param) for param in self.filter_settings}
         factors={k:v for k,v in factors.items() if v is not None}
         factors.update({param:w.value for param,w in self._pre_filters.items()})
-        #if not len(factors.get('LotWafer',[]) or []):
-        #    if not len(self.lots_preselection):
-        #        factors['LotWafer']=['None']
-        #    else:
-        #        factors['LotWafer']=[lw for lw in self.param.LotWafer.objects
-        #                             if lw.split("_")[0] in self.lots_preselection]
-        #sort_by=getattr(self,self._sort_field_param) if self._sort_field_param else None
-        #data=self.preprocess_data(self.fetch_data(factors=factors,sort_by=sort_by))
         self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by='None'))
         self._dtypes=[d.dtypes.to_dict() for d in self._pre_sources]
-
-
-        #logger.info("About to update _source")
-        #if refashion_source or (self._sources is None):
-        #    logger.debug("Refashioning source")
-        #    self._sources=[ColumnDataSource(d) for d in data]
-        #else:
-        #    for source,d in zip(self._sources,data): source.data=d
-        #self._updated_data_count+=1
-        #logger.info("Did update data")
-        #self._post_update_data()
-
 
     def get_raw_column_names(self):
         raise NotImplementedError
@@ -184,45 +174,43 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def get_scalar_column_names(self):
         return [self._normalizer.normalizer_columns()+list(self.filter_settings.keys())]
 
+    def get_meas_groups(self):
+        return self.meas_groups
+
     def fetch_data(self, factors, sort_by):
         scalar_columns = self.get_scalar_column_names()
         raw_columns = self.get_raw_column_names()
-        #logger.info(f"About to ask hose for {raw_columns,scalar_columns} with {factors}")  # , scalar: {scalar_columns}, raw: {raw_columns}")
-        logger.info(f"About to ask hose with {factors}")  # , scalar: {scalar_columns}, raw: {raw_columns}")
+        logger.info(f"About to ask hose with {factors}, scalar: {scalar_columns}, raw: {raw_columns}")
         data: list[DataFrame] = [self._hose.get_data(meas_group,
                                                      scalar_columns=sc, raw_columns=rc, on_missing_column='none',
                                                      **factors)
                                  for sc, rc, meas_group
-                                 in zip(scalar_columns, raw_columns, self.meas_groups)]
+                                 in zip(scalar_columns, raw_columns, self.get_meas_groups())]
         logger.info(f"Got data from hose, lengths {[len(d) for d in data]}")
 
         for d in data:
             if sort_by in d.columns:
                 d.sort_values(by=sort_by, inplace=True)
-
         return data
 
     def preprocess_data(self,predata):
         logger.debug(f"Default preprocess {self.__class__}")
-        #print(predata[-1])
-        #return predata[pd.notna(predata).all(axis=1)]
-        #data=predata.where(predata.notna(),None)
         data=[]
         rcs=self.get_raw_column_names()
         for pred,rc in zip(predata,rcs):
             d=make_serializable(pred)
             for c in rc:
                 if c not in d:
-                    d[c]=[[]]*len(data)
+                    d[c]=[np.array([])]*len(data)
+                d[c]=d[c].map(np.asarray)
                 try:
-                    d.loc[:,c]=d[c].where(~pd.isna(d[c]),pd.Series([[]]*len(d),dtype='object'))
+                    d.loc[:,c]=d[c].where(~pd.isna(d[c]),pd.Series([np.array([])]*len(d),dtype='object'))
                 except Exception as e:
                     print(e)
                     import pdb; pdb.set_trace()
                     print('oops')
                     raise
             data.append(d)
-            #print("Post-processing dtypes:",data.dtypes)
         return data
     def polish_figures(self):
         pass
@@ -231,3 +219,118 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         logger.debug(f"Updating sources and figures because: {event.name}")
         self.update_sources(self._pre_sources)
         self.polish_figures()
+
+
+class ScalarFilterPlotter(FilterPlotter):
+
+    plot_pairs=hvparam.Parameter()
+    fig_kwargs=hvparam.Parameter()
+    plot_var_to_meas_group=hvparam.Parameter()
+    merge_on_columns=hvparam.List()
+    shownames=hvparam.Parameter()
+    stars=hvparam.Parameter({})
+
+
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+
+        # Set options and defaults for the view settings
+        self.param.color_by.objects=list(self.filter_settings.keys())
+        if self.color_by is None: self.color_by='LotWafer'
+
+    @property
+    def _meas_group_to_plot_vars(self):
+        if not hasattr(self,'__meas_group_to_plot_vars'):
+            assert (self.meas_groups is not None)!=(self.plot_var_to_meas_group is not None),\
+                "Supply *either* meas_groups *or* plot_var_to_meas_group"
+            if self.meas_groups is not None:
+                assert len(self.meas_groups)==1, \
+                    "If using more than one meas_group for ScalarFilterPlotter, supply plot_var_to_meas_group instead"
+                meas_groups=self.meas_groups
+                plot_vars=[[p for pp in self.plot_pairs for p in pp]]
+            if self.plot_var_to_meas_group is not None:
+                assert self.merge_on_columns is not None,\
+                    "If using more than one meas_group, gotta define how to merge them with merge_on_columns"
+                meas_groups=sorted(self.plot_var_to_meas_group.values())
+                plot_vars=[[p for pp in self.plot_pairs for p in pp
+                                    if self.plot_var_to_meas_group[p]==m]\
+                               for m in meas_groups]
+            self.__meas_group_to_plot_vars=dict(zip(meas_groups,plot_vars))
+        return self.__meas_group_to_plot_vars
+
+    def get_meas_groups(self):
+        return list(self._meas_group_to_plot_vars.keys())
+
+    def get_scalar_column_names(self):
+        filter_and_norm_cols=super().get_scalar_column_names()[0]
+        return [(pv+filter_and_norm_cols) for pv in self._meas_group_to_plot_vars.values()]
+
+    def get_raw_column_names(self):
+        return [[] for m in self._meas_group_to_plot_vars]
+
+    def update_sources(self,pre_sources):
+        if len(self.get_meas_groups())!=1:
+            # Haven't implemented merging multiple tables yet
+            # Could still make use of current class if every plot pair is within a table, but haven't implemented that yet
+            raise NotImplementedError
+
+        # If no data to work with yet, make an empty prototype for figure creation
+        if pre_sources is None:
+
+            # Wrap this in a check for pre-existing self._sources
+            # to ensure we never remake a ColumnDataSource!
+            if self._sources is None:
+                self._sources={'data':ColumnDataSource({}),'stars':ColumnDataSource({})}
+
+            # Empty prototype
+            self._sources['data'].data=dict(**{p:[] for pp in self.plot_pairs for p in pp},**{'legend':[],'color':[]})
+            self._sources['stars'].data=dict(**{p:[] for pp in self.plot_pairs for p in pp})
+            self._sources['labels']=None
+
+        # Otherwise, analyze the real data
+        else:
+            assert len(pre_sources)==1
+
+            # Compile it all to right columns
+            try:
+                self._sources['data'].data=dict(
+                    **{
+                        p:self._normalizer.get_scaled(pre_sources[0],p,self.norm_by)
+                            for pp in self.plot_pairs for p in pp
+                    },**{
+                        'legend':pre_sources[0][self.color_by],
+                        'color':make_color_col(pre_sources[0][self.color_by],
+                                               all_factors=self.param[self.color_by].objects)
+                    })
+            except:
+                print('oops')
+            self._sources['stars'].data=dict(
+                **{
+                    p:[self._normalizer.get_scaled(self.stars,p,self.norm_by)]
+                    for pp in self.plot_pairs for p in pp
+                        if (p in self.stars and (self.norm_by=='None' or self.norm_by in self.stars))
+                })
+            self._sources['labels']={}
+            for pp in self.plot_pairs:
+                for p in pp:
+                    eu=self._normalizer.formatted_endunits(p,self.norm_by)
+                    sh=self._normalizer.shorthand(p,self.norm_by)
+                    eupart=fr"\text{{ [{eu}]}}" if eu!="" else ""
+                    self._sources['labels'][p]=fr"$${self.shownames[p]}{sh}{eupart}$$"
+
+    @pn.depends('_need_to_recreate_figure')
+    def recreate_figures(self):
+        self._figs=[]
+        for (px, py),fig_kwargs in zip(self.plot_pairs,self.fig_kwargs):
+            self._figs.append((fig := figure(width=250,height=300,**fig_kwargs)))
+            fig.circle(x=px,y=py,source=self._sources['data'],legend_field='legend',color='color')
+            if px in self.stars and py in self.stars:
+                fig.star(x=px,y=py,source=self._sources['stars'],size=15,fill_color='gold',line_color='black')
+        for fig in self._figs: smaller_legend(fig)
+        return bokeh.layouts.gridplot([self._figs],toolbar_location='right')
+
+    def polish_figures(self):
+        if (labels:=self._sources['labels']) is not None:
+            for (px, py), fig in zip(self.plot_pairs,self._figs):
+                fig.xaxis.axis_label=labels[px]
+                fig.yaxis.axis_label=labels[py]

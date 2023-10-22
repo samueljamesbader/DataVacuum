@@ -209,6 +209,7 @@ class LayoutParameters:
         for structure in structures_to_get:
             if structure not in correction_map:
                 correction_map[structure]=structure
+
         meas_df['Structure']=meas_df['Structure'].map(correction_map).astype('string')
         meas_df['RowName']=meas_df['Structure'].str.split("-",expand=True)[0]
 

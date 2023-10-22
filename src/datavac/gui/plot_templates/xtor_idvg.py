@@ -1,39 +1,16 @@
-import logging
-from copy import deepcopy
-
 import numpy as np
 import bokeh.layouts
-import pandas as pd
 import panel as pn
-from bokeh.models import ColumnDataSource, CustomJSFilter
+from bokeh.models import ColumnDataSource
 
-from bokeh_transform_utils.transforms import MultiAbsTransform, multi_abs_transform
+from bokeh_transform_utils.transforms import multi_abs_transform
 from datavac.examples.filter_plotter_layout import AllAroundFilterPlotter
 import param as hvparam
 
 from bokeh.plotting import figure
 
-from datavac import units
 from datavac.gui.bokeh_util.util import make_color_col, smaller_legend
 from datavac.logging import logger
-
-#def extract_gm(self,data):
-#    for vd in self.vds:
-#        if len(data[f'fID@VD={vd}']):
-#            id=np.vstack(data[f'fID@VD={vd}'])
-#            vg=np.vstack(data[f'VG'])
-#            data[f'fGM@VD={vd}']=list((np.gradient(id,axis=1).T/(vg[:,1]-vg[:,0])).T)
-#        else:
-#            data[f'fGM@VD={vd}']=[]
-
-
-#def get_norm_scale(start_units, normalizer, end_units):
-#    #start=units.parse_units(start.split("[")[-1].split("]")[0] if "[" in start else "1")
-#    start=units.parse_units(start_units)
-#    normalizer=units.parse_units(normalizer.split("[")[-1].split("]")[0] if "[" in normalizer else "1")
-#    end=units.parse_units(end_units)
-#    scale=(1*start/normalizer).to(end).magnitude
-#    return scale
 from datavac.util import stack_sweeps
 
 
@@ -45,7 +22,6 @@ class StandardIdVgPlotter(AllAroundFilterPlotter):
     # View settings
     sweep_dirs=hvparam.ListSelector(default=['f'],objects=['f','r'])
     vds=hvparam.ListSelector()
-    norm_by=hvparam.Selector()
     _built_in_view_settings = ['norm_by','color_by','vds','sweep_dirs']
 
     def __init__(self,vds_options,*args,**kwargs):
@@ -56,8 +32,6 @@ class StandardIdVgPlotter(AllAroundFilterPlotter):
         if self.color_by is None: self.color_by='LotWafer'
         self.param.vds.objects=vds_options
         if self.vds is None: self.vds=[next(iter(sorted(vds_options,key=lambda x: abs(float(x)),reverse=True)))]
-        self.param.norm_by.objects=self._normalizer.norm_options
-        if self.norm_by is None: self.norm_by=self.param.norm_by.objects[0]
 
     def get_raw_column_names(self):
         return [['VG']+[f'fI{term}@VD={vd}' for vd in self.param.vds.objects for term in ['G','D']]]
@@ -106,16 +80,9 @@ class StandardIdVgPlotter(AllAroundFilterPlotter):
                 'IG':self._normalizer.get_scaled(idvg,f'IG',self.norm_by),
                 'GM':self._normalizer.get_scaled(idvg,f'GM',self.norm_by),
                 'legend':idvg[self.color_by],
-                'color':make_color_col(idvg[self.color_by])
+                'color':make_color_col(idvg[self.color_by],
+                           all_factors=self.param[self.color_by].objects)
             }
-            #self._sources['curves'].data={
-            #    'VG':list(idvg[f'VG'])[:3],
-            #    'ID':list(idvg[f'ID'])[:3],
-            #    'IG':list(idvg[f'IG'])[:3],
-            #    'GM':list(idvg[f'GM'])[:3],
-            #    'legend':list(idvg[self.color_by])[:3],
-            #    'color':list(make_color_col(idvg[self.color_by]))[:3]
-            #}
 
             # And make the y_axis names
             divstr=self._normalizer.shorthand('ID',self.norm_by)
@@ -129,8 +96,8 @@ class StandardIdVgPlotter(AllAroundFilterPlotter):
 
         #print("Updated sources")
         #import pdb; pdb.set_trace()
-        print(self._sources['curves'].data)
-        print(self._sources['ylabels'])
+        #print(self._sources['curves'].data)
+        #print(self._sources['ylabels'])
 
 
     @pn.depends('_need_to_recreate_figure')

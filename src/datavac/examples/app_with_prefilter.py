@@ -1,3 +1,5 @@
+from functools import reduce
+
 import panel as pn
 from panel.template.base import BasicTemplate
 import param as hvparam
@@ -19,7 +21,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         self.hose=DBHose(self.hose_source,self.hose_analysis)
         self.lots_preselector=VerticalCrossSelector(
             value=[], options=[], width=170, height=500)
-        self._plotters=plotters
+        self._plotters:dict[str,FilterPlotter]=plotters
         for name, pltr in self._plotters.items():
             pltr.set_hose(self.hose)
             pltr.add_prefilters({'Lot':self.lots_preselector},self.lot_prefetch_measgroup)
@@ -40,3 +42,15 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         self.page.main.append(pn.Tabs(*tabs))
         self.page.main.sizing_mode='fixed'
         return self.page
+
+    def link_shared_widgets(self):
+        attrs=['_filter_param_widgets','_view_param_widgets']
+        for attr in attrs:
+            all_filter_params=set([k for p in self._plotters.values() for k in getattr(p,attr)])
+            for k in all_filter_params:
+                widgets=[getattr(p,attr).get(k,None) for p in self._plotters.values()]
+                widgets=[w for w in widgets if w is not None]
+                if len(widgets)>1:
+                    w1=widgets[0]
+                    for w2 in widgets[1:]:
+                        w1.jslink(w2,value='value',bidirectional=True)

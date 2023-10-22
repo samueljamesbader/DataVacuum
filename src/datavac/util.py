@@ -1,4 +1,5 @@
 import re
+import numpy as np
 from collections import deque
 from time import perf_counter
 from contextlib import contextmanager
@@ -81,12 +82,6 @@ def check_dtypes(dataframe:DataFrame):
     return dataframe
 
 class Normalizer():
-    # Example: deets=\
-    #   {'Width [um]': ('W',
-    #       {('ID','IG') : {'type':'/','end_units':'mA/um','start_units':'A'}
-    #       {'GM'        : {'type':'/','end_units':'mS/um','start_units':'S'}
-    #       {'Ron [Ohm]' : {'type':'*','end_units':'Ohm*um'}})
-    #
     def __init__(self, deets):
         self._udeets={}
         self._shorthands={}
@@ -124,6 +119,9 @@ class Normalizer():
                         raise e
 
     def get_scaled(self, df, column, normalizer):
+        if column not in self._udeets[normalizer]:
+            logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
+            return df[column]
         ntype=self._udeets[normalizer][column]['type']
         scale=self._udeets[normalizer][column]['units_scale_factor']
         column=df[column]
@@ -131,12 +129,20 @@ class Normalizer():
         return (column/normalizer if ntype=='/' else column*normalizer)*scale
 
     def shorthand(self, column, normalizer):
-        t={'/':'/','*':''}[self._udeets[normalizer][column]['type']]
+        if column not in self._udeets[normalizer]:
+            #logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
+            return ""
+        t={'/':'/','*':r'\cdot '}[self._udeets[normalizer][column]['type']]
         sh=self._shorthands[normalizer]
         return f"{t}{sh}" if sh!="" else ""
 
     def formatted_endunits(self, column, normalizer):
-        eu=self._udeets[normalizer][column]['end_units']
+        if column not in self._udeets[normalizer]:
+            #logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
+            return ""
+        eu=self._udeets[normalizer][column]['end_units']\
+            .replace("*",r'$\cdot$').replace("ohm",r"$\Omega$")\
+            .replace("u",r"$\mu$").replace("$$","")
         return eu
 
     def normalizer_columns(self):
@@ -170,3 +176,25 @@ def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None):
         return pd.concat(subtabs)
     else:
         return pd.DataFrame({k:[] for k in [x]+ys+bystanders})
+
+
+def VTCC(I, V, icc, itol=1e-14):
+    logI=np.log(np.abs(I)+itol)
+    logicc=np.log(icc)
+
+    ind_aboves=np.argmax(logI>logicc, axis=1)
+    ind_belows=logI.shape[1]-np.argmax(logI[:,::-1]<logicc, axis=1)-1
+    valid_crossing=(ind_aboves==(ind_belows+1))
+
+    allinds=np.arange(len(I))
+    lI1,lI2=logI[allinds,ind_belows],logI[allinds,ind_aboves]
+    V1,V2=V[allinds,ind_belows],V[allinds,ind_aboves]
+
+    slope=(lI2-lI1)/(V2-V1)
+    Vavg=(V1+V2)/2
+    lIavg=(lI1+lI2)/2
+
+    VTcc=Vavg+(logicc-lIavg)/slope
+    VTcc[~valid_crossing]=np.NaN
+
+    return VTcc

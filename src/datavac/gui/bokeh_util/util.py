@@ -34,8 +34,8 @@ def smaller_legend(fig):
     fig.legend.label_text_line_height=10
     fig.legend.glyph_height=10
 
-def make_color_col(factor_col):
-    factors=list(sorted(factor_col.unique()))
+def make_color_col(factor_col,all_factors=None):
+    factors=list(sorted(factor_col.unique())) if all_factors is None else all_factors
     return factor_col \
         .map(dict(zip(factors,get_sam_palette(len(factors))))) \
         .astype('string')

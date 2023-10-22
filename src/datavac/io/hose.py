@@ -71,7 +71,11 @@ class DBHose(Hose):
         if columns=='*':
             columns=list(dtypes.keys())
             #raise NotImplementedError()
-        stmt=select(*[getattr(tab.c,p) for p in columns])
+        try:
+            stmt=select(*[getattr(tab.c,p) for p in columns])
+        except:
+            logger.debug(f"Problem creating query for {columns}, probably one of them isn't in the table.")
+            raise
         if distinct:
             assert len(columns)==1
             stmt=stmt.distinct()
