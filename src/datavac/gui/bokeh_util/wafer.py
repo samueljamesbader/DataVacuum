@@ -50,18 +50,18 @@ class Waferplot(ReloadableDataModel):
         if type(cmap) in [tuple,str]:
             cmap_kwargs['low']=cmap_kwargs['low'] if 'low' in cmap_kwargs else np.nanmin([x for x in self.source.data[color] if x is not None])
             cmap_kwargs['high']=cmap_kwargs['high'] if 'high' in cmap_kwargs else np.nanmax([x for x in self.source.data[color] if x is not None])
-            cmap_transform=transmap(palette=cmap,**cmap_kwargs)
+            cmap_transform=transmap(palette=cmap,**cmap_kwargs,name='cmap_transform')
             cmapped_field=composite_transform(color,*[t for t in [pre_transform,cmap_transform] if t is not None])
             #cmapped_field=transmap(color,getattr(bokeh.palettes,cmap),**cmap_kwargs)
         if type(cmap)==list:
             assert not pre_transform
             cmap_kwargs['low']=cmap_kwargs['low'] if 'low' in cmap_kwargs else np.nanmin([x for x in self.source.data[color] if x is not None])
             cmap_kwargs['high']=cmap_kwargs['high'] if 'high' in cmap_kwargs else np.nanmax([x for x in self.source.data[color] if x is not None])
-            cmap_transform=transmap(palette=cmap,**cmap_kwargs)
+            cmap_transform=transmap(palette=cmap,**cmap_kwargs,name='cmap_transform')
             cmapped_field=transform(color,cmap_transform)
         elif type(cmap)==dict:
             categorical_transform=CategoricalColorMapper(
-                palette=list(cmap.values()),factors=list(cmap.keys()),**cmap_kwargs)
+                palette=list(cmap.values()),factors=list(cmap.keys()),**cmap_kwargs,name='cmap_transform')
             cmapped_field=transform(color,compose_transforms(pre_transform,categorical_transform))
 
         TOOLTIPS = [

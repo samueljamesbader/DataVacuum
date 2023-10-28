@@ -90,6 +90,7 @@ class Database:
                 sa_table=Table(table_name,metadata,Column('MeasIndex',Integer,primary_key=True),*self.to_alchemy_columns(table))
                 if sqlalchemy.inspect(engine).has_table(table_name):
                     logger.debug(f"Table '{table_name}' exists, deleting and recreating")
+                    self.get_alchemy_table.cache_clear()
                     sa_table.drop(conn)
                 sa_table.create(conn)
 
@@ -126,6 +127,9 @@ class Database:
                     if allow_delete_table is False:
                         raise Exception("Your data has a different set of columns than existing data" \
                                         " so it can't be uploaded!  Please alert Sam.")
+                    else:
+                        self.get_alchemy_table.cache_clear()
+                        #raise Exception("Something seems to go wrong for the first wafer of a new one... please slow down and debug here next time")
                     logger.warning(f"Table {table_name} has wrong columns, deleting it all")
                     self.make_summary_tables_from_proto(source_name, analysis_name, {meas_group:table}, only_meas_groups=[meas_group])
 

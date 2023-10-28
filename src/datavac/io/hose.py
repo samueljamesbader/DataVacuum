@@ -62,6 +62,22 @@ class DBHose(Hose):
             res=conn.execute(text(f"SELECT DISTINCT \"LotWafer\" from \"{table_name}\""))
             return sorted(set([x[0].split("_")[0] for x in res]),reverse=True)
 
+    def get_all_factors(self,meas_group,parameters,**where):
+
+        assert os.environ["DATAVACUUM_DB_DRIVERNAME"]=='postgresql',\
+            "Getting all factors at once is only supported by Postgresql"
+        table_name=f'{self.source_name}--{self.analysis_name}--{meas_group}--Summary'
+        tab=self._database.get_alchemy_table(table_name)
+        dtypes=self._database.dtypes_from_alchemy_table(tab)
+        from sqlalchemy.sql import union
+        u=union(*[select(*[getattr(tab.c,p_) for p_ in parameters]).distinct(p) for p in parameters])
+        u.compile()
+        with self._database.get_engine().begin() as conn:
+            conn.execute()
+
+
+
+
     def get_where(self,meas_group,columns,distinct=False,**where)->pd.DataFrame:
         #import pdb; pdb.set_trace()
         table_name=f'{self.source_name}--{self.analysis_name}--{meas_group}--Summary'
@@ -80,7 +96,7 @@ class DBHose(Hose):
             assert len(columns)==1
             stmt=stmt.distinct()
         for param,factor_list in where.items():
-            if factor_list and len(factor_list):
+            if factor_list:# and len(factor_list):
                 stmt=stmt.where(getattr(tab.c,param).in_(factor_list))
         import time
         def do_the_getting(conn):

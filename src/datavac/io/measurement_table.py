@@ -216,6 +216,7 @@ class UniformMeasurementTable(MeasurementTable):
         return UniformMeasurementTable(pd.DataFrame(raw_data),list(raw_data.keys()),None,
                                        meas_group,len(next(iter(raw_data.values()))))
 
+
 class MultiUniformMeasurementTable(MeasurementTable):
     def __init__(self,umts: list[UniformMeasurementTable]):
         super().__init__(headers=list(set([h for umt in umts for h in umt.headers])),

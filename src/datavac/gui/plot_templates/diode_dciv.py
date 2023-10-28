@@ -22,7 +22,7 @@ class StandardDiodeDCPlotter(AllAroundFilterPlotter):
     def get_raw_column_names(self):
         return [['V','I']]
 
-    def update_sources(self, pre_sources):
+    def update_sources(self, pre_sources, event=None):
 
         # If no data to work with yet, make an empty prototype for figure creation
         if pre_sources is None:

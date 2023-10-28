@@ -126,7 +126,10 @@ class Normalizer():
         scale=self._udeets[normalizer][column]['units_scale_factor']
         column=df[column]
         normalizer=df[normalizer] if normalizer!='None' else 1
-        return (column/normalizer if ntype=='/' else column*normalizer)*scale
+        res= (column/normalizer if ntype=='/' else column*normalizer)*scale
+        if hasattr(res,'to_numpy'):
+            res=res.to_numpy()
+        return res
 
     def shorthand(self, column, normalizer):
         if column not in self._udeets[normalizer]:
@@ -142,7 +145,8 @@ class Normalizer():
             return ""
         eu=self._udeets[normalizer][column]['end_units']\
             .replace("*",r'$\cdot$').replace("ohm",r"$\Omega$")\
-            .replace("u",r"$\mu$").replace("$$","")
+            .replace("u",r"$\mu$").replace("$$","")\
+            .replace("^2",r"$^2$")
         return eu
 
     def normalizer_columns(self):

@@ -4,17 +4,17 @@ import panel as pn
 from bokeh.models import ColumnDataSource
 
 from bokeh_transform_utils.transforms import multi_abs_transform
-from datavac.examples.filter_plotter_layout import AllAroundFilterPlotter
 import param as hvparam
 
 from bokeh.plotting import figure
 
 from datavac.gui.bokeh_util.util import make_color_col, smaller_legend
+from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.logging import logger
 from datavac.util import stack_sweeps
 
 
-class StandardIdVgPlotter(AllAroundFilterPlotter):
+class StandardIdVgPlotter(FilterPlotter):
 
     # Whether plotting nMOS or pMOS
     pol=hvparam.Selector(objects=['p','n'])
@@ -49,7 +49,7 @@ class StandardIdVgPlotter(AllAroundFilterPlotter):
         else:
             stacked_data[f'GM']=[]
 
-    def update_sources(self, pre_sources):
+    def update_sources(self, pre_sources, event=None):
 
         # If no data to work with yet, make an empty prototype for figure creation
         if pre_sources is None:

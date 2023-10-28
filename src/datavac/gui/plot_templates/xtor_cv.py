@@ -3,17 +3,17 @@ import bokeh.layouts
 import panel as pn
 from bokeh.models import ColumnDataSource
 
-from datavac.examples.filter_plotter_layout import AllAroundFilterPlotter
 import param as hvparam
 
 from bokeh.plotting import figure
 
 from datavac.gui.bokeh_util.util import make_color_col, smaller_legend
+from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.logging import logger
 from datavac.util import stack_sweeps
 
 
-class StandardCVPlotter(AllAroundFilterPlotter):
+class StandardCVPlotter(FilterPlotter):
 
     # View settings
     sweep_dirs=hvparam.ListSelector(default=['f'],objects=['f','r'])
@@ -42,7 +42,7 @@ class StandardCVPlotter(AllAroundFilterPlotter):
     def get_scalar_column_names(self):
         return [super().get_scalar_column_names()[0]+[k for k in self.param.shift_by.objects if k!='None']]
 
-    def update_sources(self, pre_sources):
+    def update_sources(self, pre_sources, event=None):
 
         # If no data to work with yet, make an empty prototype for figure creation
         if pre_sources is None:
@@ -68,10 +68,13 @@ class StandardCVPlotter(AllAroundFilterPlotter):
             cv['MeasLength']=[len(a) for a in cv['Cp']]
             cv=cv[cv['MeasLength']>0]
 
-
             f=cv['freq'].map(self._freqstrs_to_freqfloats)
             if len(cv):
-                theta=(180/np.pi)*np.arctan2(2*np.pi*f.to_numpy()*np.vstack(cv['Cp']).T,np.vstack(cv['G']).T).T
+                skip_theta=any(list(cv['MeasLength'].to_numpy()!=cv['MeasLength'].iloc[0]))
+                if skip_theta:
+                    theta=cv['VG']*np.NaN
+                else:
+                    theta=(180/np.pi)*np.arctan2(2*np.pi*f.to_numpy()*np.vstack(cv['Cp']).T,np.vstack(cv['G']).T).T
             else:
                 theta=[]
 
@@ -93,13 +96,13 @@ class StandardCVPlotter(AllAroundFilterPlotter):
             end_units_c=self._normalizer.formatted_endunits('Cp',self.norm_by)
             self._sources['ylabels']={
                 'C':fr'$$C{divstr}\text{{ [{end_units_c}]}}$$',
-                'G':fr'$$Phase angle\text{{ [$^\circ$]}}$$'
+                'G':fr'$$\text{{Phase angle}}\text{{ [$^\circ$]}}$$'
             }
 
-        print("Updated sources")
+        #print("Updated sources")
         #import pdb; pdb.set_trace()
-        print(self._sources['curves'].data)
-        print(self._sources['ylabels'])
+        #print(self._sources['curves'].data)
+        #print(self._sources['ylabels'])
 
 
     @pn.depends('_need_to_recreate_figure')
@@ -116,6 +119,7 @@ class StandardCVPlotter(AllAroundFilterPlotter):
         figG.xaxis.axis_label="$$V_G\\text{ [V]}$$"
         figG.add_layout((bokeh.models.Span(location=100,dimension='width',line_color='black',line_width=.5,line_dash='dashed')))
         figG.add_layout((bokeh.models.Span(location= 80,dimension='width',line_color='black',line_width=.5,line_dash='dashed')))
+        figG.legend.location='bottom_center'
 
         for fig in [figC,figG]: smaller_legend(fig)
         return bokeh.layouts.gridplot([[figC,figG]],toolbar_location='right')

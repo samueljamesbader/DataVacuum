@@ -65,7 +65,7 @@ def read_velox_wafermap(file,mask,read_sites=True):
         centerdiey=np.median(dietable['DieY'])
         x=dietable['DieX']-centerdiex
         y=dietable['DieY']-centerdiey
-    if (origin,wafertestangle)==('UL',0): # Just because of mistake on D121EL3B w507... not validated
+    if (origin,wafertestangle)==('UL',0): # ... not validated
         logger.warning(f"Origin {origin}, WaferTestAngle {wafertestangle} has not been validated")
         dietable=pd.DataFrame({'DieX':[die[0] for die in dies],'DieY':[die[1] for die in dies]})
         centerdiex=np.median(dietable['DieX'])
@@ -103,6 +103,8 @@ def read_velox_wafermap(file,mask,read_sites=True):
     check_dtypes(dietable)
     return {'sites':sites,'dietable':dietable,'mask':mask,'name':file.name}
 
+# TODO: the names in this class are confusing and non-standard, and the caching is done at instance level as remnant
+# from when it was PROJECT-based
 class DieMapBook:
     DIEMAP_DIR=Path(os.environ['DATAVACUUM_DIEMAP_DIR'])
     def __init__(self):
