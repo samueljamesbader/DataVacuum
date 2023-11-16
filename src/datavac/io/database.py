@@ -39,8 +39,11 @@ class Database:
                         database=connection_info['Database'],
                     )
                     # For synchronous
-                    ssl_args = {'sslmode':'verify-full',
-                                'sslrootcert': str(self.CERT_DIR/'IntelSHA256RootCA-Base64.crt')}
+                    if connection_info['Server']=='localhost':
+                        ssl_args={}
+                    else:
+                        ssl_args = {'sslmode':'verify-full',
+                                    'sslrootcert': str(self.CERT_DIR/'IntelSHA256RootCA-Base64.crt')}
                     self._sync_engine=create_engine(url, connect_args=ssl_args, pool_recycle=60)
                 elif self._drivername=='sqlite':
                     folder:Path=Path(os.environ['DATAVACUUM_CACHE_DIR'])/"db"
@@ -166,7 +169,11 @@ class Database:
     def _fast_postgresql_upload(self,table_name,table,lot,wafer):
             connection=self.get_engine().connect()
             try:
-                connection.execute(text(f'DELETE from "{table_name}" WHERE "LotWafer"=:lotwafer'),{'lotwafer':f"{lot}_{wafer}"})
+                if lot is not None and wafer is not None:
+                    connection.execute(text(f'DELETE from "{table_name}" WHERE "LotWafer"=:lotwafer'),
+                                       {'lotwafer':f"{lot}_{wafer}"})
+
+                # Ge the underlying DB-API connection because this is postgresql-specific
                 conn=connection.connection
 
                 #stream the data using 'to_csv' and StringIO()
@@ -203,10 +210,10 @@ class Database:
             self._alchemy_table_cache[table_name]=tab
             return tab
 
-    def make_DSN(self,rootcertfile):
+    def make_DSN(self,rootcertfile,dsnfile_override=None):
         connection_info=dict([[s.strip() for s in x.split("=")] for x in
                               os.environ['DATAVACUUM_DBSTRING'].split(";")])
-        escrootfile=str(rootcertfile).replace('\\','\\\\')
+        if rootcertfile: escrootfile=str(rootcertfile).replace('\\','\\\\')
         string=\
             f"""
             [ODBC]
@@ -216,7 +223,7 @@ class Database:
             FetchRefcursors=0
             OptionalErrors=0
             D6=-101
-            pqopt={{sslrootcert={escrootfile}}}
+            {f'pqopt={{sslrootcert={escrootfile}}}' if connection_info['Server']!='localhost' else ''}
             LowerCaseIdentifier=0
             UseServerSidePrepare=1
             ByteaAsLongVarBinary=1
@@ -242,12 +249,46 @@ class Database:
             FakeOidIndex=0
             Protocol=7.4
             ReadOnly=0
-            SSLmode=verify-full
+            {f'SSLmode=verify-full' if connection_info['Server']!='localhost' else ''}
             PORT={connection_info['Port']}
             SERVER={connection_info['Server']}
             DATABASE={connection_info['Database']}
             """
-        dsnfile=self.CERT_DIR/f"datavacuum_database.dsn"
+        dsnfile=self.CERT_DIR/f"datavacuum_database.dsn" if dsnfile_override is None else dsnfile_override
         with open(dsnfile,'w') as f:
             f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
         return dsnfile
+
+    def make_JMPstart(self,rootcertfile,jslfile_override=None):
+        connection_info=dict([[s.strip() for s in x.split("=")] for x in
+                              os.environ['DATAVACUUM_DBSTRING'].split(";")])
+        if rootcertfile: escrootfile=str(rootcertfile).replace('\\','\\\\')
+        string=\
+            f"""
+            New SQL Query(
+                Connection(
+                    "ODBC:DRIVER={{PostgreSQL Unicode(x64)}};
+                    DATABASE={connection_info['Database']};
+                    SERVER={connection_info['Server']};
+                    PORT={connection_info['Port']};
+                    UID={connection_info['Uid']};
+                    PWD={connection_info['Password']};
+                    {'SSLmode=verify-full;' if connection_info['Server']!='localhost' else ''}
+                    ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;
+                    ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;
+                    Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;
+                    Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;
+                    UseServerSidePrepare=1;LowerCaseIdentifier=0;
+                    {f'pqopt={{sslrootcert={escrootfile}}};' if connection_info['Server']!='localhost' else '' }
+                    D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;"
+                ),
+                QueryName( "test_query" ),
+                CustomSQL("Select * from information_schema.tables;"),
+                PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
+                ) << Run;
+                Print("Wait five seconds and check the connections.");
+            """
+        jslfile=self.CERT_DIR/f"datavacuum_database.dsn" if jslfile_override is None else jslfile_override
+        with open(jslfile,'w') as f:
+            f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
+        return jslfile

@@ -34,12 +34,15 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
     def get_page(self) -> BasicTemplate:
         self.page.sidebar.append(pn.panel("## Lot pre-filter"))
         self.page.sidebar.append(self.lots_preselector)
+        self.page.sidebar.append(pn.HSpacer(height=20))
+        self.page.sidebar.append(pn.widgets.FileDownload(callback=self._download_callback,filename=f'{self.title} Download.csv',label='Download shown'))
         self.page.sidebar_width=220
 
         tabs=[]
         for name, pltr in self._plotters.items():
             tabs.append((name, pltr))
-        self.page.main.append(pn.Tabs(*tabs))
+        self._tabs=pn.Tabs(*tabs)
+        self.page.main.append(self._tabs)
         self.page.main.sizing_mode='fixed'
         return self.page
 
@@ -54,3 +57,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
                     w1=widgets[0]
                     for w2 in widgets[1:]:
                         w1.jslink(w2,value='value',bidirectional=True)
+
+    def _download_callback(self):
+        active_plotter=list(self._plotters.values())[self._tabs.active]
+        return active_plotter.download_shown()

@@ -1,4 +1,5 @@
 from enum import Enum
+from io import StringIO
 from typing import Union, Any
 
 import bokeh
@@ -234,6 +235,28 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         logger.debug(f"Updating sources and figures because: {event.name}")
         self.update_sources(self._pre_sources)
         self.polish_figures()
+
+    def download_shown(self):
+        # TODO: assumes data is in _pre_sources['curves'] which is correct for the example curve plotters but not
+        # TODO: eg for the scalar plotters. Should probably have a curve plotter subclass to catch this.
+        data=self._pre_sources[0]
+        rcs=self.get_raw_column_names()[0]
+        scs=self.get_scalar_column_names()[0]
+
+        sio=StringIO()
+        #import pdb; pdb.set_trace()
+        for i,vecs in enumerate(zip(*[data[rc] for rc in rcs])):
+            sio.write(",".join(scs)+"\n")
+            sio.write(",".join([str(data[sc][i]) for sc in scs])+"\n")
+            sio.write(",".join(rcs)+"\n")
+            for vals in zip(*vecs):
+                sio.write(",".join([str(v) for v in vals])+"\n")
+            sio.write("\n")
+
+        sio.seek(0)
+        return sio
+
+
 
 
 class ScalarFilterPlotter(FilterPlotter):

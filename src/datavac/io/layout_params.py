@@ -126,8 +126,11 @@ class LayoutParameters:
                             if _mask==mask and re.match(catregex,cat):
                                 self._tables_by_meas[meas_key]=\
                                     self._tables_by_meas[meas_key].combine_first(self._cat_tables[(mask,cat)])
-                        for altname in by_meas_group[meas_key]['names']:
-                            self._tables_by_meas[altname]=self._tables_by_meas[meas_key]
+            if 'names' in by_meas_group[meas_key]:
+                tab_to_rename=self._tables_by_meas[meas_key]
+                del self._tables_by_meas[meas_key]
+                for altname in by_meas_group[meas_key]['names']:
+                    self._tables_by_meas[altname]=tab_to_rename
 
         logger.info("Saving cache")
         with open(self.CACHED_PATH,'wb') as f:

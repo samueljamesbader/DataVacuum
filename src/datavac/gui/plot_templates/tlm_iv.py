@@ -13,7 +13,7 @@ from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.logging import logger
 
 
-class StandardDiodeDCPlotter(FilterPlotter):
+class StandardTLMIVPlotter(FilterPlotter):
 
     # View settings
     sweep_dirs=hvparam.ListSelector(default=['f'],objects=['f'])
@@ -54,7 +54,6 @@ class StandardDiodeDCPlotter(FilterPlotter):
             divstr=self._normalizer.shorthand('I',self.norm_by)
             end_units_i=self._normalizer.formatted_endunits('I',self.norm_by)
             self._sources['ylabels']={
-                'ilog':fr'$$I{divstr}\text{{ [{end_units_i}]}}$$',
                 'ilin':fr'$$I{divstr}\text{{ [{end_units_i}]}}$$',
             }
 
@@ -69,22 +68,18 @@ class StandardDiodeDCPlotter(FilterPlotter):
         logger.debug("Creating figure")
         source=self._sources['curves']
 
-        figlog = self._figlog = figure(y_axis_type='log',width=250,height=300)
-        figlog.multi_line(xs='V',ys=multi_abs_transform('I'),source=source,legend_field='legend',color='color')
-        figlog.multi_line(xs='V',ys=multi_abs_transform('I'),source=source,line_dash='dashed',color='color')
-        figlog.xaxis.axis_label="$$V\\text{ [V]}$$"
-
-        figlin = self._figlin = figure(y_axis_type='linear',width=250,height=300)
+        figlin = self._figlin = figure(y_axis_type='linear',width=350,height=300)
         figlin.multi_line(xs='V',ys='I',source=source,legend_field='legend',color='color')
         figlin.multi_line(xs='V',ys='I',source=source,line_dash='dashed',color='color')
         figlin.xaxis.axis_label="$$V\\text{ [V]}$$"
 
-        for fig in [figlog,figlin]: smaller_legend(fig)
-        return bokeh.layouts.gridplot([[figlog,figlin]],toolbar_location='right')
+        figrvs = self._figrvs = figure(y_axis_type='linear',width=350,height=300)
+
+        for fig in [figlin]: smaller_legend(fig)
+        return bokeh.layouts.gridplot([[figlin]],toolbar_location='right')
 
     def polish_figures(self):
         if (ylabels:=self._sources['ylabels']) is not None:
-            self._figlog.yaxis.axis_label=ylabels['ilog']
             self._figlin.yaxis.axis_label=ylabels['ilin']
 
 
