@@ -45,7 +45,8 @@ def VTCC(I, V, icc, itol=1e-14):
     Vavg=(V1+V2)/2
     lIavg=(lI1+lI2)/2
 
-    VTcc=Vavg+(logicc-lIavg)/slope
+    VTcc=np.empty_like(Vavg)
+    VTcc[valid_crossing]=Vavg[valid_crossing]+(logicc-lIavg[valid_crossing])/slope[valid_crossing]
     VTcc[~valid_crossing]=np.NaN
 
     return VTcc
