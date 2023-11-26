@@ -7,7 +7,6 @@ import h5py
 
 from datavac.io.measurement_table import MeasurementTable, MultiUniformMeasurementTable
 from datavac.io.securepkl import SecurePkl
-from datavac.io.database import Database
 from datavac.logging import logger
 import pandas as pd
 
@@ -53,6 +52,7 @@ class Hose:
 class DBHose(Hose):
     def __init__(self, source_name:str, analysis_name:str):
         super().__init__(source_name=source_name, analysis_name=analysis_name)
+        from datavac.io.database import Database
         self._database=Database()
 
     def get_lots(self,meas_group):

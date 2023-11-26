@@ -5,18 +5,18 @@ from datavac.gui.panel_util.filter_plotter import FilterPlotter
 
 def make_allaround_layout(filter_widgets, view_widgets, figure_pane):
     top_filter_widgets={k:v for k,v in filter_widgets.items()\
-                        if k not in ['Structure','LotWafer','DieLB','FileName']}
+                        if k not in ['Structure','LotWafer','DieXY','FileName']}
     side_filter_widgets={k:v for k,v in filter_widgets.items() \
-                        if k in ['Structure','LotWafer','DieLB']}
+                        if k in ['Structure','LotWafer','DieXY']}
     bottom_filter_widgets={k:v for k,v in filter_widgets.items() \
                          if k in ['FileName']}
     side_filter_widgets['LotWafer'].sizing_mode='stretch_height'
     side_filter_widgets['LotWafer'].width=140
-    side_filter_widgets['DieLB'].sizing_mode='stretch_height'
-    side_filter_widgets['DieLB'].width=80
+    side_filter_widgets['DieXY'].sizing_mode='stretch_height'
+    side_filter_widgets['DieXY'].width=80
     side=pn.Column(
         side_filter_widgets['Structure'],
-        pn.Row(side_filter_widgets['LotWafer'],side_filter_widgets['DieLB']),
+        pn.Row(side_filter_widgets['LotWafer'],side_filter_widgets['DieXY']),
         width=250, height=300
     )
     top_row=pn.Row(*top_filter_widgets.values(),

@@ -22,10 +22,12 @@ def set_level(level):
     _ch.setLevel(level)
 
 @contextmanager
-def time_it(message):
+def time_it(message, threshold_time=0):
     start_time=time.time()
     yield
-    logger.debug(f"{message} took {time.time()-start_time:.5g}s")
+    took_time=time.time()-start_time
+    if took_time>threshold_time:
+        logger.debug(f"{message} took {took_time:.5g}s")
 
 #@contextmanager
 #def log_context(message,level=logging.DEBUG):

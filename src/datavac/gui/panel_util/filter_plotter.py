@@ -18,6 +18,7 @@ from datavac.gui.bokeh_util import palettes
 from datavac.gui.bokeh_util.util import make_serializable, make_color_col, smaller_legend
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
+from datavac.io.database import get_database
 from datavac.io.hose import Hose
 from datavac.logging import logger
 from datavac.util import Normalizer
@@ -53,7 +54,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def __init__(self, hose:Hose=None, *args, **kwargs):
         super().__init__(*args,**kwargs)
         self._pre_filters:dict[str,Any]={}
-        self.set_hose(hose)
+        self.database=get_database()
 
         self._filter_param_widgets = self._make_filter_params(self.filter_settings)
         self._view_param_widgets = self._make_view_params({k:None for k in self._built_in_view_settings})
@@ -111,9 +112,6 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         fig.line(x=[1,2,3],y=[1,2,3])
         return fig
 
-    def set_hose(self,hose:Hose):
-        self._hose=hose
-
     def add_prefilters(self, pre_filters, prefilter_measgroup):
         assert self._prefilter_measgroup is None or self._prefilter_measgroup == prefilter_measgroup
         self._prefilter_measgroup=prefilter_measgroup
@@ -138,14 +136,13 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                 pre_filter_params[k]=item.value if item.value != [] else ['None']
 
         logger.debug(f"Pre-filter params: {pre_filter_params}")
+        all_factors=self.database.get_factors(self._prefilter_measgroup,list(self.filter_settings),pre_filters=pre_filter_params)
         # Get the factors of pre_filtered data
         with hvparam.parameterized.batch_call_watchers(self):
             for param in self.filter_settings:
                 logger.debug(f"Update factors for {param}")
-                all_factors=self._hose.get_factors(
-                    self._prefilter_measgroup, param, **pre_filter_params)
-                factors=[f for f in all_factors if f==f]
-                if len(factors)!=len(all_factors):
+                factors=sorted([f for f in all_factors[param] if f==f])
+                if len(factors)!=len(all_factors[param]):
                     logger.debug(f"Excluding {[f for f in factors if f!=f]} from factors for {param}")
                 getattr(self.param,param).objects=factors
                 #if not(len(factors)):
@@ -176,6 +173,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def _update_data(self):
         logger.info(f"Update data for {type(self).__name__}")
         factors={param:getattr(self,param) for param in self.filter_settings}
+        factors={k:v for k,v in factors.items() if ((v is not None) and len(v))}
         factors.update({param:w.value for param,w in self._pre_filters.items()})
         factors={k:v for k,v in factors.items() if v is not None}
         self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by='None'))
@@ -197,8 +195,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             logger.info("Skipping DB call and return empty data because some factor is [].")
             return [pd.DataFrame({k:[] for k in scs+rcs}) for scs,rcs in zip(scalar_columns,raw_columns)]
         logger.info(f"About to ask hose with {factors}, scalar: {scalar_columns}, raw: {raw_columns}")
-        data: list[DataFrame] = [self._hose.get_data(meas_group,
-                                                     scalar_columns=sc, raw_columns=rc, on_missing_column='none',
+        data: list[DataFrame] = [self.database.get_data(meas_group,
+                                                     scalar_columns=sc, include_sweeps=rc,
+                                                     unstack_headers=True,
                                                      **factors)
                                  for sc, rc, meas_group
                                  in zip(scalar_columns, raw_columns, self.get_meas_groups())]
@@ -217,7 +216,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             d=make_serializable(pred)
             for c in rc:
                 if c not in d:
-                    d[c]=[np.array([])]*len(data)
+                    d[c]=[np.array([])]*len(d)
                 d[c]=d[c].map(np.asarray)
                 try:
                     d.loc[:,c]=d[c].where(~pd.isna(d[c]),pd.Series([np.array([])]*len(d),dtype='object'))
@@ -460,7 +459,7 @@ class WafermapFilterPlotter(FilterPlotter):
             # Could still make use of current class if every plot pair is within a table, but haven't implemented that yet
             raise NotImplementedError
 
-        dict_to_df=lambda dct: make_serializable(pd.DataFrame(dct).set_index('DieLB'))
+        dict_to_df=lambda dct: make_serializable(pd.DataFrame(dct).set_index('DieXY'))
 
         # If no data to work with yet, make an empty prototype for figure creation
         if pre_sources is None:
@@ -472,7 +471,7 @@ class WafermapFilterPlotter(FilterPlotter):
 
             # Empty prototype
             for m,pp in self._meas_group_to_plot_vars.items():
-                self._sources[m].data=Waferplot.make_source_dict_from_pre_source(dict_to_df(dict(**{p:[] for p in pp},**{'DieLB':[]})),self.wmap,fields=None)
+                self._sources[m].data=Waferplot.make_source_dict_from_pre_source(dict_to_df(dict(**{p:[] for p in pp},**{'DieXY':[]})),self.wmap,fields=None)
             self._sources['labels']=None
 
         # Otherwise, analyze the real data
@@ -484,7 +483,7 @@ class WafermapFilterPlotter(FilterPlotter):
                         **{
                             p:self._normalizer.get_scaled(pre_sources[mi],p,self.norm_by)
                             for p in pp
-                        },**{'DieLB':pre_sources[mi]['DieLB']})),
+                        },**{'DieXY':pre_sources[mi]['DieXY']})),
                     self.wmap,fields=None)
             self._sources['labels']={}
             for p in self._plot_var_to_meas_group:

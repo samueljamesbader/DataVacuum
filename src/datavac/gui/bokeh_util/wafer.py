@@ -65,7 +65,7 @@ class Waferplot(ReloadableDataModel):
             cmapped_field=transform(color,compose_transforms(pre_transform,categorical_transform))
 
         TOOLTIPS = [
-            ("", "@DieLB"),
+            ("", "@DieXY"),
         ]
         self.fig:figure = fig
         if self.fig is None:
@@ -83,7 +83,7 @@ class Waferplot(ReloadableDataModel):
         console.log(self);
         console.log("Still in tap");
         if (self.source.selected.indices.length){
-            self.selected_dielb=self.source.data['DieLB'][self.source.selected.indices[0]];
+            self.selected_dielb=self.source.data['DieXY'][self.source.selected.indices[0]];
             self.source.selected.indices=[];
         }
         else {
@@ -102,11 +102,12 @@ class Waferplot(ReloadableDataModel):
             color_bar = ColorBar(color_mapper=cmap_transform, width=10, label_standoff=2)
             self.fig.add_layout(color_bar,'right')
 
+        print(self.source.data.keys())
         self._inv_label=bokeh.models.Label(x=0,y=0,text='Duplicate Selection',angle=45,angle_units='deg',
                                            text_align='center',text_color='white',background_fill_color='black',
-                                           visible=(len(self.source.data['DieLB'])!=len(set(self.source.data['DieLB']))))
+                                           visible=(len(self.source.data['DieXY'])!=len(set(self.source.data['DieXY']))))
         self.source.js_on_change('data',bokeh.models.CustomJS(args={'inv_label':self._inv_label},
-                  code="""inv_label.visible=!((new Set(cb_obj.data['DieLB'])).size==cb_obj.data['DieLB'].length);"""))
+                  code="""inv_label.visible=!((new Set(cb_obj.data['DieXY'])).size==cb_obj.data['DieXY'].length);"""))
         self.fig.add_layout(self._inv_label)
 
     @staticmethod
@@ -115,7 +116,7 @@ class Waferplot(ReloadableDataModel):
             pre_source=diemap['patch_table'].copy()
             for field in fields:
                 pre_source[field]=np.asarray([np.NaN] * len(pre_source), dtype='object')
-            #pre_source["DieLB"]=''
+            #pre_source["DieXY"]=''
             return ColumnDataSource.from_df(pre_source)
         else:
             return ColumnDataSource.from_df(
@@ -171,7 +172,7 @@ class WaferplotGrid(ReloadableDataModel):
                 row.append(w.fig)
                 #fig.js_on_event('tap',CustomJS(args={'self':self},code="""
                 #if (self.source.selected.indices.length)
-                #    self.selected_dielb=self.source.data['DieLB'][self.source.selected.indices[0]];
+                #    self.selected_dielb=self.source.data['DieXY'][self.source.selected.indices[0]];
                 #else {
                 #    self.selected_dielb=None;
                 #    self.source.selected.indices=[];
@@ -209,7 +210,7 @@ class WaferplotGrid(ReloadableDataModel):
             for rv in self.row_values:
                 for cv in self.col_values:
                     pre_source[self._cds_col_namer(rv, cv)]=np.asarray([np.NaN] * len(pre_source), dtype='object')
-            #pre_source["DieLB"]=''
+            #pre_source["DieXY"]=''
             self.source.data= ColumnDataSource(pre_source).data.copy()
         else:
             self.source.data= ColumnDataSource(

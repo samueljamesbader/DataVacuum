@@ -9,9 +9,8 @@ from yaml import safe_load
 import importlib
 
 class Indexer():
-    def __init__(self, index_yaml_file: Path):
-        with open(index_yaml_file, 'r') as f:
-            self.categorized_applications=safe_load(f)
+    def __init__(self, categorized_applications):
+        self.categorized_applications=categorized_applications
 
         def get_app_function(appname,dotpath:str):
             def run_app():

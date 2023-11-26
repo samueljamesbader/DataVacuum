@@ -21,7 +21,7 @@ class MeasurementTable:
         self.meas_type,self.meas_group,self.headers=state
 
     @property
-    def _dataframe(self):
+    def _dataframe(self) -> pd.DataFrame:
         # Should be implemented by subclass
         raise NotImplementedError
 
@@ -219,8 +219,10 @@ class UniformMeasurementTable(MeasurementTable):
 
 class MultiUniformMeasurementTable(MeasurementTable):
     def __init__(self,umts: list[UniformMeasurementTable]):
+        meas_type=umts[0].meas_type if len(umts) else MeasurementType
+        meas_group=umts[0].meas_group if len(umts) else None
         super().__init__(headers=list(set([h for umt in umts for h in umt.headers])),
-                         meas_type=umts[0].meas_type,meas_group=umts[0].meas_group)
+                         meas_type=meas_type, meas_group=meas_group)
         self._umts=umts
         #assert all(umt.headers==self.headers for umt in self._umts)
         assert all(umt.meas_type.__class__==self.meas_type.__class__ for umt in self._umts)
@@ -274,7 +276,7 @@ class MultiUniformMeasurementTable(MeasurementTable):
 
     @property
     def _dataframe(self):
-        return pd.concat([umt._dataframe for umt in self._umts],ignore_index=True)
+        return pd.concat([umt._dataframe.assign(rawgroup=i) for i,umt in enumerate(self._umts)],ignore_index=True)
 
     @property
     def scalar_table(self):

@@ -1,5 +1,6 @@
 import os
 import re
+from importlib import import_module
 from pathlib import Path
 
 from datavac.logging import logger
@@ -57,7 +58,8 @@ class LayoutParameters:
     @classmethod
     def yaml_to_regenerate(cls,force_regenerate=False):
 
-        yaml_path= Path(os.environ["DATAVACUUM_LAYOUT_PARAMS_YAML"])
+        #yaml_path= Path(os.environ["DATAVACUUM_LAYOUT_PARAMS_YAML"])
+        yaml_path = Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"layout_params.yaml"
         cached_path=cls.CACHED_PATH
 
         cached_time:float= cached_path.stat().st_mtime if cached_path.exists() else -np.inf
@@ -126,6 +128,11 @@ class LayoutParameters:
                             if _mask==mask and re.match(catregex,cat):
                                 self._tables_by_meas[meas_key]=\
                                     self._tables_by_meas[meas_key].combine_first(self._cat_tables[(mask,cat)])
+                if (afunc_dotpaths:=by_meas_group[meas_key].get('apply',None)):
+                    for afunc_dotpath in afunc_dotpaths:
+                        afunc=getattr(import_module(afunc_dotpath.split(":")[0]),
+                                      afunc_dotpath.split(":")[1])
+                        afunc(self._tables_by_meas[meas_key])
             if 'names' in by_meas_group[meas_key]:
                 tab_to_rename=self._tables_by_meas[meas_key]
                 del self._tables_by_meas[meas_key]

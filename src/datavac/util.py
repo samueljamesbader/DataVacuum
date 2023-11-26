@@ -1,5 +1,7 @@
-import re
-import numpy as np
+import io
+import subprocess
+from importlib import import_module
+
 from collections import deque
 from time import perf_counter
 from contextlib import contextmanager
@@ -182,23 +184,29 @@ def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None):
         return pd.DataFrame({k:[] for k in [x]+ys+bystanders})
 
 
-def VTCC(I, V, icc, itol=1e-14):
-    logI=np.log(np.abs(I)+itol)
-    logicc=np.log(icc)
+def run_subprocess_with_live_output(cmd_and_args, live_output=True, cwd=None):
 
-    ind_aboves=np.argmax(logI>logicc, axis=1)
-    ind_belows=logI.shape[1]-np.argmax(logI[:,::-1]<logicc, axis=1)-1
-    valid_crossing=(ind_aboves==(ind_belows+1))
+    caught_output=io.StringIO()
+    p = subprocess.Popen(cmd_and_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
+    for line in iter(lambda : p.stdout.readline()+p.stderr.readline(), b''):
+        line=line.decode('utf-8')
+        if live_output:
+            print(line.strip())
+        caught_output.write(line)
+    p.stdout.close()
+    p.stderr.close()
+    p.wait()
+    caught_output.seek(0)
+    return caught_output.read(), p.returncode
 
-    allinds=np.arange(len(I))
-    lI1,lI2=logI[allinds,ind_belows],logI[allinds,ind_aboves]
-    V1,V2=V[allinds,ind_belows],V[allinds,ind_aboves]
+def import_modfunc(dotpath):
+    mod,func=dotpath.split(':')
+    mod=import_module(mod)
+    return getattr(mod,func)
 
-    slope=(lI2-lI1)/(V2-V1)
-    Vavg=(V1+V2)/2
-    lIavg=(lI1+lI2)/2
+@contextmanager
+def returner_context(val):
+    yield val
 
-    VTcc=Vavg+(logicc-lIavg)/slope
-    VTcc[~valid_crossing]=np.NaN
 
-    return VTcc
+
