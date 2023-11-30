@@ -4,8 +4,8 @@ import numpy as np
 from scipy.signal import savgol_filter
 
 from .measurement_type import MeasurementType
-from ..maths import VTCC
-from ..util import only
+from datavac.util.maths import VTCC
+from datavac.util.util import only
 
 
 @dataclasses.dataclass
@@ -25,10 +25,14 @@ class IdVg(MeasurementType):
     norm_column: str
     Icc: float = 1
     Iswf: float = 1e-6
+    pol: str = 'n'
 
     def __post_init__(self):
         self._norm_col_units={'mm':1e-3,'um':1e-6,'nm':1e-9} \
             [self.norm_column.split("[")[1].split("]")[0]]
+
+    def get_norm(self, measurements):
+        return np.array(measurements[self.norm_column],dtype=np.float32)*self._norm_col_units
 
     def analyze(self, measurements):
 
@@ -42,15 +46,14 @@ class IdVg(MeasurementType):
         # Numerical tol to avoid div/0
         tol=1e-14
 
-        pol=only(list(measurements['pol'].unique()),"Only one polarity allowed per measurement")
         VD_strs=[k.split("=")[-1] for k in measurements.headers if k.startswith('fID')]
-        VDsat_str=max(VD_strs,key=lambda vds:(-1 if pol=='p' else 1)*float(vds))
-        VDlin_str=min(VD_strs,key=lambda vds:(-1 if pol=='p' else 1)*float(vds))
+        VDsat_str=max(VD_strs,key=lambda vds:(-1 if self.pol=='p' else 1)*float(vds))
+        VDlin_str=min(VD_strs,key=lambda vds:(-1 if self.pol=='p' else 1)*float(vds))
         VDsat=float(VDsat_str)
         VDlin=float(VDlin_str)
         assert VDsat*VDlin>0, "Oops, VDsat and VDlin have different signs"
 
-        W=np.array(measurements[self.norm_column],dtype=np.float32)*self._norm_col_units
+        W=self.get_norm(measurements)
         VG=measurements['VG']
         IDsat=measurements[f'fID@VD={VDsat_str}'] if f'fID@VD={VDsat_str}' in measurements else VG*np.NaN
         IDlin=measurements[f'fID@VD={VDlin_str}'] if f'fID@VD={VDlin_str}' in measurements else VG*np.NaN
@@ -63,7 +66,7 @@ class IdVg(MeasurementType):
         assert VG1d[ind0]==0, "Must be an exactly 0 entry in VG, no tol for this"
         DVG=VG1d[1]-VG1d[0]
         assert np.allclose(np.diff(VG),DVG), "VG should be even spacing"
-        assert np.sign(DVG)==(-1 if pol=='p' else 1), "VG should sweep off-to-on"
+        assert np.sign(DVG)==(-1 if self.pol=='p' else 1), "VG should sweep off-to-on"
 
         gm=savgol_filter(IDsat,*gmsavgol,deriv=1)/DVG
         invswing=savgol_filter(np.log10(np.abs(IDsat.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)

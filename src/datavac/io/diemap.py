@@ -3,7 +3,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import yaml
 
 #import matplotlib.pyplot as plt
 #from matplotlib import patches
@@ -11,8 +10,9 @@ import yaml
 import pickle
 
 from datavac.io.database import get_database
-from datavac.logging import logger
-from datavac.util import check_dtypes
+from datavac.util.logging import logger
+from datavac.util.tables import check_dtypes
+
 
 def make_fullwafer_diemap(name, xindex, yindex, radius=150, notchsize=5, plot=False, save=True):
     # This was originally written with a convenient matplotlib view but matplotlib is not

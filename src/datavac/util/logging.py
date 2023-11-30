@@ -15,11 +15,19 @@ def _setup_logging():
     _ch.setFormatter(logging.Formatter('{asctime}.{msecs:03.0f}:: {message}',style='{',datefmt='%m/%d/%Y %H:%M:%S'))
     logger.addHandler(_ch)
 
-
 def set_level(level):
     if type(level) is str:
         level=getattr(logging,level.upper())
     _ch.setLevel(level)
+
+@contextmanager
+def level_context(level):
+    _level=_ch.level
+    set_level(level)
+    try:
+        yield
+    finally:
+        set_level(_level)
 
 @contextmanager
 def time_it(message, threshold_time=0):

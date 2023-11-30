@@ -3,7 +3,7 @@ import re
 from importlib import import_module
 from pathlib import Path
 
-from datavac.logging import logger
+from datavac.util.logging import logger
 import pandas as pd
 import numpy as np
 import pickle

@@ -1,6 +1,6 @@
 from enum import Enum
 from io import StringIO
-from typing import Union, Any
+from typing import Any
 
 import bokeh
 from bokeh.models import ColumnDataSource, LinearColorMapper, LogColorMapper, FactorRange
@@ -18,23 +18,33 @@ from datavac.gui.bokeh_util import palettes
 from datavac.gui.bokeh_util.util import make_serializable, make_color_col, smaller_legend
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
-from datavac.io.database import get_database
+from datavac.io.database import get_database, Database
 from datavac.io.hose import Hose
-from datavac.logging import logger
-from datavac.util import Normalizer
+from datavac.util.logging import logger
+from datavac.util.units import Normalizer
 
 
 class SelectionHint(Enum):
     FIRST=1
 
 def make_default_layout(filter_widgets, view_widgets, figure_pane):
-    top_row=pn.Row(*filter_widgets.values(),sizing_mode='stretch_width',height=125)
-    main_row=pn.Row(figure_pane,pn.Column(*view_widgets.values(),sizing_mode='stretch_height'),sizing_mode='stretch_width')
-    return pn.Column(top_row,pn.HSpacer(height=10),main_row,sizing_mode='stretch_both')
+    top_widgets= {k:v for k,v in filter_widgets.items() if k.lower()!='filename'}
+    bot_widgets={k:v for k,v in filter_widgets.items() if k not in top_widgets}
+    top_row=pn.Row(*top_widgets.values(),sizing_mode='stretch_width',height=125)
+    main_row=pn.Row(figure_pane,
+                    *([pn.Column(*view_widgets.values(),sizing_mode='stretch_height')]
+                      if len(view_widgets) else []),
+                    sizing_mode='stretch_width')
+    if len(bot_widgets):
+        bot_row=pn.Row(*bot_widgets.values(),sizing_mode='stretch_width',height=125)
+    return pn.Column(top_row,pn.HSpacer(height=10),
+                     main_row,
+                     *([pn.HSpacer(height=10),bot_row] if len(bot_widgets) else []),
+                     sizing_mode='stretch_both')
 
 class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _prefilter_measgroup = None
-    _sources:list[ColumnDataSource] =None
+    _sources:dict[ColumnDataSource] =None
     _pre_sources:list[DataFrame]=None
 
     _built_in_view_settings=['color_by','norm_by']
@@ -51,16 +61,16 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
 
     layout_function = hvparam.Callable(default=make_default_layout)
 
-    def __init__(self, hose:Hose=None, *args, **kwargs):
+    def __init__(self, *args, database: Database=None, **kwargs):
         super().__init__(*args,**kwargs)
         self._pre_filters:dict[str,Any]={}
-        self.database=get_database()
+        self.database=database if database is not None else get_database()
 
         self._filter_param_widgets = self._make_filter_params(self.filter_settings)
         self._view_param_widgets = self._make_view_params({k:None for k in self._built_in_view_settings})
         self.update_sources(pre_sources=None)
 
-        self._fig=self.recreate_figures
+        self._fig=self._recreate_figures
         self._composite[:]=[self.layout_function(
                                     filter_widgets=self._filter_param_widgets,
                                     view_widgets=self._view_param_widgets,
@@ -72,13 +82,15 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                          list(self._filter_param_widgets.keys()))
         self.param.watch(self.update_sources_and_figures,list(self._view_param_widgets.keys()))
 
-        self._normalizer=Normalizer(self.normalization_details)
-        self.param.norm_by.objects=self._normalizer.norm_options
-        if self.norm_by is None: self.norm_by=self.param.norm_by.objects[0]
+        self._normalizer=Normalizer(self.normalization_details if self.normalization_details else {})
+        if 'norm_by' in self._built_in_view_settings:
+            self.param.norm_by.objects=self._normalizer.norm_options
+            if self.norm_by is None: self.norm_by=self.param.norm_by.objects[0]
 
-        if self.param.color_by.objects==[]:
-            self.param.color_by.objects=list(self.filter_settings.keys())
-        if self.color_by is None: self.color_by='LotWafer'
+        if 'color_by' in self._built_in_view_settings:
+            if self.param.color_by.objects==[]:
+                self.param.color_by.objects=list(self.filter_settings.keys())
+            if self.color_by is None: self.color_by='LotWafer'
 
     def _make_filter_params(self,filter_settings):
         return self._make_params_from_settings(filter_settings)
@@ -104,9 +116,15 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                 raise NotImplementedError
         return widgets
 
-
-    # If you make a pane out of this function, be sure to put in a "@pn.depends()"
+    # Subclasses should override recreate_figures(), not _recreate_figures()
+    # The latter only exists to make sure there's a pn.depends('_need_to_recreate_figure')
+    # (wrappers are not inherited!)
+    # If that wrapper is not there, Panel's default behavior is to call the function
+    # every single time that a parameter changes... which will make things super slow
     @pn.depends('_need_to_recreate_figure')
+    def _recreate_figures(self):
+        return self.recreate_figures()
+
     def recreate_figures(self):
         fig=figure(width=400,height=300,sizing_mode='fixed')
         fig.line(x=[1,2,3],y=[1,2,3])
@@ -136,7 +154,8 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                 pre_filter_params[k]=item.value if item.value != [] else ['None']
 
         logger.debug(f"Pre-filter params: {pre_filter_params}")
-        all_factors=self.database.get_factors(self._prefilter_measgroup,list(self.filter_settings),pre_filters=pre_filter_params)
+        all_factors=self.database.get_factors((self._prefilter_measgroup or self.meas_groups[0]),
+              list(self.filter_settings),pre_filters=pre_filter_params)
         # Get the factors of pre_filtered data
         with hvparam.parameterized.batch_call_watchers(self):
             for param in self.filter_settings:
@@ -168,6 +187,13 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.update_sources_and_figures(event)
 
     def update_sources(self,pre_sources):
+        dicts=self.make_sources_dict(pre_sources)
+        if self._sources is None:
+            self._sources={k:ColumnDataSource({}) for k in dicts}
+        for k in dicts:
+            self._sources[k].data=dicts[k]
+
+    def make_sources_dict(self,pre_sources):
         raise NotImplementedError
 
     def _update_data(self):
@@ -363,7 +389,7 @@ class ScalarFilterPlotter(FilterPlotter):
         self._sources['axis_factors']={p:list(sorted(set(list(self._sources['data'].data[str(p)])))) for p in self.categoricals}
         for p,f in self._sources['axis_factors'].items():
             if not len(f): f.append(('',)*len(p) if type(p) is not str else '')
-    @pn.depends('_need_to_recreate_figure')
+
     def recreate_figures(self):
         self._figs:list[figure]=[]
         self._catranges:dict[str,FactorRange]={}
@@ -492,7 +518,6 @@ class WafermapFilterPlotter(FilterPlotter):
                 eupart=fr"\text{{ [{eu}]}}" if eu!="" else ""
                 self._sources['labels'][p]=fr"$${self.shownames[p]}{sh}{eupart}$$"
 
-    @pn.depends('_need_to_recreate_figure')
     def recreate_figures(self):
         self._figs={}
         for p,m in self._plot_var_to_meas_group.items():
@@ -565,3 +590,28 @@ class WaferplotWithRangeControls(CompositeWidget):
         current_data=dict(self._source.data)
         #self._source.data={k:[] for k in current_data}
         self._source.data=current_data
+
+
+class QuickCurveFilterPlotter(FilterPlotter):
+
+    curves_columns: list[list[str]]
+
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self._prefilter_updated(None)
+
+    def get_raw_column_names(self):
+        return self.curves_columns
+    def get_scalar_column_names(self):
+        return [None]*len(self.meas_groups)
+
+    def make_sources_dict(self,pre_sources):
+        if pre_sources is None:
+            return {'curves':{k:[] for k in self.curves_columns[0]}}
+        else:
+            return {'curves':dict(
+                **{k:pre_sources[0][k] for k in self.curves_columns[0]},
+                **({'legend':pre_sources[0][self.color_by],
+                    'color':make_color_col(pre_sources[0][self.color_by],
+                                           all_factors=self.param[self.color_by].objects)}
+                   if self.color_by else {}))}

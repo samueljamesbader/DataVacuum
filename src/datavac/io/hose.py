@@ -7,7 +7,7 @@ import h5py
 
 from datavac.io.measurement_table import MeasurementTable, MultiUniformMeasurementTable
 from datavac.io.securepkl import SecurePkl
-from datavac.logging import logger
+from datavac.util.logging import logger
 import pandas as pd
 
 CACHE_DIR=Path(os.environ['DATAVACUUM_CACHE_DIR'])

@@ -1,5 +1,5 @@
-from panel.auth import AzureAdLoginHandler, LogoutHandler, OAuthProvider, STATE_COOKIE_NAME, decode_response_body
-from datavac.logging import logger
+from panel.auth import AzureAdLoginHandler, OAuthProvider
+from datavac.util.logging import logger
 
 # TODO: Check if any recent Panel updates provide a way to not require this anymore
 

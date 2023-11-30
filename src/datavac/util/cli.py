@@ -1,6 +1,6 @@
 import sys
 
-from datavac.util import import_modfunc
+from datavac.util.util import import_modfunc
 
 cli_funcs={
     'update_layout_params': 'datavac.io.database:cli_update_layout_params',

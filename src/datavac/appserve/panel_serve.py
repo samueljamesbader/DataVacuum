@@ -11,7 +11,7 @@ import panel.theme
 from panel.theme.material import MaterialDefaultTheme
 
 from datavac.appserve.ad_auth import monkeypatch_oauthprovider
-from datavac.logging import logger
+from datavac.util.logging import logger
 from datavac.appserve.index import Indexer
 
 

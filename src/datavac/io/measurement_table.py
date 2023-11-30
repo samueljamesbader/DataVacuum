@@ -1,10 +1,9 @@
 import numpy as np
 import pandas as pd
-import typing
 
 from datavac.io.layout_params import LayoutParameters
-from datavac.util import check_dtypes
-from datavac.logging import logger
+from datavac.util.tables import check_dtypes
+from datavac.util.logging import logger
 from datavac.measurements.measurement_type import MeasurementType
 
 class MeasurementTable:

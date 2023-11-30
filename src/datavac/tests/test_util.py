@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.stats import linregress
 
-from datavac.maths import multiy_singlex_linregress
+from datavac.util.maths import multiy_singlex_linregress
 
 
 def test_multiy_singlex_linregress():

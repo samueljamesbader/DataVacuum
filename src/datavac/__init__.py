@@ -1,8 +1,7 @@
-from dotenv import load_dotenv
-from pint import UnitRegistry
+from dotenv import load_dotenv as _load_dotenv
+
+from .util.logging import logger
 
 __version__='0.0.1'
 
-load_dotenv()
-
-units = UnitRegistry()
+_load_dotenv()
