@@ -17,7 +17,7 @@ def hold_bokeh():
 
 def make_serializable(df):
     df=df.copy()
-    for k in df.columns:
+    for k in df.keys():
         if str(df[k].dtype) in ['Float64','Float32']:
             df[k]=df[k].astype('float32')
         if str(df[k].dtype) in ['boolean']:

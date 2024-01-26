@@ -4,6 +4,7 @@ import panel as pn
 from panel.template.base import BasicTemplate
 import param as hvparam
 
+from datavac import logger
 from datavac.appserve.app import PanelApp
 from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.gui.panel_util.selectors import VerticalCrossSelector
@@ -58,5 +59,6 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
                         w1.jslink(w2,value='value',bidirectional=True)
 
     def _download_callback(self):
+        logger.debug("In download callback")
         active_plotter=list(self._plotters.values())[self._tabs.active]
         return active_plotter.download_shown()

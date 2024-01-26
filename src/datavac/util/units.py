@@ -42,20 +42,25 @@ class Normalizer():
                         raise e
 
     def get_scaled(self, df, column, normalizer):
+        if normalizer is False: return df[column]
         if column not in self._udeets[normalizer]:
             logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
             return df[column]
         ntype=self._udeets[normalizer][column]['type']
         scale=self._udeets[normalizer][column]['units_scale_factor']
         column=df[column]
+        if hasattr(column,'to_numpy'):
+            column=column.to_numpy()
         normalizer=df[normalizer] if normalizer!='None' else 1
+        if hasattr(normalizer,'to_numpy'):
+            normalizer=normalizer.to_numpy()
         res= (column/normalizer if ntype=='/' else column*normalizer)*scale
         if hasattr(res,'to_numpy'):
             res=res.to_numpy()
         return res
 
     def shorthand(self, column, normalizer):
-        if column not in self._udeets[normalizer]:
+        if (normalizer is False) or (column not in self._udeets[normalizer]):
             #logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
             return ""
         t={'/':'/','*':r'\cdot '}[self._udeets[normalizer][column]['type']]
@@ -63,7 +68,7 @@ class Normalizer():
         return f"{t}{sh}" if sh!="" else ""
 
     def formatted_endunits(self, column, normalizer):
-        if column not in self._udeets[normalizer]:
+        if (normalizer is False) or (column not in self._udeets[normalizer]):
             #logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
             return ""
         eu=self._udeets[normalizer][column]['end_units']\

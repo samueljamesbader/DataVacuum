@@ -41,6 +41,14 @@ def make_default_layout(filter_widgets, view_widgets, figure_pane):
                      main_row,
                      *([pn.HSpacer(height=10),bot_row] if len(bot_widgets) else []),
                      sizing_mode='stretch_both')
+def make_big_layout(filter_widgets, view_widgets, figure_pane):
+    top_widgets= {k:v for k,v in {**filter_widgets,**view_widgets}.items()}
+    top_row=pn.Row(*top_widgets.values(),sizing_mode='stretch_width',height=125)
+    main_row=pn.Row(figure_pane,
+                    sizing_mode='stretch_width')
+    return pn.Column(top_row,pn.HSpacer(height=10),
+                     main_row,
+                     sizing_mode='stretch_both')
 
 class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _prefilter_measgroup = None
@@ -53,6 +61,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _need_to_recreate_figure=hvparam.Event()
 
     filter_settings=hvparam.Parameter()
+    _widget_hints={}
     meas_groups=hvparam.Parameter()
     color_by=hvparam.Selector()
     norm_by=hvparam.Selector()
@@ -85,7 +94,10 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self._normalizer=Normalizer(self.normalization_details if self.normalization_details else {})
         if 'norm_by' in self._built_in_view_settings:
             self.param.norm_by.objects=self._normalizer.norm_options
-            if self.norm_by is None: self.norm_by=self.param.norm_by.objects[0]
+            if self.norm_by is None:
+                if not len(self.param.norm_by.objects):
+                    self.param.norm_by.objects=[False]
+                self.norm_by=self.param.norm_by.objects[0]
 
         if 'color_by' in self._built_in_view_settings:
             if self.param.color_by.objects==[]:
@@ -105,11 +117,13 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             if type(elt) is list or isinstance(elt,SelectionHint):
                 if not already_added: self.param.add_parameter(param_name,hvparam.ListSelector())
                 widgets[param_name]=MultiSelect.from_param(
-                    self.param[param_name],  sizing_mode='stretch_both')
+                    self.param[param_name],
+                        **self._widget_hints.get(param_name,dict(sizing_mode='stretch_both')))
             elif isinstance(elt,hvparam.Parameter):
                 if not already_added: self.param.add_parameter(param_name,elt)
                 if isinstance(elt,hvparam.ListSelector):
-                    widgets[param_name]=MultiSelect.from_param(self.param[param_name], sizing_mode='stretch_both')
+                    widgets[param_name]=MultiSelect.from_param(self.param[param_name],
+                                **self._widget_hints.get(param_name,dict(sizing_mode='stretch_both')))
                 elif isinstance(elt,hvparam.Selector):
                     widgets[param_name]=Select.from_param(self.param[param_name], sizing_mode='stretch_width')
             else:
@@ -160,7 +174,10 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         with hvparam.parameterized.batch_call_watchers(self):
             for param in self.filter_settings:
                 logger.debug(f"Update factors for {param}")
-                factors=sorted([f for f in all_factors[param] if f==f])
+                try:
+                    factors=sorted([f for f in all_factors[param] if f==f])
+                except:
+                    raise Exception(f"Failed at sorting {param}: {all_factors[param]}")
                 if len(factors)!=len(all_factors[param]):
                     logger.debug(f"Excluding {[f for f in factors if f!=f]} from factors for {param}")
                 getattr(self.param,param).objects=factors
@@ -223,7 +240,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         logger.info(f"About to ask hose with {factors}, scalar: {scalar_columns}, raw: {raw_columns}")
         data: list[DataFrame] = [self.database.get_data(meas_group,
                                                      scalar_columns=sc, include_sweeps=rc,
-                                                     unstack_headers=True,
+                                                     unstack_headers=(rc != False),
                                                      **factors)
                                  for sc, rc, meas_group
                                  in zip(scalar_columns, raw_columns, self.get_meas_groups())]
@@ -240,7 +257,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         rcs=self.get_raw_column_names()
         for pred,rc in zip(predata,rcs):
             d=make_serializable(pred)
-            for c in rc:
+            for c in (rc or []):
                 if c not in d:
                     d[c]=[np.array([])]*len(d)
                 d[c]=d[c].map(np.asarray)
@@ -262,6 +279,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.polish_figures()
 
     def download_shown(self):
+        logger.debug(f"Downloading for {self.__class__.name}")
         # TODO: assumes data is in _pre_sources['curves'] which is correct for the example curve plotters but not
         # TODO: eg for the scalar plotters. Should probably have a curve plotter subclass to catch this.
         data=self._pre_sources[0]
@@ -274,6 +292,11 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             sio.write(",".join(scs)+"\n")
             sio.write(",".join([str(data[sc][i]) for sc in scs])+"\n")
             sio.write(",".join(rcs)+"\n")
+            try:
+                npts=max(len(vec) for vec in vecs)
+                vecs=[{0:['']*npts,npts:vec}[len(vec)] for vec in vecs]
+            except KeyError:
+                raise Exception(f"Expecting all vecs to be same length {npts} when not empty")
             for vals in zip(*vecs):
                 sio.write(",".join([str(v) for v in vals])+"\n")
             sio.write("\n")
@@ -331,7 +354,7 @@ class ScalarFilterPlotter(FilterPlotter):
         return [(pv+filter_and_norm_cols) for pv in self._meas_group_to_plot_vars.values()]
 
     def get_raw_column_names(self):
-        return [[] for m in self._meas_group_to_plot_vars]
+        return [False for m in self._meas_group_to_plot_vars]
 
     def update_sources(self,pre_sources):
         if len(self.get_meas_groups())!=1:
@@ -428,6 +451,19 @@ class ScalarFilterPlotter(FilterPlotter):
                 for fr in self._catranges[px]:
                     fr.factors=self._sources['axis_factors'][px]
 
+    def download_shown(self):
+        logger.debug(f"Downloading for {self.__class__.name}")
+        data=self._pre_sources[0]
+        data={c:data[c] for c in data.columns}
+
+        sio=StringIO()
+        sio.write(",".join(data.keys())+"\n")
+        for vals in zip(*data.values()):
+            sio.write(",".join([str(v) for v in vals])+"\n")
+
+        sio.seek(0)
+        return sio
+
 
 class WafermapFilterPlotter(FilterPlotter):
 
@@ -477,7 +513,7 @@ class WafermapFilterPlotter(FilterPlotter):
         return [(pv+filter_and_norm_cols) for pv in self._meas_group_to_plot_vars.values()]
 
     def get_raw_column_names(self):
-        return [[] for m in self._meas_group_to_plot_vars]
+        return [False for m in self._meas_group_to_plot_vars]
 
     def update_sources(self,pre_sources):
         if len(self.get_meas_groups())!=1:
@@ -505,12 +541,16 @@ class WafermapFilterPlotter(FilterPlotter):
 
             # Compile it all to right columns
             for mi,(m,pp) in enumerate(self._meas_group_to_plot_vars.items()):
-                self._sources[m].data=Waferplot.make_source_dict_from_pre_source(dict_to_df(dict(
+                sd=Waferplot.make_source_dict_from_pre_source(dict_to_df(dict(
                         **{
                             p:self._normalizer.get_scaled(pre_sources[mi],p,self.norm_by)
                             for p in pp
                         },**{'DieXY':pre_sources[mi]['DieXY']})),
                     self.wmap,fields=None)
+                try:
+                    self._sources[m].data=make_serializable(sd)
+                except:
+                    raise
             self._sources['labels']={}
             for p in self._plot_var_to_meas_group:
                 eu=self._normalizer.formatted_endunits(p,self.norm_by)

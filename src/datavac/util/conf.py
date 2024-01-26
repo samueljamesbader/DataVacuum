@@ -33,20 +33,20 @@ class Config():
 
     def get_dependency_meas_groups_for_analyses(self, analyses, required_only=False):
         if required_only:
-            return list(set([mg for an in analyses
-                 for mg in self.higher_analyses[an]['required_dependencies']]))
+            return dict(set([(mg,dname) for an in analyses
+                 for mg,dname in self.higher_analyses[an]['required_dependencies'].items()]))
         else:
-            return list(set([mg for an in analyses
-                 for mg in list(self.higher_analyses[an]['required_dependencies'].keys())+\
-                             list(self.higher_analyses[an].get('attempt_dependencies',{}).keys())]))
+            return dict(set([(mg,dname) for an in analyses
+                 for mg,dname in list(self.higher_analyses[an]['required_dependencies'].items())+\
+                             list(self.higher_analyses[an].get('attempt_dependencies',{}).items())]))
 
     def get_dependency_meas_groups_for_meas_groups(self, meas_groups, required_only=False):
         if required_only:
-            return list(set([mg for mg_ in meas_groups for mg in
-                             list(self.measurement_groups[mg_].get('required_dependences',{}).keys())]))
+            return dict(set([(mg,dname) for mg_ in meas_groups for mg,dname in
+                             self.measurement_groups[mg_].get('required_dependencies',{}).items()]))
         else:
-            return list(set([mg for mg_ in meas_groups for mg in
-                             list(self.measurement_groups[mg_].get('required_dependences',{}).keys())+ \
-                             list(self.measurement_groups[mg_].get('attempt_dependences',{}).keys())]))
+            return dict(set([(mg,dname) for mg_ in meas_groups for mg,dname in
+                             list(self.measurement_groups[mg_].get('required_dependencies',{}).items())+ \
+                             list(self.measurement_groups[mg_].get('attempt_dependencies',{}).items())]))
 
 CONFIG=Config()

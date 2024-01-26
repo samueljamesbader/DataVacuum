@@ -60,8 +60,8 @@ class MeasurementTable:
         else:
             return self._dataframe
 
-    def analyze(self):
-        self.meas_type.analyze(self)
+    def analyze(self,*args,**kwargs):
+        self.meas_type.analyze(self,*args,**kwargs)
 
 
 class NonUniformMeasurementTable(MeasurementTable):
@@ -215,6 +215,8 @@ class UniformMeasurementTable(MeasurementTable):
         return UniformMeasurementTable(pd.DataFrame(raw_data),list(raw_data.keys()),None,
                                        meas_group,len(next(iter(raw_data.values()))))
 
+    def defrag(self):
+        self._the_dataframe=self._the_dataframe.copy()
 
 class MultiUniformMeasurementTable(MeasurementTable):
     def __init__(self,umts: list[UniformMeasurementTable]):
@@ -243,8 +245,10 @@ class MultiUniformMeasurementTable(MeasurementTable):
             assert all(raw.keys() == headers for raw in read_df['RawData']),\
                 f"Header mismatch: {[list(raw.keys()) for raw in read_df['RawData']]}"
 
-            for col in headers:
-                read_df[col]=[raw[col] for raw in read_df['RawData']]
+            # Could just assign directly, but when there are many columns, that results in
+            # highly-fragmented-data PerformanceWarnings from Pandas
+            header_part=pd.DataFrame({col:[raw[col] for raw in read_df['RawData']] for col in headers})
+            read_df=pd.concat([read_df,header_part],axis=1)
 
             umts.append(UniformMeasurementTable(
                 dataframe=read_df.drop(columns=['RawData']),headers=list(headers),
@@ -263,9 +267,9 @@ class MultiUniformMeasurementTable(MeasurementTable):
         umts=state
         self.__init__(umts)
 
-    def analyze(self):
+    def analyze(self,*args,**kwargs):
         for umt in self._umts:
-            umt.analyze()
+            umt.analyze(*args,**kwargs)
 
     def __len__(self):
         return sum([len(umt) for umt in self._umts])
@@ -358,3 +362,7 @@ class MultiUniformMeasurementTable(MeasurementTable):
                                                       meas_group=meas_group,i=k,headers=headers,
                                                       indices=sub_indices,on_missing_column=on_missing_column))
         return MultiUniformMeasurementTable(umts=umts)
+
+    def defrag(self):
+        for umt in self._umts:
+            umt.defrag()

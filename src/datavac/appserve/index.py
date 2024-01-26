@@ -42,7 +42,7 @@ class AppIndex(PanelApp):
     def get_page(self):
         template = self.page
         if pn.state.user_info:
-            template.header.append(pn.pane.Markdown(f"## Welcome {pn.state.user_info['given_name']}"))
+            template.header.append(pn.pane.Markdown(f"## Welcome {pn.state.user_info.get('given_name','')}"))
         main_row=pn.FlexBox()
         #main_row.append(pn.Spacer(sizing_mode='stretch_both'))
         for cat,apps in pn.state.cache['index'].categorized_applications.items():

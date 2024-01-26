@@ -18,7 +18,7 @@ class StandardTLMIVPlotter(FilterPlotter):
     _built_in_view_settings = ['norm_by','color_by']
 
     def get_raw_column_names(self):
-        return [['V','I']]
+        return [['V','I'],False]
 
     def update_sources(self, pre_sources, event=None):
 

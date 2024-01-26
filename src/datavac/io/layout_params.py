@@ -14,8 +14,8 @@ import yaml
 class LayoutParameters:
     _instance=None
 
-    CACHED_PATH=Path(os.environ["DATAVACUUM_CACHE_DIR"])/"LayoutParams.pkl"
-    LAYOUT_PARAMS_DIR=Path(os.environ["DATAVACUUM_LAYOUT_PARAMS_DIR"])
+    CACHED_PATH=Path(os.environ.get("DATAVACUUM_CACHE_DIR",Path.cwd()))/"LayoutParams.pkl"
+    LAYOUT_PARAMS_DIR=Path(os.environ.get("DATAVACUUM_LAYOUT_PARAMS_DIR",Path.cwd()))
 
     # This singleton pattern gets really unwieldy, consider a factory_function instead...
     def __new__(cls,force_regenerate=False):
@@ -128,11 +128,11 @@ class LayoutParameters:
                             if _mask==mask and re.match(catregex,cat):
                                 self._tables_by_meas[meas_key]=\
                                     self._tables_by_meas[meas_key].combine_first(self._cat_tables[(mask,cat)])
-                if (afunc_dotpaths:=by_meas_group[meas_key].get('apply',None)):
-                    for afunc_dotpath in afunc_dotpaths:
-                        afunc=getattr(import_module(afunc_dotpath.split(":")[0]),
-                                      afunc_dotpath.split(":")[1])
-                        afunc(self._tables_by_meas[meas_key])
+            if (afunc_dotpaths:=by_meas_group[meas_key].get('apply',None)):
+                for afunc_dotpath in afunc_dotpaths:
+                    afunc=getattr(import_module(afunc_dotpath.split(":")[0]),
+                                  afunc_dotpath.split(":")[1])
+                    afunc(self._tables_by_meas[meas_key])
             if 'names' in by_meas_group[meas_key]:
                 tab_to_rename=self._tables_by_meas[meas_key]
                 del self._tables_by_meas[meas_key]

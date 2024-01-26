@@ -7,6 +7,7 @@ cli_funcs={
     'clear_database': 'datavac.io.database:cli_clear_database',
     'upload_data': 'datavac.io.database:cli_upload_data',
     'dump_extraction': 'datavac.io.database:cli_dump_extraction',
+    'clear_reextract_list': 'datavac.io.database:cli_clear_reextract_list',
     'force_database': 'datavac.io.database:cli_force_database',
     'heal': 'datavac.io.database:cli_heal',
 }

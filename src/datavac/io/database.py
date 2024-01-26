@@ -247,7 +247,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         # Must ensure restricted write access to DB since this allows arbitrary code execution
         return pickle.loads(res[0][0])
 
-    def establish_layout_parameters(self,layout_params, measurement_group, conn, on_mismatch='raise'):
+    def establish_layout_parameters(self,layout_params, measurement_group, conn, on_mismatch='raise',
+                                    reestablish_foreign_key=True):
         mg, df=measurement_group, layout_params._tables_by_meas[measurement_group]
         tabname=f"Layout -- {mg}"
 
@@ -257,6 +258,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
             try:
                 assert [c.name for c in tab.columns]==['Structure',*df.columns]
                 for c,dtype in df.dtypes.items():
+                    if str(dtype) not in self.pd_to_sql_types:
+                        raise Exception(f"Problem with column {c} which has dtype {str(dtype)}")
                     assert tab.c[c].type.__class__==self.pd_to_sql_types[str(dtype)],\
                         f"{tab.c[c].type.__class__}!={self.pd_to_sql_types[str(dtype)]} for param \"{c}\" in \"{mg}\""
             except AssertionError:
@@ -269,16 +272,21 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         #conn.commit()
                     self.clear_database(only_tables=[tab],conn=conn)
         if f'{self.int_schema}.Layout -- {mg}' not in self._metadata.tables:
+            assert len(df), f"Empty layout param table for {mg}"
             assert df.index.name=='Structure'
             cols=[Column('Structure',VARCHAR,primary_key=True),
                  *[Column(k,self.pd_to_sql_types[str(dtype)]) for k,dtype in df.dtypes.items()]]
             tab=Table(tabname,self._metadata,*cols)
             tab.create(conn)
             if f"{self.int_schema}.Meas -- {mg}" in self._metadata.tables:
-                print("Re-adding foreign key constraint")
-                conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {mg}"'\
+                fk_text=text(f'ALTER TABLE {self.int_schema}."Meas -- {mg}"'\
                                   f' ADD CONSTRAINT fk_struct FOREIGN KEY ("Structure")'\
-                                  f' REFERENCES {self.int_schema}."{tab.name}" ("Structure") ON DELETE CASCADE;'))
+                                  f' REFERENCES {self.int_schema}."{tab.name}" ("Structure") ON DELETE CASCADE;')
+                if reestablish_foreign_key:
+                    logger.debug("Re-adding foreign key constraint")
+                    conn.execute(fk_text)
+                else:
+                    return fk_text
             return True
         return False
 
@@ -339,9 +347,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
             conn.execute(delete(meas_tab))
 
     def dump_higher_analysis(self, analysis, conn):
-        if (an_tab:=self._hat.get(analysis,None)) is None: return
+        if (an_tab:=self._hat(analysis)) is None: return
         conn.execute(
-            pgsql_insert(self._rextab) \
+            pgsql_insert(self._reatab) \
                 .from_select(["matid","MeasGroup",'full_reload'],
                              select(self._loadtab.c.matid,literal(analysis),literal(False)) \
                              .select_from(an_tab.join(self._loadtab)) \
@@ -350,7 +358,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         conn.execute(delete(an_tab))
 
     def update_layout_parameters(self, layout_params, measurement_group, conn, dump_extractions=True):
-        self.establish_layout_parameters(layout_params,measurement_group,conn, on_mismatch='replace')
+        fk_text=self.establish_layout_parameters(layout_params,measurement_group,conn, on_mismatch='replace',reestablish_foreign_key=False)
         tab=self._metadata.tables[f'{self.int_schema}.Layout -- {measurement_group}']
 
         conn.execute(text(f'CREATE TEMP TABLE tmplay (LIKE {self.int_schema}."Layout -- {measurement_group}");'))
@@ -367,10 +375,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
             if dump_extractions:
                 self.dump_extractions(measurement_group,conn)
             elif self._mgt(measurement_group,'meas') is not None:
-                conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}" DROP CONSTRAINT fk_struct;'))
+                if fk_text is False or fk_text is True: # ie if the constraint wasn't already dropped in establish_layout_table
+                    conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}" DROP CONSTRAINT fk_struct;'))
             conn.execute(delete(tab))
             conn.execute(text(f'INSERT INTO {tab.schema}."{tab.name}" SELECT * from tmplay;'))
-            if not dump_extractions and (self._mgt(measurement_group,'meas') is not None):
+            if (self._mgt(measurement_group,'meas') is not None):
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}"' \
                                   f' ADD CONSTRAINT fk_struct FOREIGN KEY ("Structure")' \
                                   f' REFERENCES {self.int_schema}."{tab.name}" ("Structure") ON DELETE CASCADE;'))
@@ -441,6 +450,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             f'Meas -- {mg}"."Structure',
             f'Dies"."DieXY',
             *mg_info['analysis_columns'].keys(),
+            *mg_info['meas_columns'].keys(),
             *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]
                   if mg in layout_params._tables_by_meas else [])
         ]
@@ -502,7 +512,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             statement=delete(self._mattab)\
                              .where(self._mattab.c[fullmatname_col]==material_info[fullmatname_col])\
                              .returning(self._mattab.c.date_user_changed)
-            print(conn.execute(text("EXPLAIN (ANALYZE,BUFFERS) "+str(statement.compile(compile_kwargs={'literal_binds':True})))).all())
+            #print(conn.execute(text("EXPLAIN (ANALYZE,BUFFERS) "+str(statement.compile(compile_kwargs={'literal_binds':True})))).all())
             res=conn.execute(delete(self._mattab)\
                              .where(self._mattab.c[fullmatname_col]==material_info[fullmatname_col])\
                              .returning(self._mattab.c.date_user_changed)).all()
@@ -623,11 +633,21 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     if not re_extraction:
                         df=df.assign(loadid=loadid).reset_index().rename(columns={'index':'measid'})
                     assert len(ulid:=df['loadid'].unique())==1
+                    try:
+                        df=df[['loadid','measid',*analysis_cols]]
+                    except KeyError as e:
+                        logger.warning(f"Missing columns: {str(e)}")
+                        logger.warning(f"Present columns are {list(df.columns)}")
+                        raise e
                     loadid=int(ulid[0])
-                    self._upload_csv(
-                        df[['loadid','measid',*analysis_cols]],
-                        conn,self.int_schema,self._mgt(meas_group,'extr').name
-                    )
+                    try:
+                        self._upload_csv(
+                            df,
+                            conn,self.int_schema,self._mgt(meas_group,'extr').name
+                        )
+                    except Exception as e:
+                        print("OOPS")
+                        raise e
 
                     # If we've succeeded thus far, we can drop this matid, MeasGroup from the refreshes table
                     dstat=delete(self._rextab)\
@@ -734,10 +754,10 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def get_data(self,meas_group,scalar_columns=None,include_sweeps=False,
                          unstack_headers=False,raw_only=False,**factors):
         if meas_group in CONFIG.higher_analyses:
-            assert include_sweeps==False
+            assert include_sweeps==False, f"For analysis (eg {meas_group}), include_sweeps must be False, not {include_sweeps}"
             assert unstack_headers==False
             assert raw_only==False
-            return self.get_data_from_analysis(meas_group,scalar_colors=scalar_columns,**factors)
+            return self.get_data_from_analysis(meas_group,scalar_columns=scalar_columns,**factors)
         elif meas_group in CONFIG.measurement_groups:
             return self.get_data_from_meas_group(meas_group,scalar_columns=scalar_columns,include_sweeps=include_sweeps,
                  unstack_headers=unstack_headers,raw_only=raw_only,**factors)
@@ -803,8 +823,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
         sel=functools.reduce((lambda s, f: s.where(get_col(f).in_(factors[f]))), factors, sel)
 
         with self.engine.connect() as conn:
-            data=pd.read_sql(sel,conn,dtype={c.name:self.sql_to_pd_types[c.type.__class__] for c in selcols
-                                            if c.type.__class__ in self.sql_to_pd_types})
+            with time_it("Actual read_sql",threshold_time=.03):
+                data=pd.read_sql(sel,conn,dtype={c.name:self.sql_to_pd_types[c.type.__class__] for c in selcols
+                                                if c.type.__class__ in self.sql_to_pd_types})
         if 'sweep' in data:
             meas_type=CONFIG.get_meas_type(meas_group)
             for h in list(data['header'].unique()):
@@ -812,14 +833,18 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     "Haven't dealt with sweeps that aren't float32"
             data['sweep']=data['sweep'].map(functools.partial(np.frombuffer, dtype=np.float32))
         if include_sweeps and unstack_headers:
-            sweep_part=data[['loadid','measid','header','sweep']]\
-                .pivot(index=['loadid','measid'],columns='header',values='sweep')
-            other_part=data.drop(columns=['header','sweep'])\
-                .drop_duplicates(subset=['loadid','measid']).set_index(['loadid','measid'])
-            return pd.merge(sweep_part,other_part,how='inner',
-                            left_index=True,right_index=True,validate='1:1').reset_index(drop=(not raw_only))
-
+            unstacking_indices= ['loadid','measid'] if unstack_headers is True else unstack_headers
+            data=self._unstack_header_helper(data,unstacking_indices, drop_index=(not raw_only))
         return data
+
+    @staticmethod
+    def _unstack_header_helper(data,unstacking_indices, drop_index=True):
+        sweep_part=data[[*unstacking_indices,'header','sweep']] \
+            .pivot(index=unstacking_indices,columns='header',values='sweep')
+        other_part=data.drop(columns=['header','sweep']) \
+            .drop_duplicates(subset=unstacking_indices).set_index(unstacking_indices)
+        return pd.merge(sweep_part,other_part,how='inner',
+                        left_index=True,right_index=True,validate='1:1').reset_index(drop=drop_index)
 
     def get_factors(self,meas_group,factor_names,pre_filters={}):
         #import pdb; pdb.set_trace()
@@ -829,6 +854,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         layotab=self._mgt(meas_group,'layout')
 
         involved_tables=[meastab,extrtab,layotab,self._mattab,self._diemtab]#+([sweptab] if 'header' in pre_filters else [])
+        if any(t is None for t in involved_tables):
+            raise Exception(f"WHAT {str(involved_tables)}")
         all_cols=[c for tab in involved_tables for c in tab.columns]
         def get_col(cname):
             try:
@@ -974,8 +1001,8 @@ def cli_update_layout_params(*args):
     parser=argparse.ArgumentParser(description='Updates layout params in database.')
     namespace=parser.parse_args(args)
 
-    db=get_database(on_mismatch='replace')
     layout_params=LayoutParameters(force_regenerate=True)
+    db=get_database(skip_establish=True)
     with db.engine.connect() as conn:
         for mg in layout_params._tables_by_meas:
             db.update_layout_parameters(layout_params,mg,conn)
@@ -1093,6 +1120,19 @@ def cli_heal(*args):
     db=get_database()
     heal(db)
 
+def cli_clear_reextract_list(*args):
+    parser=argparse.ArgumentParser(description='Clears the list of items which will be re-extract upon healing')
+    parser.add_argument('-g','--group',action='append',help='Measurement group(s) to clear from list, eg -g GROUP1 -g GROUP2')
+    namespace=parser.parse_args(args)
+
+    self=get_database(skip_establish=True)
+
+    dstat=delete(self._rextab)
+    if namespace.group is not None:
+        dstat=dstat.where(self._rextab.c.MeasGroup.in_(namespace.group))
+    with self.engine.begin() as conn:
+        conn.execute(dstat)
+
 def entry_point_make_jmpstart():
     try:
         jslfile=sys.argv[1]
@@ -1127,14 +1167,38 @@ class DDFDatabase(Database):
         return {fn:list(df[fn].unique()) for fn in factor_names}
 
 if __name__=='__main__':
-    db=get_database()
+    cli_update_layout_params()
+    db=get_database(on_mismatch='replace')
+
+    #cli_upload_data('--folder', 'D308C780/Sam/control_temp')
+
+    # MIMs
+    #cli_upload_data('--folder', 'D230CSKC')#, '-g','TFR IV')
+    #cli_upload_data('--folder', 'D230CSHB')#, '-g','TFR IV')
+    #cli_dump_extraction('-g','TFR IV')
+    #cli_heal()
+
+    #cli_upload_data('--folder', 'D322CHX0/4ptTLMstudy')
+    #cli_upload_data('--folder', 'D322CHX0/TargetDCIVCV')
+    #cli_upload_data('--folder', 'D322CHX0')
+    cli_upload_data('--folder', 'D320CGSA')
+
+
+    #cli_upload_data('--folder', 'D311C8J0')
+
+
     #cli_upload_data('--lot','D308C78B','--wafer','w065')
-    #cli_upload_data('--lot','D308C780')
+    #cli_upload_data('--folder','D308C780/Sam/breakdown_removethis')
+    #cli_upload_data('--folder','D308C780/Sam')
+    #cli_upload_data('--lot','D312C9A0')
+    #cli_upload_data('--lot','D320CGSA','--wafer','w140')
     #cli_upload_data('--lot','D316CBE0','--wafer','w689','-g','Si TLM')
 
+    #cli_upload_data("-g","GaN n CV","-g","CV Open","--lot","D322CHX0")
+    #cli_upload_data('--lot','D308C780','--wafer','w061','-g','Si pMOS CV','-g','CV Open')
+    #cli_upload_data('--lot','D308C780')
     #cli_upload_data('--lot','D308C7AB','--wafer','w117','--folder','D308C7AB/Sam')
-    cli_upload_data('--lot','D308C7AB','--lot','D308C7A0','--lot','D312C9AB','--lot','D312C9A0','--lot','D316CBE0','--lot','D308C780')
-    #cli_upload_data('--folder', 'D322CHX0/4ptTLMstudy')
+    #cli_upload_data('--lot','D308C7AB','--lot','D308C7A0','--lot','D312C9AB','--lot','D312C9A0','--lot','D316CBE0','--lot','D308C780')
     #cli_dump_extraction('-g','Si pMOS IdVg')
     #cli_heal()
 

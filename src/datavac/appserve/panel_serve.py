@@ -2,7 +2,6 @@ import os
 
 import panel as pn
 from pathlib import Path
-from importlib import import_module
 
 from datavac.io.database import get_database
 from yaml import safe_load
@@ -13,6 +12,7 @@ from panel.theme.material import MaterialDefaultTheme
 from datavac.appserve.ad_auth import monkeypatch_oauthprovider
 from datavac.util.logging import logger
 from datavac.appserve.index import Indexer
+from datavac.util.util import import_modfunc
 
 
 def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultTheme):
@@ -23,7 +23,7 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
         theyaml=safe_load(f)
         categorized_applications=theyaml['index']
         theme_module,theme_class=theyaml['theme'].split(":")
-        theme=import_module(theme_module,theme_class)
+        theme=import_modfunc(theyaml['theme'])
         port=theyaml['port']
 
     kwargs={}
@@ -43,7 +43,12 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
         kwargs['cookie_secret']=os.environ['DATAVACUUM_BOKEH_COOKIE_SECRET']
         kwargs['oauth_redirect_uri']=os.environ['DATAVACUUM_OAUTH_REDIRECT']
     elif oauth_provider=='none':
-        logger.warning("Launching with no user authentication protocol")
+        if 'DATAVACUUM_PASSWORD' in os.environ:
+            logger.warning("Launching with password authentication, NOT MEANT FOR PRODUCTION!")
+            kwargs['cookie_secret']=os.environ['DATAVACUUM_BOKEH_COOKIE_SECRET']
+            kwargs['basic_auth']=os.environ['DATAVACUUM_PASSWORD']
+        else:
+            logger.warning("Launching with NO user authentication protocol!")
 
     pn.state.cache['index']=index=Indexer(categorized_applications=categorized_applications)
     pn.state.cache['theme']=theme

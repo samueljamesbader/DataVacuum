@@ -1,6 +1,6 @@
 import param as hvparam
-from datavac.examples.app_with_prefilter import PanelAppWithLotPrefilter
-from datavac.examples.filter_plotter_layout import make_allaround_layout
+from datavac.examples.apps.app_with_prefilter import PanelAppWithLotPrefilter
+from datavac.examples.apps.filter_plotter_layout import make_allaround_layout
 from datavac.gui.panel_util.filter_plotter import ScalarFilterPlotter
 from datavac.gui.plot_templates.xtor_cv import StandardCVPlotter
 class AppCV(PanelAppWithLotPrefilter):

@@ -10,9 +10,11 @@ from datavac.util.util import import_modfunc
 from datavac.util.tables import check_dtypes
 from datavac.util.conf import CONFIG
 
+FULLNAME_COL=CONFIG['database']['materials']['full_name']
 ALL_MATERIAL_COLUMNS=[CONFIG['database']['materials']['full_name'],
                       *CONFIG['database']['materials']['info_columns']]
-READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])
+if 'DATAVACUUM_READ_DIR' in os.environ:
+    READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])
 
 class MissingFolderInfoException(Exception): pass
 class NoDataFromFileException(Exception): pass
@@ -38,6 +40,9 @@ def read_folder_nonrecursive(folder: str,
                     read_from_folder[rname]=potential_finds[0]
                 case 'store_basename':
                     read_from_folder[rname]=potential_finds[0].name.split(".")[0]
+                case 'apply_material_lut':
+                    read_from_folder['material_lut']=\
+                        pd.read_csv(potential_finds[0]).set_index(FULLNAME_COL).to_dict(orient='index')
                 case _:
                     raise Exception(f"What action is {rinfo['read_action']}")
         else:
@@ -81,8 +86,8 @@ def read_folder_nonrecursive(folder: str,
                             try:
                                 read_dfs=import_modfunc(reader_func_dotpath)(file=f,
                                         meas_type=meas_type,meas_group=meas_group,
-                                        **reader['template']['default_args'],
-                                        **reader['fixed_args'],
+                                        **reader['template'].get('default_args',{}),
+                                        **reader.get('fixed_args',{}),
                                         **{k:read_info_so_far[v] for k,v in reader['template']['read_so_far_args'].items()})
                                 if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
                             except NoDataFromFileException as e:
@@ -90,12 +95,19 @@ def read_folder_nonrecursive(folder: str,
                                 continue
                             read_data=MultiUniformMeasurementTable.from_read_data(read_dfs=read_dfs,
                                 meas_group=meas_group,meas_type=meas_type)
-                            read_data['FileName']=pd.Series([
+                            read_data['FilePath']=pd.Series([
                                 str(f.relative_to(os.environ['DATAVACUUM_READ_DIR']).as_posix())]*len(read_data),dtype='string')
+                            read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
 
-                            if not (matname:=read_info_so_far.get(CONFIG['database']['materials']['full_name'],None)):
+                            if not (matname:=read_info_so_far.get(FULLNAME_COL,None)):
                                 # Gotta read this from the data then and check uniqueness
                                 raise NotImplementedError
+                            for k,v in read_info_so_far.get('material_lut',{}).get(matname,{}).items():
+                                logger.debug(f"Applying {k}={v} to data")
+                                if type(v)==str:
+                                        read_data[k]=pd.Series([v]*len(read_data),dtype='string')
+                                else:
+                                    raise NotImplementedError(f"What dtype for {k} which seems to be {str(type(v))}?")
 
                             matname_to_mg_to_data[matname]=matname_to_mg_to_data.get(matname,{})
                             if (existing_data:=matname_to_mg_to_data[matname].get(meas_group,None)):
@@ -104,7 +116,7 @@ def read_folder_nonrecursive(folder: str,
                                 matname_to_mg_to_data[matname][meas_group]=read_data
 
                             matname_to_material_info[matname]=matname_to_material_info.get(matname,
-                                           {CONFIG['database']['materials']['full_name']:matname})
+                                           {FULLNAME_COL:matname})
                             for k in CONFIG['database']['materials']['info_columns']:
                                 if not (v:=read_info_so_far.get(k,None)):
                                     # Gotta read this from the data then and check uniqueness
@@ -121,31 +133,38 @@ def ensure_meas_group_sufficiency(meas_groups, required_only=False):
     add_meas_groups=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
     missing=[mg for mg in add_meas_groups if mg not in meas_groups]
     assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
-                            +(" to be checked." if not required_only else ".")
+                            (" to be checked." if not required_only else ".")
 
     ans=CONFIG.get_dependent_analyses(meas_groups)
     add_meas_groups=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
     missing=[mg for mg in add_meas_groups if mg not in meas_groups]
     assert len(missing)==0, f"Measurements groups {meas_groups} affect analyses {ans}, "\
                             f"which require {missing}"+\
-                            +(" to be checked." if not required_only else ".")
+                            (" to be checked." if not required_only else ".")
     return ans
 
 def perform_extraction(matname_to_mg_to_data):
     for matname, mg_to_data in matname_to_mg_to_data.items():
-        if len(CONFIG.get_dependency_meas_groups_for_meas_groups(list(mg_to_data.keys()))):
-            raise NotImplementedError # Haven't implemented dependencies for meas_groups
-            # Need to analyze in correct order and pass dependent groups to analysis somehow
-        for mg, data in mg_to_data.items():
-            logger.debug(f"{mg} extraction")
-            for pre_analysis in CONFIG['measurement_groups'][mg].get('pre_analysis',[]):
-                if type(pre_analysis) is list:
-                    pre_analysis,*args=pre_analysis
-                else:
-                    pre_analysis,*args=pre_analysis,
-                import_modfunc(pre_analysis)(data,*args)
-            data.analyze()
-            check_dtypes(data.scalar_table)
+        to_be_extracted=list(mg_to_data.keys())
+        ensure_meas_group_sufficiency(to_be_extracted,required_only=True)
+        while len(to_be_extracted):
+            for mg in to_be_extracted:
+                deps=CONFIG.get_dependency_meas_groups_for_meas_groups([mg],required_only=False)
+                if any(d in to_be_extracted for d in deps): continue
+
+                data=mg_to_data[mg]
+                logger.debug(f"{mg} extraction")
+                for pre_analysis in CONFIG['measurement_groups'][mg].get('pre_analysis',[]):
+                    if type(pre_analysis) is list:
+                        pre_analysis,*args=pre_analysis
+                    else:
+                        pre_analysis,*args=pre_analysis,
+                    import_modfunc(pre_analysis)(data,*args)
+                dep_kws={deps[d]:mg_to_data[d] for d in deps if d in mg_to_data}
+                data.analyze(**dep_kws)
+                check_dtypes(data.scalar_table)
+
+                to_be_extracted.remove(mg)
 
 #@wraps(read_folder_nonrecursive,updated=('__name__',))
 def read_and_analyze_folders(folders, *args, **kwargs) -> dict:
@@ -161,7 +180,8 @@ def read_and_analyze_folders(folders, *args, **kwargs) -> dict:
             curdir=dirs.pop(0)
             for file in curdir.iterdir():
                 if file.is_dir():
-                    dirs.append(file)
+                    if 'IGNORE' not in str(file):
+                        dirs.append(file)
             try:
                 logger.info(f"Reading in {curdir.relative_to(READ_DIR)}")
                 contributions.append(read_folder_nonrecursive(curdir, *args, **kwargs))
@@ -184,6 +204,10 @@ def read_and_analyze_folders(folders, *args, **kwargs) -> dict:
                 assert existing_info==matname_to_dirinfo[matname],\
                     f"Different material infos {existing_info} vs {matname_to_dirinfo[matname]}"
             matname_to_material_info[matname]=matname_to_dirinfo[matname]
+
+    for mg_to_data in matname_to_mg_to_data.values():
+        for data in mg_to_data.values():
+            data.defrag()
 
     perform_extraction(matname_to_mg_to_data)
     return matname_to_mg_to_data,matname_to_material_info

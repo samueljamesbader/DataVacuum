@@ -37,7 +37,7 @@ class StandardCVPlotter(FilterPlotter):
         if self.shift_by is None: self.shift_by=self.param.shift_by.objects[0]
 
     def get_raw_column_names(self):
-        return [['VG']+[f'f{comp}@freq={freq}' for freq in self.param.freqs.objects for comp in ['Cp','G']]]
+        return [['VG']+[f'{sd}{comp}@freq={freq}' for freq in self.param.freqs.objects for comp in ['Cp','G'] for sd in self.param.sweep_dirs.objects]]
 
     def get_scalar_column_names(self):
         return [super().get_scalar_column_names()[0]+[k for k in self.param.shift_by.objects if k!='None']]
@@ -60,7 +60,6 @@ class StandardCVPlotter(FilterPlotter):
         else:
 
             # Stack the various columns (ie fCp@freq=100k and fCp@freq=200k get stacked to one column 'CP')
-            #import pdb; pdb.set_trace()
             cv=stack_sweeps(pre_sources[0],'VG',['Cp','G'],'freq',
                               restrict_dirs=(self.sweep_dirs if self.sweep_dirs!=[] else None),
                               restrict_swv=(self.freqs if  self.freqs!=[] else None))

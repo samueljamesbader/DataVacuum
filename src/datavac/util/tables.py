@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
@@ -46,29 +47,67 @@ def flatten_multilevel_columns(df: DataFrame, separator: str = ' ') -> DataFrame
     else:
         return df
 
+def stack_multi_sweeps(df,x,ys,swvs, restrict_dirs=None, restrict_swvs=None, non_directed=False):
+    restrict_dirs=restrict_dirs if restrict_dirs else (('',) if non_directed else ('f','r'))
+    potential_starts=[f"{d}{y}" for y in ys for d in restrict_dirs]
+    yheaders=[k for k in df.columns if k.split("@")[0] in potential_starts]
 
-def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None):
-    restrict_dirs=restrict_dirs if restrict_dirs else ('f','r')
-    potential_starts=[f"{d}{y}@{swv}" for y in ys for d in restrict_dirs]
-    yheaders=[k for k in df.columns if k.split("=")[0] in potential_starts]
-    vals=list(set([yheader.split("=")[1] for yheader in yheaders]))
-    if restrict_swv: vals=[v for v in vals if v in restrict_swv]
+    swvsortinds=np.argsort(swvs)
+    swvs=np.array(swvs,dtype=object)[swvsortinds]
+    if restrict_swvs: restrict_swvs=np.array(restrict_swvs,dtype=object)[swvsortinds]
+    yheaders_to_vs={yheader:tuple((ve.split('=')[1] for ve in sorted(yheader.split("@")[1].split(',')))) for yheader in yheaders}
+
+    vals=list(set(yheaders_to_vs.values()))
+    try:
+        if restrict_swvs is not None: vals=[vs for vs in vals if all(v in r for v,r in zip(vs,restrict_swvs))]
+    except:
+        raise
+
     bystanders=[c for c in df.columns if c not in yheaders and c!=x]
     subtabs=[]
-    for v in vals:
+    for vs in vals:
         for d in restrict_dirs:
             yheaders_in_subtab=[yheader for yheader in yheaders
-                                if yheader.startswith(d) and yheader.endswith(f"@{swv}={v}")]
+                                if yheader.startswith(d) and yheaders_to_vs[yheader]==vs]
             if not len(yheaders_in_subtab): continue
             subtabs.append(
                 df[[x]+yheaders_in_subtab+bystanders] \
-                    .rename(columns={yheader:yheader[1:].split("@")[0] \
+                    .rename(columns={yheader:yheader[len(d):].split("@")[0] \
                                      for yheader in yheaders_in_subtab}) \
-                    .assign(**{swv:v,'SweepDir':d}))
+                    .assign(**{swv:v for swv,v in zip(swvs,vs)},**({} if non_directed else {'SweepDir':d})))
     if len(subtabs):
         return pd.concat(subtabs)
     else:
         return pd.DataFrame({k:[] for k in [x]+ys+bystanders})
+
+def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None, non_directed=False):
+    return stack_multi_sweeps(
+        df,x,ys,[swv],restrict_dirs=restrict_dirs,
+        restrict_swvs=(None if restrict_swv is None else [restrict_swv]),
+        non_directed=non_directed)
+
+#def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None):
+#    restrict_dirs=restrict_dirs if restrict_dirs else ('f','r')
+#    potential_starts=[f"{d}{y}@{swv}" for y in ys for d in restrict_dirs]
+#    yheaders=[k for k in df.columns if k.split("=")[0] in potential_starts]
+#    vals=list(set([yheader.split("=")[1] for yheader in yheaders]))
+#    if restrict_swv: vals=[v for v in vals if v in restrict_swv]
+#    bystanders=[c for c in df.columns if c not in yheaders and c!=x]
+#    subtabs=[]
+#    for v in vals:
+#        for d in restrict_dirs:
+#            yheaders_in_subtab=[yheader for yheader in yheaders
+#                                if yheader.startswith(d) and yheader.endswith(f"@{swv}={v}")]
+#            if not len(yheaders_in_subtab): continue
+#            subtabs.append(
+#                df[[x]+yheaders_in_subtab+bystanders] \
+#                    .rename(columns={yheader:yheader[1:].split("@")[0] \
+#                                     for yheader in yheaders_in_subtab}) \
+#                    .assign(**{swv:v,'SweepDir':d}))
+#    if len(subtabs):
+#        return pd.concat(subtabs)
+#    else:
+#        return pd.DataFrame({k:[] for k in [x]+ys+bystanders})
 
 
 def check_dtypes(dataframe:DataFrame):

@@ -21,14 +21,13 @@ def only_row(df,message=None):
 def run_subprocess_with_live_output(cmd_and_args, live_output=True, cwd=None):
 
     caught_output=io.StringIO()
-    p = subprocess.Popen(cmd_and_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
-    for line in iter(lambda : p.stdout.readline()+p.stderr.readline(), b''):
+    p = subprocess.Popen(cmd_and_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
+    for line in iter(lambda : p.stdout.readline(), b''):
         line=line.decode('utf-8')
         if live_output:
-            print(line.strip())
+            print('>>>',line.strip(),flush=True)
         caught_output.write(line)
     p.stdout.close()
-    p.stderr.close()
     p.wait()
     caught_output.seek(0)
     return caught_output.read(), p.returncode

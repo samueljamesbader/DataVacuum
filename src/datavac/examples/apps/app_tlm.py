@@ -1,6 +1,5 @@
 #from datavac.examples.filter_plotter_layout import make_allaround_layout
-from datavac.examples.app_with_prefilter import PanelAppWithLotPrefilter
-from datavac.examples.filter_plotter_layout import make_allaround_layout
+from datavac.examples.apps.app_with_prefilter import PanelAppWithLotPrefilter
 from datavac.gui.panel_util.filter_plotter import ScalarFilterPlotter, WafermapFilterPlotter
 import param as hvparam
 
