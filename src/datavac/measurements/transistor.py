@@ -105,7 +105,7 @@ class IdVg(MeasurementType):
         measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
         measurements['Ion/Ioffmin']=measurements['Ion [A]']/measurements['Ioffmin [A]']
         measurements['Ion/Ioffstart']=measurements['Ion [A]']/measurements['Ioffstart [A]']
-        measurements['Ron [ohm]']=VDlin/IDlin[:,-1]
+        measurements['Ron [ohm]']=VDlin/(np.abs(IDlin[:,-1])+tol)
         measurements['VTcc_lin']=VTCC((IDlin.T/W).T,VG,self.Icc,itol=tol)
         measurements['VTcc_sat']=VTCC((IDsat.T/W).T,VG,self.Icc,itol=tol)
         measurements['DIBL']=-(measurements['VTcc_sat']-measurements['VTcc_lin'])/(VDsat-VDlin)

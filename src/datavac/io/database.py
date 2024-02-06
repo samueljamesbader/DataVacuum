@@ -198,8 +198,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             # TODO: when moving layout params into main config, this loop should go over CONFIG['measurement_groups']
             for mg in layout_params._tables_by_meas:
                 if mg not in CONFIG['measurement_groups']: continue
-                if self.establish_layout_parameters(layout_params,mg,conn,on_mismatch=on_mismatch):
-                    self.update_layout_parameters(layout_params,mg,conn)
+                self.establish_layout_parameters(layout_params,mg,conn,on_mismatch=on_mismatch)
                 conn.commit()
             for mg in CONFIG['measurement_groups']:
                 self.establish_measurement_group_tables(mg,conn,on_mismatch=on_mismatch)
@@ -247,48 +246,26 @@ class PostgreSQLDatabase(AlchemyDatabase):
         # Must ensure restricted write access to DB since this allows arbitrary code execution
         return pickle.loads(res[0][0])
 
-    def establish_layout_parameters(self,layout_params, measurement_group, conn, on_mismatch='raise',
-                                    reestablish_foreign_key=True):
+    def establish_layout_parameters(self,layout_params, measurement_group, conn, on_mismatch='raise'):
         mg, df=measurement_group, layout_params._tables_by_meas[measurement_group]
+        assert len(df), f"Empty layout param table for {mg}"
+        assert df.index.name=='Structure'
         tabname=f"Layout -- {mg}"
 
-        if f'{self.int_schema}.Layout -- {mg}' in self._metadata.tables:
-            tab=self._metadata.tables[f'{self.int_schema}.Layout -- {mg}']
-            cols=list(tab.columns)
-            try:
-                assert [c.name for c in tab.columns]==['Structure',*df.columns]
-                for c,dtype in df.dtypes.items():
-                    if str(dtype) not in self.pd_to_sql_types:
-                        raise Exception(f"Problem with column {c} which has dtype {str(dtype)}")
-                    assert tab.c[c].type.__class__==self.pd_to_sql_types[str(dtype)],\
-                        f"{tab.c[c].type.__class__}!={self.pd_to_sql_types[str(dtype)]} for param \"{c}\" in \"{mg}\""
-            except AssertionError:
-                if on_mismatch=='raise':
-                    raise
-                elif on_mismatch=='replace':
-                    logger.warning(f'Mismatch in layout params for "{measurement_group}", re-creating table')
-                    if f"{self.int_schema}.Meas -- {mg}" in self._metadata.tables:
-                        conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {mg}" DROP CONSTRAINT fk_struct;'))
-                        #conn.commit()
-                    self.clear_database(only_tables=[tab],conn=conn)
-        if f'{self.int_schema}.Layout -- {mg}' not in self._metadata.tables:
-            assert len(df), f"Empty layout param table for {mg}"
-            assert df.index.name=='Structure'
-            cols=[Column('Structure',VARCHAR,primary_key=True),
-                 *[Column(k,self.pd_to_sql_types[str(dtype)]) for k,dtype in df.dtypes.items()]]
-            tab=Table(tabname,self._metadata,*cols)
-            tab.create(conn)
+        def replace_callback():
+            logger.warning(f'Mismatch in layout params for "{measurement_group}", re-creating table')
             if f"{self.int_schema}.Meas -- {mg}" in self._metadata.tables:
-                fk_text=text(f'ALTER TABLE {self.int_schema}."Meas -- {mg}"'\
-                                  f' ADD CONSTRAINT fk_struct FOREIGN KEY ("Structure")'\
-                                  f' REFERENCES {self.int_schema}."{tab.name}" ("Structure") ON DELETE CASCADE;')
-                if reestablish_foreign_key:
-                    logger.debug("Re-adding foreign key constraint")
-                    conn.execute(fk_text)
-                else:
-                    return fk_text
-            return True
-        return False
+                conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {mg}" '
+                                  f'DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
+            self.clear_database(only_tables=[tab],conn=conn)
+        def initialize_callback():
+            self.update_layout_parameters(layout_params,mg,conn)
+
+        cols=[Column('Structure',VARCHAR,primary_key=True),
+              *[Column(k,self.pd_to_sql_types[str(dtype)]) for k,dtype in df.dtypes.items()]]
+        self._ensure_table_exists(conn,self.int_schema,f'Layout -- {mg}',*cols,
+                                  on_mismatch=on_mismatch, on_init=initialize_callback)
+
 
     def _upload_binary(self, df, conn, schema, table, override_converters={}):
         with time_it(f"Conversion to binary for {table}",.1):
@@ -358,8 +335,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
         conn.execute(delete(an_tab))
 
     def update_layout_parameters(self, layout_params, measurement_group, conn, dump_extractions=True):
-        fk_text=self.establish_layout_parameters(layout_params,measurement_group,conn, on_mismatch='replace',reestablish_foreign_key=False)
+        self.establish_layout_parameters(layout_params,measurement_group,conn, on_mismatch='replace')
         tab=self._metadata.tables[f'{self.int_schema}.Layout -- {measurement_group}']
+        mg=measurement_group
 
         conn.execute(text(f'CREATE TEMP TABLE tmplay (LIKE {self.int_schema}."Layout -- {measurement_group}");'))
         self._upload_csv(layout_params._tables_by_meas[measurement_group].reset_index(),
@@ -375,13 +353,13 @@ class PostgreSQLDatabase(AlchemyDatabase):
             if dump_extractions:
                 self.dump_extractions(measurement_group,conn)
             elif self._mgt(measurement_group,'meas') is not None:
-                if fk_text is False or fk_text is True: # ie if the constraint wasn't already dropped in establish_layout_table
-                    conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}" DROP CONSTRAINT fk_struct;'))
+                conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}"'\
+                                  f' DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
             conn.execute(delete(tab))
             conn.execute(text(f'INSERT INTO {tab.schema}."{tab.name}" SELECT * from tmplay;'))
             if (self._mgt(measurement_group,'meas') is not None):
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}"' \
-                                  f' ADD CONSTRAINT fk_struct FOREIGN KEY ("Structure")' \
+                                  f' ADD CONSTRAINT "fk_struct -- {mg}" FOREIGN KEY ("Structure")' \
                                   f' REFERENCES {self.int_schema}."{tab.name}" ("Structure") ON DELETE CASCADE;'))
 
         conn.execute(text(f'DROP TABLE tmplay;'))
@@ -405,7 +383,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             Column('loadid',INTEGER,ForeignKey("Loads.loadid",**_CASC),nullable=False),
             Column('measid',INTEGER,nullable=False),
             Column('Structure',VARCHAR,ForeignKey(f'Layout -- {mg}.Structure',
-                                                  name='fk_struct',**_CASC),nullable=False),
+                                                  name=f'fk_struct -- {mg}',**_CASC),nullable=False),
             Column('dieid',INTEGER,ForeignKey(f'Dies.dieid',name='fk_dieid',**_CASC),nullable=False),
             Column('rawgroup',INTEGER,nullable=False),
             *[Column(k,self.pd_to_sql_types[dtype]) for k,dtype in mg_info['meas_columns'].items()],
@@ -481,7 +459,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         in CONFIG.higher_analyses[analysis]['analysis_columns'].items()],
                   on_mismatch=(replacement_callback if on_mismatch=='replace' else on_mismatch))
 
-    def _ensure_table_exists(self, conn, schema, table_name, *args, on_mismatch:Union[str,Callable]='raise'):
+    def _ensure_table_exists(self, conn, schema, table_name, *args,
+                             on_mismatch:Union[str,Callable]='raise',
+                             on_init: Callable= (lambda : None)):
         should_be_columns=[x for x in args if isinstance(x,Column)]
         if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is not None:
             try:
@@ -503,6 +483,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is None:
             tab=Table(table_name,self._metadata,*args)
             tab.create(conn)
+            on_init()
         return tab
 
     def drop_material(self, material_info, conn, only_meas_group=None):
@@ -1165,46 +1146,3 @@ class DDFDatabase(Database):
                      [df[fname].isin(fvals) for fname,fvals in pre_filters.items()],
                      pd.Series([True]*len(df)))]
         return {fn:list(df[fn].unique()) for fn in factor_names}
-
-if __name__=='__main__':
-    cli_update_layout_params()
-    db=get_database(on_mismatch='replace')
-
-    #cli_upload_data('--folder', 'D308C780/Sam/control_temp')
-
-    # MIMs
-    #cli_upload_data('--folder', 'D230CSKC')#, '-g','TFR IV')
-    #cli_upload_data('--folder', 'D230CSHB')#, '-g','TFR IV')
-    #cli_dump_extraction('-g','TFR IV')
-    #cli_heal()
-
-    #cli_upload_data('--folder', 'D322CHX0/4ptTLMstudy')
-    #cli_upload_data('--folder', 'D322CHX0/TargetDCIVCV')
-    #cli_upload_data('--folder', 'D322CHX0')
-    cli_upload_data('--folder', 'D320CGSA')
-
-
-    #cli_upload_data('--folder', 'D311C8J0')
-
-
-    #cli_upload_data('--lot','D308C78B','--wafer','w065')
-    #cli_upload_data('--folder','D308C780/Sam/breakdown_removethis')
-    #cli_upload_data('--folder','D308C780/Sam')
-    #cli_upload_data('--lot','D312C9A0')
-    #cli_upload_data('--lot','D320CGSA','--wafer','w140')
-    #cli_upload_data('--lot','D316CBE0','--wafer','w689','-g','Si TLM')
-
-    #cli_upload_data("-g","GaN n CV","-g","CV Open","--lot","D322CHX0")
-    #cli_upload_data('--lot','D308C780','--wafer','w061','-g','Si pMOS CV','-g','CV Open')
-    #cli_upload_data('--lot','D308C780')
-    #cli_upload_data('--lot','D308C7AB','--wafer','w117','--folder','D308C7AB/Sam')
-    #cli_upload_data('--lot','D308C7AB','--lot','D308C7A0','--lot','D312C9AB','--lot','D312C9A0','--lot','D316CBE0','--lot','D308C780')
-    #cli_dump_extraction('-g','Si pMOS IdVg')
-    #cli_heal()
-
-    #heal(db)
-    #with time_it("Assessing layout params freshness versus pickle"):
-    #    layout_params=LayoutParameters()
-    #db=get_database()
-    #with db.engine.connect() as conn:
-    #    db.update_layout_parameters(layout_params=LayoutParameters(),measurement_group='Si pMOS IdVg',conn=conn)
