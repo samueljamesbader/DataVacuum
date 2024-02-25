@@ -167,9 +167,12 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             else:
                 pre_filter_params[k]=item.value if item.value != [] else ['None']
 
-        logger.debug(f"Pre-filter params: {pre_filter_params}")
-        all_factors=self.database.get_factors((self._prefilter_measgroup or self.meas_groups[0]),
-              list(self.filter_settings),pre_filters=pre_filter_params)
+        logger.debug(f"Pre-filter params: {pre_filter_params} for {(self._prefilter_measgroup or self.meas_groups[0])}, in {self.__class__}")
+        try:
+            all_factors=self.database.get_factors((self._prefilter_measgroup or self.meas_groups[0]),
+                  list(self.filter_settings),pre_filters=pre_filter_params)
+        except Exception as e:
+            raise e
         # Get the factors of pre_filtered data
         with hvparam.parameterized.batch_call_watchers(self):
             for param in self.filter_settings:
@@ -274,7 +277,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         pass
 
     def update_sources_and_figures(self,event):
-        logger.debug(f"Updating sources and figures because: {event.name}")
+        logger.debug(f"Updating sources and figures for {self.__class__.name} because: {event.name}")
         self.update_sources(self._pre_sources)
         self.polish_figures()
 
@@ -407,7 +410,7 @@ class ScalarFilterPlotter(FilterPlotter):
                     eu=self._normalizer.formatted_endunits(p,self.norm_by)
                     sh=self._normalizer.shorthand(p,self.norm_by)
                     eupart=fr"\text{{ [{eu}]}}" if eu!="" else ""
-                    self._sources['labels'][p]=fr"$${self.shownames[p]}{sh}{eupart}$$"
+                    self._sources['labels'][p]=fr"$${self.shownames.get(p,p)}{sh}{eupart}$$"
 
         self._sources['axis_factors']={p:list(sorted(set(list(self._sources['data'].data[str(p)])))) for p in self.categoricals}
         for p,f in self._sources['axis_factors'].items():
@@ -489,7 +492,7 @@ class WafermapFilterPlotter(FilterPlotter):
                 plot_vars=[list(self.plot_vars)]
             if self.plot_var_to_meas_group is not None:
                 meas_groups=sorted(self.plot_var_to_meas_group.values())
-                plot_vars=[[p for p in self.plot_pairs
+                plot_vars=[[p for p in self.plot_var_to_meas_group
                             if self.plot_var_to_meas_group[p]==m] \
                            for m in meas_groups]
             self.__meas_group_to_plot_vars=dict(zip(meas_groups,plot_vars))
@@ -498,12 +501,14 @@ class WafermapFilterPlotter(FilterPlotter):
     @property
     def _plot_var_to_meas_group(self):
         if not hasattr(self,'__plot_var_to_meas_group'):
-            assert (self.plot_vars is not None)!=(self.plot_var_to_meas_group is not None), \
-                "Supply *either* plot_vars *or* plot_var_to_meas_group"
-            if self.plot_vars is not None:
-                self.__plot_var_to_meas_group={p:self.meas_groups[0] for p in self.plot_vars}
+            if (self.plot_vars is not None) and(self.plot_var_to_meas_group is not None):
+                assert set(self.plot_vars)==set(self.plot_var_to_meas_group.keys())
+            #assert (self.plot_vars is not None)!=(self.plot_var_to_meas_group is not None), \
+            #    "Supply *either* plot_vars *or* plot_var_to_meas_group"
             if self.plot_var_to_meas_group is not None:
                 self.__plot_var_to_meas_group=self.plot_var_to_meas_group
+            elif self.plot_vars is not None:
+                self.__plot_var_to_meas_group={p:self.meas_groups[0] for p in self.plot_vars}
         return self.__plot_var_to_meas_group
     def get_meas_groups(self):
         return list(self._meas_group_to_plot_vars.keys())
@@ -516,10 +521,6 @@ class WafermapFilterPlotter(FilterPlotter):
         return [False for m in self._meas_group_to_plot_vars]
 
     def update_sources(self,pre_sources):
-        if len(self.get_meas_groups())!=1:
-            # Haven't implemented merging multiple tables yet
-            # Could still make use of current class if every plot pair is within a table, but haven't implemented that yet
-            raise NotImplementedError
 
         dict_to_df=lambda dct: make_serializable(pd.DataFrame(dct).set_index('DieXY'))
 
@@ -538,6 +539,10 @@ class WafermapFilterPlotter(FilterPlotter):
 
         # Otherwise, analyze the real data
         else:
+            #if len(self.get_meas_groups())!=1:
+            #    # Haven't implemented merging multiple tables yet
+            #    # Could still make use of current class if every plot pair is within a table, but haven't implemented that yet
+            #    raise NotImplementedError
 
             # Compile it all to right columns
             for mi,(m,pp) in enumerate(self._meas_group_to_plot_vars.items()):
@@ -556,7 +561,7 @@ class WafermapFilterPlotter(FilterPlotter):
                 eu=self._normalizer.formatted_endunits(p,self.norm_by)
                 sh=self._normalizer.shorthand(p,self.norm_by)
                 eupart=fr"\text{{ [{eu}]}}" if eu!="" else ""
-                self._sources['labels'][p]=fr"$${self.shownames[p]}{sh}{eupart}$$"
+                self._sources['labels'][p]=fr"$${self.shownames.get(p,p)}{sh}{eupart}$$"
 
     def recreate_figures(self):
         self._figs={}

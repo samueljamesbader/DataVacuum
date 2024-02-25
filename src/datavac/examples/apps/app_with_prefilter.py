@@ -1,4 +1,5 @@
 from functools import reduce
+from typing import Union
 
 import panel as pn
 from panel.template.base import BasicTemplate
@@ -13,7 +14,7 @@ from datavac.io.database import get_database
 class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
     hose_source: str
     hose_analysis: str
-    lot_prefetch_measgroup: str
+    lot_prefetch_measgroup: Union[str,list]
     _need_to_update_lot_filter=hvparam.Event()
     def __init__(self, plotters: dict[str, FilterPlotter],*args,**kwargs):
         super().__init__()
@@ -22,14 +23,18 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         self.lots_preselector=VerticalCrossSelector(
             value=[], options=[], width=170, height=500)
         self._plotters:dict[str,FilterPlotter]=plotters
-        for name, pltr in self._plotters.items():
-            pltr.add_prefilters({'Lot':self.lots_preselector},self.lot_prefetch_measgroup)
+        lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters)\
+            if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
+        for (name, pltr),pfmg in zip(self._plotters.items(),lot_prefetch_measgroup):
+            pltr.add_prefilters({'Lot':self.lots_preselector},pfmg)
         self.param.watch(self._populate_lots,['_need_to_update_lot_filter'])
         self.param.trigger('_need_to_update_lot_filter')
 
     async def _populate_lots(self,*args,**kwargs):
         #self.lots_preselector.options=self.hose.get_lots(self.lot_prefetch_measgroup)
-        self.lots_preselector.options=self.database.get_factors(self.lot_prefetch_measgroup,factor_names=['Lot'])['Lot']
+        lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters) \
+            if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
+        self.lots_preselector.options=self.database.get_factors(lot_prefetch_measgroup[0],factor_names=['Lot'])['Lot']
 
     def get_page(self) -> BasicTemplate:
         self.page.sidebar.append(pn.panel("## Lot pre-filter"))
@@ -46,11 +51,12 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         self.page.main.sizing_mode='fixed'
         return self.page
 
-    def link_shared_widgets(self):
+    def link_shared_widgets(self, except_params=[]):
         attrs=['_filter_param_widgets','_view_param_widgets']
         for attr in attrs:
             all_filter_params=set([k for p in self._plotters.values() for k in getattr(p,attr)])
             for k in all_filter_params:
+                if k in except_params: continue
                 widgets=[getattr(p,attr).get(k,None) for p in self._plotters.values()]
                 widgets=[w for w in widgets if w is not None]
                 if len(widgets)>1:

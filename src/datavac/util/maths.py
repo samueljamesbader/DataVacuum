@@ -29,11 +29,29 @@ def multiy_singlex_linregress(x,ys):
     return res[0,:],res[1,:],np.sqrt(r2)
 
 
-def VTCC(I, V, icc, itol=1e-14):
+def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
+    """ Finds the voltage where `I` crosses icc by log-linear interpolation.
+
+    Only the log of (`|I|+itol`) is used, so the sign of I never comes into play.
+    The crossing is assumed to go from |`I| < icc` to `|I| >= icc` (off to on).
+    If a sweep contains multiple crossings, or crosses in the wrong direction, the
+    result should contain a NaN for that sweep.
+
+    This function is vectorized, so `I` and `V` are 2-D arrays of multiple sweeps.
+
+    Args:
+        I: an n x m numpy array of currents (n sweeps, m points)
+        V: an n x m numpy array of voltages (n sweeps, m points)
+        icc: the current defining threshold
+        itol: tolerance added to all abs(I) before taking logarithm to prevent log(0)
+
+    Returns:
+        an array (of length n) of interpolated crossing voltages
+    """
     logI=np.log(np.abs(I)+itol)
     logicc=np.log(icc)
 
-    ind_aboves=np.argmax(logI>logicc, axis=1)
+    ind_aboves=np.argmax(logI>=logicc, axis=1)
     ind_belows=logI.shape[1]-np.argmax(logI[:,::-1]<logicc, axis=1)-1
     valid_crossing=(ind_aboves==(ind_belows+1))
 

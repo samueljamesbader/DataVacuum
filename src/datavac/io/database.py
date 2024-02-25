@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Union, Callable
 
+import requests
+
 from datavac.io.layout_params import LayoutParameters
 from datavac.io.meta_reader import ensure_meas_group_sufficiency
 from datavac.io.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
@@ -50,6 +52,13 @@ class AlchemyDatabase:
 
     def __init__(self, on_mismatch='raise', skip_establish=False):
         self._sslrootcert = os.environ.get('DATAVACUUM_DB_SSLROOTCERT',None)
+        if self._sslrootcert and not Path(self._sslrootcert).exists():
+            if (rootcerturl:=os.environ.get('DATAVACUUM_DB_SSLROOTCERT_DOWNLOAD',None)):
+                logger.debug(f"{self._sslrootcert} doesn't exist; downloading...")
+                with open(self._sslrootcert,'wb') as f:
+                    f.write((res:=requests.get(rootcerturl,verify=False)).content)
+        assert (self._sslrootcert is None or Path(self._sslrootcert).exists()),\
+            f"SSL root cert {self._sslrootcert} does not exist."
         with time_it("Initializing Database took"):
             self._make_engine()
             self._init_metadata()
@@ -153,7 +162,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
         layout_params=LayoutParameters()
 
         with self.engine.connect() as conn:
-            conn.execute(text(f"SET SEARCH_PATH={self.int_schema};"))
+            make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema};"
+                                   for schema in CONFIG['database']['schema_names'].values()])
+            conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
 
             if self.establish_mask_tables(conn):
                 self.update_mask_info(conn)
@@ -257,7 +268,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             if f"{self.int_schema}.Meas -- {mg}" in self._metadata.tables:
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {mg}" '
                                   f'DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
-            self.clear_database(only_tables=[tab],conn=conn)
+            self.clear_database(only_tables=[tabname],conn=conn)
         def initialize_callback():
             self.update_layout_parameters(layout_params,mg,conn)
 
@@ -327,8 +338,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if (an_tab:=self._hat(analysis)) is None: return
         conn.execute(
             pgsql_insert(self._reatab) \
-                .from_select(["matid","MeasGroup",'full_reload'],
-                             select(self._loadtab.c.matid,literal(analysis),literal(False)) \
+                .from_select(["matid","analysis"],
+                             select(self._loadtab.c.matid,literal(analysis)) \
                              .select_from(an_tab.join(self._loadtab)) \
                              .distinct()) \
                 .on_conflict_do_nothing())
@@ -426,7 +437,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             CONFIG['database']['materials']['full_name'],
             *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
             f'Meas -- {mg}"."Structure',
-            f'Dies"."DieXY',
+            f'Dies"."DieXY',f'Dies"."DieRadius [mm]',
             *mg_info['analysis_columns'].keys(),
             *mg_info['meas_columns'].keys(),
             *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]
@@ -647,6 +658,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                                   precollected_loadids=collected_loadids,
                                   precollected_matid=matid)
             conn.commit()
+            logger.debug(f"Completed all tasks for {str(material_info)}")
 
     def perform_analyses(self, conn, analyses,
                          precollected_data_by_meas_group={}, precollected_loadids={}, precollected_matid=None):
@@ -728,7 +740,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
         # This uses the fact that there is only one loadid for a given mg and matname
         return MultiUniformMeasurementTable([
-            UniformMeasurementTable(dataframe=df,headers=headers,
+            UniformMeasurementTable(dataframe=df.reset_index(drop=True),headers=headers,
                                     meas_length=None,meas_type=meas_type,meas_group=meas_group)
             for rg, df in data.groupby('rawgroup')])
 
@@ -788,7 +800,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             try:
                 return next(c for c in all_cols if c.name==cname)
             except StopIteration:
-                raise Exception(f"Couldn't find column {cname} among {[c.name for c in all_cols]}")
+                raise Exception(f"Couldn't find column {cname} among {[c.name for c in all_cols]} from {[i.name for i in involved_tables]}")
         if scalar_columns:
             if (include_sweeps and unstack_headers):
                 for sc in ['loadid','measid']:
@@ -829,6 +841,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
     def get_factors(self,meas_group,factor_names,pre_filters={}):
         #import pdb; pdb.set_trace()
+        assert meas_group in CONFIG['measurement_groups'], f"'{meas_group}' not in project measurement group listing"
         meastab=self._mgt(meas_group,'meas')
         sweptab=self._mgt(meas_group,'sweep')
         extrtab=self._mgt(meas_group,'extr')
@@ -994,7 +1007,7 @@ def cli_dump_extraction(*args):
     parser.add_argument('-g','--group',action='append',help='Measurement group(s) to drop, eg -g GROUP1 -g GROUP2')
     namespace=parser.parse_args(args)
 
-    db=get_database()
+    db=get_database(skip_establish=True)
     with db.engine.connect() as conn:
         for mg in (namespace.group if namespace.group else CONFIG.measurement_groups):
             db.dump_extractions(mg,conn)
@@ -1003,7 +1016,6 @@ def cli_dump_extraction(*args):
 def cli_force_database(*args):
     parser=argparse.ArgumentParser(description='Replaces any tables not currently in agreement with schema')
     namespace=parser.parse_args(args)
-
     db=get_database(on_mismatch='replace')
 
 def cli_upload_data(*args):
@@ -1036,7 +1048,7 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
     from datavac.io.meta_reader import read_and_analyze_folders
 
     if folders is None:
-        if (connected:=CONFIG.meta_reader.get('connect_toplevel_folder_to',None)):
+        if ((connected:=CONFIG.meta_reader.get('connect_toplevel_folder_to',None)) and (connected in only_material)):
             folders=only_material[connected]
         else:
             if not (prompt('No folder or lot restriction, continue to read EVERYTHING? [y/n] ').strip().lower()=='y'):
@@ -1060,38 +1072,81 @@ def heal(db: PostgreSQLDatabase,):
                          .select_from(db._rextab.join(db._mattab))\
                          .order_by(db._mattab.c.date_user_changed.desc())).all()
         if not len(res):
-            logger.info("Nothing needs healing!")
-            return
-        for matid,matname,*other_matinfo in res:
-            # Reloads
-            logger.info(f"Looking at {matname}")
-            res=conn.execute(select(db._rextab.c.MeasGroup) \
-                             .where(db._rextab.c.matid==matid)\
-                             .where(db._rextab.c.full_reload==True)).all()
-            if not len(res):
-                logger.info("Nothing to reload")
-            else:
-                meas_groups=[r[0] for r in res]
-                read_and_upload_data(db,
-                     folders=None,only_material=dict(**{fullname:matname},**dict(zip(matcolnames,[[om] for om in other_matinfo]))),
-                     only_meas_groups=meas_groups,
-                     clear_all_from_material=False,user_called=False)
+            logger.info("Nothing needs re-loading or re-extracting!")
+        else:
+            for matid,matname,*other_matinfo in res:
+                # Reloads
+                logger.info(f"Looking at {matname}")
+                res=conn.execute(select(db._rextab.c.MeasGroup) \
+                                 .where(db._rextab.c.matid==matid)\
+                                 .where(db._rextab.c.full_reload==True)).all()
+                if not len(res):
+                    logger.info("Nothing to reload")
+                else:
+                    meas_groups=[r[0] for r in res]
+                    read_and_upload_data(db,
+                         folders=None,only_material=dict(**{fullname:matname},**dict(zip(matcolnames,[[om] for om in other_matinfo]))),
+                         only_meas_groups=meas_groups,
+                         clear_all_from_material=False,user_called=False)
 
-            # Re-extracts
-            res=conn.execute(select(db._rextab.c.MeasGroup) \
-                             .where(db._rextab.c.matid==matid) \
-                             .where(db._rextab.c.full_reload==False)).all()
-            if not len(res):
-                logger.info("Nothing to re-extract")
-            else:
-                meas_groups=[r[0] for r in res]
-                logger.info(f"Pulling sweeps for {meas_groups}")
-                mumts={mg:db.get_data_for_regen(mg,matname=matname) for mg in meas_groups}
-                logger.info(f"Re-extracting {meas_groups}")
-                perform_extraction({matname:mumts})
-                logger.info(f"Pushing new extraction for {meas_groups}")
-                db.push_data({fullname:matname},mumts,clear_all_from_material=False,
-                             user_called=False, re_extraction=True)
+                # Re-extracts
+                res=conn.execute(select(db._rextab.c.MeasGroup) \
+                                 .where(db._rextab.c.matid==matid) \
+                                 .where(db._rextab.c.full_reload==False)).all()
+                if not len(res):
+                    logger.info("Nothing to re-extract")
+                else:
+                    meas_groups=[r[0] for r in res]
+                    logger.info(f"Pulling sweeps for {meas_groups}")
+                    mumts={mg:db.get_data_for_regen(mg,matname=matname) for mg in meas_groups}
+                    logger.info(f"Re-extracting {meas_groups}")
+                    perform_extraction({matname:mumts})
+                    logger.info(f"Pushing new extraction for {meas_groups}")
+                    db.push_data({fullname:matname},mumts,clear_all_from_material=False,
+                                 user_called=False, re_extraction=True)
+
+        res=conn.execute(select(db._reatab.c.matid,
+                                *[db._mattab.c[n] for n in [fullname]+matcolnames],) \
+                         .select_from(db._reatab.join(db._mattab)) \
+                         .order_by(db._mattab.c.date_user_changed.desc())).all()
+        if not len(res):
+            logger.info("Nothing needs re-analyzing!")
+        else:
+            for matid,matname,*other_matinfo in res:
+                # Re-analyses
+                res=conn.execute(select(db._reatab.c.analysis) \
+                                 .where(db._reatab.c.matid==matid)).all()
+                if not len(res):
+                    logger.info("Nothing to re-analyze")
+                else:
+                    analyses=[r[0] for r in res]
+                    req_meas_groups=CONFIG.get_dependency_meas_groups_for_analyses(analyses,required_only=True)
+                    all_meas_groups=CONFIG.get_dependency_meas_groups_for_analyses(analyses,required_only=False)
+                    logger.info(f"Pulling measured and extracted data for {list(dict(**all_meas_groups).keys())}")
+                    mumts={}
+                    from datavac.io.measurement_table import MultiUniformMeasurementTable, UniformMeasurementTable
+                    precol_loadids={}
+                    for mg in all_meas_groups:
+                        mg_info = CONFIG['measurement_groups'][mg]
+                        data=db.get_data(meas_group=mg, include_sweeps=False,
+                                         scalar_columns=[*mg_info['meas_columns'],*mg_info['analysis_columns'],
+                                                         'loadid','DieXY','Structure',
+                                                         CONFIG['database']['materials']['full_name'],
+                                                         *CONFIG['database']['materials']['info_columns']],
+                                         **{CONFIG['database']['materials']['full_name']:[matname]})
+                        if mg in req_meas_groups:
+                            assert len(data), f"Missing required data for {mg}"
+                        if len(data):
+                            mumts[mg]=UniformMeasurementTable(dataframe=data,headers=[],
+                                                              meas_length=None,meas_type=None,meas_group=mg)
+                        assert len(list(data['loadid'].unique()))==1
+                        precol_loadids[mg]=data['loadid'].iloc[0]
+                    logger.info(f"Re-analyzing {analyses}")
+                    db.perform_analyses(conn,analyses=analyses,
+                                        precollected_data_by_meas_group=mumts,
+                                        precollected_loadids=precol_loadids,
+                                        precollected_matid=matid)
+                    conn.commit()
 
         logger.info(f"Done healing.")
 

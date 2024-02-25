@@ -1,0 +1,5 @@
+id=datavacuum_helper
+name=DataVac
+supportJmpSE=0
+addinVersion=1
+minJmpVersion=16

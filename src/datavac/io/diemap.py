@@ -207,6 +207,28 @@ def read_velox_wafermap(file,mask,read_sites=True):
                 flatangle=int(l.split("=")[1].strip())
             if l.startswith("WaferTestAngle="):
                 wafertestangle=int(l.split("=")[1].strip())
+            if l.startswith("RefDieOffset="):
+                refdiex,refdiey=[int(xory.strip()) for xory in l.split("=")[1].split(',')]
+            if l.startswith("DieRefPos="):
+                # See below where centerdiex, centerdiey are assigned
+                if l.split("=")[1].strip().endswith("Top"):
+                    y_off_to_center_ll=.5
+                elif l.split("=")[1].strip().endswith("Bottom"):
+                    y_off_to_center_ll=-.5
+                else:
+                    raise Exception(f"What is {l}?")
+                if l.split("=")[1].strip().startswith("Left"):
+                    x_off_to_center_ll=-.5
+                elif l.split("=")[1].strip().startswith("Right"):
+                    y_off_to_center_ll=.5
+                else:
+                    raise Exception(f"What is {l}?")
+            if l.startswith("DieRefPoint="):
+                dierefptx=float(l.split("=")[1].strip().split(',')[0])/1e3
+                dierefpty=float(l.split("=")[1].strip().split(',')[1])/1e3
+                # See below where centerdiex, centerdiey are assigned
+                #assert l.split("=")[1].strip()=="0,0", \
+                #    f"Need to adjust the logic for defining center if {l} is not '0,0'"
             if l.startswith("[Die]"):
                 for l in file:
                     if l.startswith("["):
@@ -240,34 +262,47 @@ def read_velox_wafermap(file,mask,read_sites=True):
 
     if (origin,wafertestangle)==('LL',0):
         dietable=pd.DataFrame({'ProberDieX':[die[0] for die in dies],'ProberDieY':[die[1] for die in dies]})
-        centerdiex=np.median(dietable['ProberDieX'])
-        centerdiey=np.median(dietable['ProberDieY'])
-        x=dietable['ProberDieX']-centerdiex
-        y=dietable['ProberDieY']-centerdiey
-    if (origin,wafertestangle)==('UL',0): # ... not validated
+        #centerdiex=np.median(dietable['ProberDieX'])
+        #centerdiey=np.median(dietable['ProberDieY'])
+        centerdiex=refdiex+x_off_to_center_ll
+        centerdiey=refdiey+y_off_to_center_ll
+        x=dietable['ProberDieX']-centerdiex+dierefptx/xindex
+        y=dietable['ProberDieY']-centerdiey+dierefpty/yindex
+    elif (origin,wafertestangle)==('UL',0): # ... not validated
         logger.warning(f"Origin {origin}, WaferTestAngle {wafertestangle} has not been validated")
         dietable=pd.DataFrame({'ProberDieX':[die[0] for die in dies],'ProberDieY':[die[1] for die in dies]})
-        centerdiex=np.median(dietable['ProberDieX'])
-        centerdiey=np.median(dietable['ProberDieY'])
+        #centerdiex=np.median(dietable['ProberDieX'])
+        #centerdiey=np.median(dietable['ProberDieY'])
+        centerdiex=refdiex+x_off_to_center_ll+dierefptx/xindex
+        centerdiey=refdiey-y_off_to_center_ll-dierefpty/yindex
         x=dietable['ProberDieX']-centerdiex
         y=-(dietable['ProberDieY']-centerdiey)
-    if (origin,wafertestangle)==('UR',270):
+    elif (origin,wafertestangle)==('UR',270):
         #logger.debug('Flipped XY because of origin/testangle')
         # Because of wafertestangle I think, Velox flips the order in which X and Y appear in the die list
         dietable=pd.DataFrame({'ProberDieX':[die[1] for die in dies],'ProberDieY':[die[0] for die in dies]})
-        centerdiex=np.median(dietable['ProberDieX'])
-        centerdiey=np.median(dietable['ProberDieY'])
+        #centerdiex=np.median(dietable['ProberDieX'])
+        #centerdiey=np.median(dietable['ProberDieY'])
+        centerdiex=refdiex-x_off_to_center_ll-dierefptx/xindex
+        centerdiey=refdiey-y_off_to_center_ll-dierefpty/yindex
         # And, because of origin and wafer testangle, -Y is up and -X is right
         x=-(dietable['ProberDieY']-centerdiey)
         y=-(dietable['ProberDieX']-centerdiex)
+    else:
+        raise Exception(f"What is {origin} with {wafertestangle}?")
     # If notch right, flip both signs
     if flatangle==270:
         #print('Flipped XY sign because this is notch right')
         x=-x
         y=-y
 
-    assert np.isclose(np.round(centerdiex-.5),centerdiex-.5), f"Not sure how to find centerdiex {centerdiex}"
-    assert np.isclose(np.round(centerdiey-.5),centerdiey-.5), f"Not sure how to find centerdiey {centerdiey}"
+    # If die pattern is symmetric, then the median is probably supposed to be at wafer center
+    meddiex=np.median(dietable['ProberDieX'])
+    meddiey=np.median(dietable['ProberDieY'])
+    if np.isclose(np.round(meddiex-.5),meddiex-.5):
+        assert np.isclose(meddiex,centerdiex), f"Y Median is {meddiex} but Y Center is {centerdiex}"
+    if np.isclose(np.round(meddiey-.5),meddiey-.5):
+        assert np.isclose(meddiey,centerdiey), f"Y Median is {meddiey} but Y Center is {centerdiey}"
 
     dietable['ProberDieLoc']=pd.Series([f"x{dlx}y{dly}" for dlx,dly in zip(dietable['ProberDieX'],dietable['ProberDieY'])],dtype="string")
     dietable['DieRadius [mm]']=np.round(np.sqrt((x*xindex)**2+(y*yindex)**2),decimals=1)

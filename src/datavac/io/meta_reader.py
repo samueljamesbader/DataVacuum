@@ -90,6 +90,8 @@ def read_folder_nonrecursive(folder: str,
                                         **reader.get('fixed_args',{}),
                                         **{k:read_info_so_far[v] for k,v in reader['template']['read_so_far_args'].items()})
                                 if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
+                                if 'post_read' in reader:
+                                    for read_df in read_dfs: import_modfunc(reader['post_read'])(read_df)
                             except NoDataFromFileException as e:
                                 #logger.info(f"In {f.relative_to(folder)}, found nothing for '{meas_group}'")
                                 continue
@@ -155,13 +157,15 @@ def perform_extraction(matname_to_mg_to_data):
                 data=mg_to_data[mg]
                 logger.debug(f"{mg} extraction")
                 for pre_analysis in CONFIG['measurement_groups'][mg].get('pre_analysis',[]):
-                    if type(pre_analysis) is list:
-                        pre_analysis,*args=pre_analysis
-                    else:
-                        pre_analysis,*args=pre_analysis,
+                    if type(pre_analysis) is list: pre_analysis,*args=pre_analysis
+                    else:                          pre_analysis,*args=pre_analysis,
                     import_modfunc(pre_analysis)(data,*args)
                 dep_kws={deps[d]:mg_to_data[d] for d in deps if d in mg_to_data}
                 data.analyze(**dep_kws)
+                for post_analysis in CONFIG['measurement_groups'][mg].get('post_analysis',[]):
+                    if type(post_analysis) is list: post_analysis,*args=post_analysis
+                    else:                           post_analysis,*args=post_analysis,
+                    import_modfunc(post_analysis)(data,*args)
                 check_dtypes(data.scalar_table)
 
                 to_be_extracted.remove(mg)

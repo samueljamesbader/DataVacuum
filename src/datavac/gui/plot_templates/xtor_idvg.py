@@ -31,7 +31,8 @@ class StandardIdVgPlotter(FilterPlotter):
         self.param.color_by.objects=list(self.filter_settings.keys())+['VD','SweepDir']
         if self.color_by is None: self.color_by='LotWafer'
         self.param.vds.objects=vds_options
-        if self.vds is None: self.vds=[next(iter(sorted(vds_options,key=lambda x: abs(float(x)),reverse=True)))]
+        #if self.vds is None: self.vds=[next(iter(sorted(vds_options,key=lambda x: abs(float(x)),reverse=True)))]
+        if self.vds is None: self.vds=[vds_options[0]]
 
     def get_raw_column_names(self):
         return [['VG']+[f'{sd}I{term}@VD={vd}' for vd in self.param.vds.objects for term in ['G','D'] for sd in self.param.sweep_dirs.objects]]

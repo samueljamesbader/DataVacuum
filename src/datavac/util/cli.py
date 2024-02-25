@@ -10,6 +10,7 @@ cli_funcs={
     'clear_reextract_list': 'datavac.io.database:cli_clear_reextract_list',
     'force_database': 'datavac.io.database:cli_force_database',
     'heal': 'datavac.io.database:cli_heal',
+    'compile_jmp': 'datavac.jmp.compile_addin:cli_compile_jmp_addin',
 }
 def cli_main():
     try:

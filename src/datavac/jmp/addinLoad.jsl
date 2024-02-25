@@ -1,0 +1,18 @@
+ADDIN_HOME = Get Path Variable("ADDIN_HOME(%ADDINID%)");
+Print("Loading DataVacuum add-in from "|| ADDIN_HOME);
+
+DVSHARE_PATH = "";
+If(File Exists( "$ADDIN_HOME(%ADDINID%)/dvsharepath" ),
+    DVSHARE_PATH = Load Text File( "$ADDIN_HOME(%ADDINID%)/dvsharepath" );
+    If(Not(Directory Exists( DVSHARE_PATH)),
+        Print("DataVacuum Share does not exist at: " || DVSHARE_PATH);
+        DVSHARE_PATH="";
+    );
+);
+If(DVSHARE_PATH == "",
+    DVSHARE_PATH = Pick Directory("Select the DataVacuum Share folder for this add-in");
+    Save Text File( "$ADDIN_HOME(%ADDINID%)/dvsharepath", DVSHARE_PATH );
+);
+Print( "DataVacuum Share Path is "|| DVSHARE_PATH );
+
+Include( "$ADDIN_HOME(%ADDINID%)/dbconn.jsl");

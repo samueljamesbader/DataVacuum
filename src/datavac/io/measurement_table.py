@@ -112,7 +112,9 @@ class UniformMeasurementTable(MeasurementTable):
 
     def __init__(self,dataframe,headers,meas_type,meas_group,meas_length):
         super().__init__(headers=headers,meas_type=meas_type,meas_group=meas_group)
-        self._the_dataframe=dataframe
+        assert isinstance(dataframe.index,pd.RangeIndex) and dataframe.index.start==0 and dataframe.index.step==1, \
+            "Make sure the dataframe has a default index for UniformMeasurementTable"
+        self._the_dataframe=dataframe.copy()
         self.meas_length=meas_length
 
         check_dtypes(self.scalar_table)
@@ -140,6 +142,9 @@ class UniformMeasurementTable(MeasurementTable):
 
     def __setitem__(self,item,value):
         assert item not in self.headers
+        if isinstance(value,pd.Series):
+            assert isinstance(value.index,pd.RangeIndex) and value.index.start==0 and value.index.step==1, \
+                "Make sure the value has a default index for setting to UniformMeasurementTable"
         self._the_dataframe.__setitem__(item,value)
 
     def drop(self,columns=None):

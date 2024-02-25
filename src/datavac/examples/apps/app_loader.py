@@ -19,7 +19,7 @@ class AppLoader(PanelApp):
         return [f.name for f in READ_DIR.iterdir() if f.is_dir()]
     def get_page(self):
 
-        folders=self.get_allowed_folders()
+        folders=list(sorted(self.get_allowed_folders()))
         self.folder_preselector=CrossSelector(options=folders,width=670)
         self.load_button=pn.widgets.Button(name="Load")
         self.load_button.on_click(self.do_load)

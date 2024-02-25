@@ -12,7 +12,7 @@ from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.util.logging import logger
 
 
-class StandardDiodeDCPlotter(FilterPlotter):
+class StandardDCIVPlotter(FilterPlotter):
 
     # View settings
     sweep_dirs=hvparam.ListSelector(default=['f'],objects=['f'])
@@ -87,3 +87,5 @@ class StandardDiodeDCPlotter(FilterPlotter):
             self._figlin.yaxis.axis_label=ylabels['ilin']
 
 
+class StandardDiodeDCPlotter(StandardDCIVPlotter):
+    pass

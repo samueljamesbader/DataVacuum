@@ -14,6 +14,7 @@ class AppTLM(PanelAppWithLotPrefilter):
     normalization_details={}
 
     vds_options=hvparam.List()
+    lsep_name=hvparam.String()
 
     shownames=hvparam.Dict()
     scalar_plot_pairs=hvparam.Parameter()
@@ -26,14 +27,18 @@ class AppTLM(PanelAppWithLotPrefilter):
 
     def __init__(self,*args,**kwargs):
         plotters={
-            'Raw IdVg': StandardTLMIVPlotter(
+            'Raw TLM': StandardTLMIVPlotter(
                 #layout_function=make_allaround_layout,
                 filter_settings=dict(**self.raw_filter_settings,**self.summ_filter_settings),
                 meas_groups=[self.raw_meas_group,self.summ_meas_group],
                 normalization_details=self.normalization_details,
+                lsep_name=self.lsep_name
             ),
             'Benchmarks': ScalarFilterPlotter(
                 #layout_function=make_allaround_layout,
+                # TODO: remove goodfit from here.
+                # only present right now because summ_filter_settings are also given to Raw
+                #filter_settings=dict(**self.summ_filter_settings,**{'goodfit':[True]}),
                 filter_settings=self.summ_filter_settings,
                 meas_groups=[self.summ_meas_group],
                 normalization_details=self.normalization_details,

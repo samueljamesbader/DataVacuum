@@ -1,0 +1,17 @@
+<!-- JMP Add-In Builder created --><jm:menu_and_toolbar_customizations xmlns:jm="http://www.jmp.com/ns/menu" version="3">
+  <jm:insert_in_main_menu>
+    <jm:insert_in_menu>
+      <jm:name>ADD-INS</jm:name>
+      <jm:insert_after>
+        <jm:name></jm:name>
+        <jm:command>
+          <jm:name>CONNECT WAFERMAP</jm:name>
+          <jm:caption>Connect Wafermap</jm:caption>
+          <jm:action type="path">$ADDIN_HOME(datavacuum_helper)\ConnectToWaferMap.jsl_2</jm:action>
+          <jm:tip>Set role for mappable columns</jm:tip>
+          <jm:icon type="none"></jm:icon>
+        </jm:command>
+      </jm:insert_after>
+    </jm:insert_in_menu>
+  </jm:insert_in_main_menu>
+</jm:menu_and_toolbar_customizations>
