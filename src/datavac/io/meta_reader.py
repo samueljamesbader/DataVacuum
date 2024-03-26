@@ -131,19 +131,21 @@ def read_folder_nonrecursive(folder: str,
                 logger.info(f"In {f.relative_to(folder)}, found {found_mgs}, didn't find {not_found_mgs}.")
     return matname_to_mg_to_data, matname_to_material_info
 
-def ensure_meas_group_sufficiency(meas_groups, required_only=False):
-    add_meas_groups=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
-    missing=[mg for mg in add_meas_groups if mg not in meas_groups]
-    assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
-                            (" to be checked." if not required_only else ".")
+def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='raise'):
+    add_meas_groups1=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
+    missing=[mg for mg in add_meas_groups1 if mg not in meas_groups]
+    if on_error=='raise':
+        assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
+                                (" to be checked." if not required_only else ".")
 
     ans=CONFIG.get_dependent_analyses(meas_groups)
-    add_meas_groups=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
-    missing=[mg for mg in add_meas_groups if mg not in meas_groups]
-    assert len(missing)==0, f"Measurements groups {meas_groups} affect analyses {ans}, "\
-                            f"which require {missing}"+\
-                            (" to be checked." if not required_only else ".")
-    return ans
+    add_meas_groups2=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
+    missing=[mg for mg in add_meas_groups2 if mg not in meas_groups]
+    if on_error=='raise':
+        assert len(missing)==0, f"Measurements groups {meas_groups} affect analyses {ans}, "\
+                                f"which require {missing}"+\
+                                (" to be checked." if not required_only else ".")
+    return list(set(meas_groups).union(set(add_meas_groups1).union(add_meas_groups2)))
 
 def perform_extraction(matname_to_mg_to_data):
     for matname, mg_to_data in matname_to_mg_to_data.items():

@@ -73,7 +73,7 @@ class StandardCVPlotter(FilterPlotter):
                 if skip_theta:
                     theta=cv['VG']*np.NaN
                 else:
-                    theta=(180/np.pi)*np.arctan2(2*np.pi*f.to_numpy()*np.vstack(cv['Cp']).T,np.vstack(cv['G']).T).T
+                    theta=(180/np.pi)*np.arctan2(2*np.pi*f.to_numpy()*np.vstack(cv['Cp']-cv['Copen [F]']).T,np.vstack(cv['G']).T).T
             else:
                 theta=[]
 

@@ -166,7 +166,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                                    for schema in CONFIG['database']['schema_names'].values()])
             conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
 
-            if self.establish_mask_tables(conn):
+            if self.establish_mask_tables(conn, on_mismatch=on_mismatch):
                 self.update_mask_info(conn)
 
             # Always raise if mismatch on these core tables because
@@ -218,37 +218,71 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 self.establish_higher_analysis_tables(an,conn,on_mismatch=on_mismatch)
                 conn.commit()
 
-    def establish_mask_tables(self,conn):
+    def establish_mask_tables(self,conn, on_mismatch='raise'):
         needs_update=False
-        if f'{self.int_schema}.Masks' not in self._metadata.tables:
-            masktab=Table(f'Masks',self._metadata,
+        def yes_needs_update():
+            nonlocal needs_update
+            needs_update=True
+        self._ensure_table_exists(conn,self.int_schema,f'Masks',
                           Column('Mask',VARCHAR,nullable=False,unique=True,primary_key=True),
                           Column('info_pickle',BYTEA,nullable=False),
-                          )
-            masktab.create(conn)
-            needs_update=True
-        if f'{self.int_schema}.Dies' not in self._metadata.tables:
-            diemtab=Table(f'Dies',self._metadata,
+                          on_mismatch=on_mismatch,on_init=yes_needs_update)
+        self._ensure_table_exists(conn,self.int_schema,f'Dies',
                           Column('dieid',INTEGER,autoincrement=True,nullable=False,primary_key=True),
                           Column('Mask',VARCHAR,ForeignKey("Masks.Mask",**_CASC),nullable=False,index=True),
                           Column('DieXY',VARCHAR,nullable=False,index=True),
                           Column('DieRadius [mm]',INTEGER,nullable=False),
-                          UniqueConstraint('Mask','DieXY')
-                          )
-            diemtab.create(conn)
-            needs_update=True
+                          Column('DieCenterX [mm]',DOUBLE_PRECISION,nullable=False),
+                          Column('DieCenterY [mm]',DOUBLE_PRECISION,nullable=False),
+                          UniqueConstraint('Mask','DieXY'),
+                          on_mismatch=on_mismatch,on_init=yes_needs_update)
         return needs_update
+
+    def ensure_die_constraint(self,conn):
+        #tab=self._mgt(mg,'Meas').name
+        res=conn.execute(
+            text("SELECT table_name FROM information_schema.table_constraints"
+                 f" WHERE table_schema='{self.int_schema}' AND "
+                 " constraint_name='fk_dieid';"))
+        constrained_tabs=[x[0] for x in res]
+        unconstrained_tabs=[]
+        for mg in list(CONFIG['measurement_groups']):
+            if (tab:=self._mgt(mg,'Meas')) is not None:
+                if tab.name not in constrained_tabs:
+                    unconstrained_tabs.append(tab.name)
+        for an in list(CONFIG['higher_analyses']):
+            if (tab:=self._hat(an)) is not None:
+                if tab.name not in constrained_tabs:
+                    unconstrained_tabs.append(tab.name)
+        for tab in unconstrained_tabs:
+            conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
+                              f' ADD CONSTRAINT "fk_dieid" FOREIGN KEY ("dieid")' \
+                              f' REFERENCES {self.int_schema}."Dies" ("dieid") ON DELETE CASCADE;'))
 
     def update_mask_info(self,conn):
         """ Warning, this will currently wipe any data because I haven't unreferenced keys"""
 
+        previous_masktab=pd.read_sql(select(*self._masktab.columns),conn)
+        #######Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
         diemdf=[]
         for mask,info in CONFIG['diemaps'].items():
             dbdf,to_pickle=import_modfunc(info['generator'])(**info['args'])
-            diemdf.append(dbdf.assign(Mask=mask)[['Mask','DieXY','DieRadius [mm]']])
-            conn.execute(insert(self._masktab).values(Mask=mask,info_pickle=pickle.dumps(to_pickle)))
+            diemdf.append(dbdf.assign(Mask=mask)[['Mask','DieXY','DieRadius [mm]','DieCenterX [mm]','DieCenterY [mm]']])
+            update_info=dict(Mask=mask,info_pickle=pickle.dumps(to_pickle))
+            conn.execute(pgsql_insert(self._masktab).values(**update_info)\
+                         .on_conflict_do_update(index_elements=['Mask'],set_=update_info))
 
-        self._upload_csv(pd.concat(diemdf).reset_index(),conn,self.int_schema,'Dies')
+        diemdf=pd.concat(diemdf).reset_index(drop=True).reset_index(drop=False)
+        previous_dietab=pd.read_sql(select(*self._diemtab.columns),conn).reset_index(drop=False)
+        # This checks that nothing has changed in the previous table
+        # very important to check that because all the measured data is only associated with a die index,
+        # so if we accidentally change the die index, even by uploading the tables in a different order...
+        # poof all the old data is now associated with the wrong dies or even wrong masks!!
+        assert len(previous_dietab.merge(diemdf))==len(previous_dietab),\
+            "Can't add to die tables without messing up existing dies"
+        self._upload_csv(diemdf.iloc[len(previous_dietab):],conn,self.int_schema,'Dies')
+
+        self.ensure_die_constraint(conn)
 
     def get_mask_info(self,mask):
         with self.engine.connect() as conn:
@@ -324,7 +358,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             meas_tab=self._mgt(measurement_group,'meas')
         except KeyError:
             return
-        if True:
+        if meas_tab is not None:
             conn.execute(
                 pgsql_insert(self._rextab) \
                     .from_select(["matid","MeasGroup",'full_reload'],
@@ -363,7 +397,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             logger.debug(f"Layout parameters changed for {measurement_group}, updating")
             if dump_extractions:
                 self.dump_extractions(measurement_group,conn)
-            elif self._mgt(measurement_group,'meas') is not None:
+            if self._mgt(measurement_group,'meas') is not None:
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}"'\
                                   f' DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
             conn.execute(delete(tab))
@@ -601,7 +635,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
                     if not re_extraction:
                         # Upload the measurement list
-                        with time_it("Meas table altogether"):
+                        with time_it(f"Meas table {meas_group} altogether"):
                             mask=material_info['Mask']
                             diem=pd.DataFrame.from_records(conn.execute(select(self._diemtab.c.DieXY,self._diemtab.c.dieid)\
                                             .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
@@ -719,15 +753,20 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
 
 
-    def get_data_for_regen(self, meas_group, matname):
+    def get_data_for_regen(self, meas_group, matname, on_no_data='raise'):
         meas_cols=list(CONFIG['measurement_groups'][meas_group]['meas_columns'])
         data=self.get_data(meas_group=meas_group,
-                      scalar_columns=['loadid','measid','rawgroup','DieXY','Structure',*meas_cols],
+                      scalar_columns=['loadid','measid','rawgroup','DieXY','DieCenterX [mm]','DieCenterY [mm]','Structure','Mask',*meas_cols],
                       include_sweeps=True, raw_only=True, unstack_headers=True,
                       **{CONFIG['database']['materials']['full_name']:[matname]})
 
         if not(len(data)):
-            raise Exception(f"No data for re-extraction of {matname} with measurement group {meas_group}")
+            match on_no_data:
+                case 'raise':
+                    raise Exception(f"No data for re-extraction of {matname} with measurement group {meas_group}")
+                case None:
+                    return None
+
 
         headers=[]
         for c in data.columns:
@@ -971,19 +1010,25 @@ def cli_clear_database(*args):
     parser=argparse.ArgumentParser(description='Clears out the database [after confirming].')
     parser.add_argument('-y','--yes',action='store_true',help="Don't ask confirmation, just clear it.")
     parser.add_argument('-t','--table',action='append',help="Clear specific table(s), eg -t TAB1 -t TAB2")
+    parser.add_argument('--keep_rex',action='store_true',help="Keep the materials and re-ex tables (ie leave enough info to heal)")
     namespace=parser.parse_args(args)
-    if namespace.yes\
+
+    db=get_database(skip_establish=True)
+    try:
+        only_tables=list(db._metadata.tables.values()) if namespace.table is None else [db._metadata.tables[t] for t in namespace.table]
+    except KeyError as e:
+        logger.critical(f"Couldn't find {str(e)}.")
+        if '.' not in str(e):
+           logger.critical("Did you forget to include the schema?")
+        logger.critical(f"Options in include {list(db._metadata.tables.keys())}")
+        return
+    if namespace.keep_rex:
+        only_tables=[t for t in only_tables
+                     if t.name not in ["Materials",f"ReExtract"]]
+    logger.info(f"Tables that will get cleared: {sorted([t.name for t in only_tables])}")
+    if namespace.yes \
             or (prompt('Are you sure you want to clear the database? ').strip().lower()=='y'):
         logger.warning("Clearing database")
-        db=get_database(skip_establish=True)
-        try:
-            only_tables=None if namespace.table is None else [db._metadata.tables[t] for t in namespace.table]
-        except KeyError as e:
-            logger.critical(f"Couldn't find {str(e)}.")
-            if '.' not in str(e):
-               logger.critical("Did you forget to include the schema?")
-            logger.critical(f"Options in include {list(db._metadata.tables.keys())}")
-            return
         db.clear_database(only_tables=only_tables)
         logger.warning("Done clearing database")
 
@@ -1000,6 +1045,17 @@ def cli_update_layout_params(*args):
     with db.engine.connect() as conn:
         for mg in layout_params._tables_by_meas:
             db.update_layout_parameters(layout_params,mg,conn)
+        conn.commit()
+
+def cli_dump_measurement(*args):
+    parser=argparse.ArgumentParser(description='Dumps measurements')
+    parser.add_argument('-g','--group',action='append',help='Measurement group(s) to drop, eg -g GROUP1 -g GROUP2')
+    namespace=parser.parse_args(args)
+
+    db=get_database(skip_establish=True)
+    with db.engine.connect() as conn:
+        for mg in (namespace.group if namespace.group else CONFIG.measurement_groups):
+            db.dump_measurements(mg,conn)
         conn.commit()
 
 def cli_dump_extraction(*args):
@@ -1061,7 +1117,7 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
         logger.info(f"Uploading {matname}")
         db.push_data(matname_to_inf[matname],matname_to_data[matname],
                      clear_all_from_material=clear_all_from_material, user_called=user_called)
-def heal(db: PostgreSQLDatabase,):
+def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
     """ Goes in order of most recent material first, and within that, reloads first than re-extractions."""
     from datavac.io.meta_reader import perform_extraction
     fullname=CONFIG['database']['materials']['full_name']
@@ -1083,10 +1139,11 @@ def heal(db: PostgreSQLDatabase,):
                 if not len(res):
                     logger.info("Nothing to reload")
                 else:
-                    meas_groups=[r[0] for r in res]
+                    meas_groups=None if force_all_meas_groups else [r[0] for r in res]
+                    all_meas_groups=ensure_meas_group_sufficiency(meas_groups,on_error='ignore')
                     read_and_upload_data(db,
                          folders=None,only_material=dict(**{fullname:matname},**dict(zip(matcolnames,[[om] for om in other_matinfo]))),
-                         only_meas_groups=meas_groups,
+                         only_meas_groups=all_meas_groups,
                          clear_all_from_material=False,user_called=False)
 
                 # Re-extracts
@@ -1097,12 +1154,15 @@ def heal(db: PostgreSQLDatabase,):
                     logger.info("Nothing to re-extract")
                 else:
                     meas_groups=[r[0] for r in res]
-                    logger.info(f"Pulling sweeps for {meas_groups}")
-                    mumts={mg:db.get_data_for_regen(mg,matname=matname) for mg in meas_groups}
+                    all_meas_groups=ensure_meas_group_sufficiency(meas_groups,on_error='ignore')
+                    logger.info(f"Pulling sweeps for {all_meas_groups} to re-extract {meas_groups}")
+                    mumts={mg:db.get_data_for_regen(mg,matname=matname,on_no_data=None) for mg in all_meas_groups}
+                    mumts={k:v for k,v in mumts.items() if v is not None}
                     logger.info(f"Re-extracting {meas_groups}")
                     perform_extraction({matname:mumts})
                     logger.info(f"Pushing new extraction for {meas_groups}")
-                    db.push_data({fullname:matname},mumts,clear_all_from_material=False,
+                    db.push_data({fullname:matname},{k:v for k,v in mumts.items() if k in meas_groups},
+                                 clear_all_from_material=False,
                                  user_called=False, re_extraction=True)
 
         res=conn.execute(select(db._reatab.c.matid,
@@ -1152,12 +1212,13 @@ def heal(db: PostgreSQLDatabase,):
 
 def cli_heal(*args):
     parser=argparse.ArgumentParser(description='Tries to re-extract or re-load dumped info')
+    parser.add_argument('-a','--all_measgroups',action='store_true',help="Force re-upload of all meas groups for each healed lot")
     namespace=parser.parse_args(args)
     db=get_database()
-    heal(db)
+    heal(db,force_all_meas_groups=namespace.all_measgroups)
 
 def cli_clear_reextract_list(*args):
-    parser=argparse.ArgumentParser(description='Clears the list of items which will be re-extract upon healing')
+    parser=argparse.ArgumentParser(description='Clears the list of items which will be re-extracted upon healing')
     parser.add_argument('-g','--group',action='append',help='Measurement group(s) to clear from list, eg -g GROUP1 -g GROUP2')
     namespace=parser.parse_args(args)
 
@@ -1169,6 +1230,11 @@ def cli_clear_reextract_list(*args):
     with self.engine.begin() as conn:
         conn.execute(dstat)
 
+def cli_print_database():
+    connection_info=dict([[s.strip() for s in x.split("=")] for x in
+                          os.environ['DATAVACUUM_DBSTRING'].split(";")])
+    print(connection_info['Server'])
+
 def entry_point_make_jmpstart():
     try:
         jslfile=sys.argv[1]
@@ -1176,6 +1242,14 @@ def entry_point_make_jmpstart():
         raise Exception("Supply a path for the JSL file you want to produce," \
                         " eg 'datavac_make_jmpstart JMP_DIR/this.jsl'.")
     get_database().make_JMPstart(jslfile)
+
+def cli_update_mask_info(*args):
+    parser=argparse.ArgumentParser(description='Updates the mask information in the database')
+    namespace=parser.parse_args(args)
+    self=get_database(skip_establish=True)
+    with self.engine.connect() as conn:
+        self.update_mask_info(conn)
+        conn.commit()
 
 class DDFDatabase(Database):
     def __init__(self,ddf={}):

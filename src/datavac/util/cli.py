@@ -7,8 +7,11 @@ cli_funcs={
     'clear_database': 'datavac.io.database:cli_clear_database',
     'upload_data': 'datavac.io.database:cli_upload_data',
     'dump_extraction': 'datavac.io.database:cli_dump_extraction',
+    'dump_measurement': 'datavac.io.database:cli_dump_measurement',
+    'print_database': 'datavac.io.database:cli_print_database',
     'clear_reextract_list': 'datavac.io.database:cli_clear_reextract_list',
     'force_database': 'datavac.io.database:cli_force_database',
+    'update_mask_info': 'datavac.io.database:cli_update_mask_info',
     'heal': 'datavac.io.database:cli_heal',
     'compile_jmp': 'datavac.jmp.compile_addin:cli_compile_jmp_addin',
 }

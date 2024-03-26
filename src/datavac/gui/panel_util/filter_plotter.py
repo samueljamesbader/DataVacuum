@@ -19,7 +19,6 @@ from datavac.gui.bokeh_util.util import make_serializable, make_color_col, small
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
 from datavac.io.database import get_database, Database
-from datavac.io.hose import Hose
 from datavac.util.logging import logger
 from datavac.util.units import Normalizer
 

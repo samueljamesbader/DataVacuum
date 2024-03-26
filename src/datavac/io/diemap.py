@@ -159,6 +159,8 @@ def make_fullwafer_diemap(name, xindex, yindex, radius=150, notchsize=5, plot=Fa
     # To put in the database
     dbdf=pd.DataFrame({
         'DieXY':list(allmappoints.keys()),
+        'DieCenterX [mm]':np.array(list(x_lefts.values()))+.5*xindex,
+        'DieCenterY [mm]':np.array(list(y_bottoms.values()))+.5*yindex,
         'DieRadius [mm]':np.asarray(np.round(np.sqrt((np.array(list(x_lefts.values()))+.5*xindex)**2+(np.array(list(y_bottoms.values()))+.5*yindex)**2)),dtype=int)
     })
 

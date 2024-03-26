@@ -71,14 +71,14 @@ def stack_multi_sweeps(df,x,ys,swvs, restrict_dirs=None, restrict_swvs=None, non
                                 if yheader.startswith(d) and yheaders_to_vs[yheader]==vs]
             if not len(yheaders_in_subtab): continue
             subtabs.append(
-                df[[x]+yheaders_in_subtab+bystanders] \
+                df[([x] if x is not None else [])+yheaders_in_subtab+bystanders] \
                     .rename(columns={yheader:yheader[len(d):].split("@")[0] \
                                      for yheader in yheaders_in_subtab}) \
                     .assign(**{swv:v for swv,v in zip(swvs,vs)},**({} if non_directed else {'SweepDir':d})))
     if len(subtabs):
         return pd.concat(subtabs)
     else:
-        return pd.DataFrame({k:[] for k in [x]+ys+bystanders})
+        return pd.DataFrame({k:[] for k in ([x] if x is not None else [])+ys+bystanders})
 
 def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None, non_directed=False):
     return stack_multi_sweeps(
