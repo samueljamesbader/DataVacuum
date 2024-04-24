@@ -240,6 +240,8 @@ class LayoutParameters:
                         raise Exception(f"Missing parameter {param}")
                     elif on_missing=='NA':
                         params[param]=pd.NA
+                    elif on_missing=='ignore':
+                        continue
                     else:
                         raise Exception(f"Unrecognized value for on_missing={on_missing}")
         else:

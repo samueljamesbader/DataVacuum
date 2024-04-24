@@ -15,6 +15,7 @@ class AppTLM(PanelAppWithLotPrefilter):
 
     vds_options=hvparam.List()
     lsep_name=hvparam.String()
+    r_name=hvparam.String(default='R')
 
     shownames=hvparam.Dict()
     scalar_plot_pairs=hvparam.Parameter()
@@ -30,9 +31,11 @@ class AppTLM(PanelAppWithLotPrefilter):
             'Raw TLM': StandardTLMIVPlotter(
                 #layout_function=make_allaround_layout,
                 filter_settings=dict(**self.raw_filter_settings,**self.summ_filter_settings),
-                meas_groups=[self.raw_meas_group,self.summ_meas_group],
+                #meas_groups=[self.raw_meas_group,self.summ_meas_group],
+                meas_groups=[self.raw_meas_group],
                 normalization_details=self.normalization_details,
-                lsep_name=self.lsep_name
+                lsep_name=self.lsep_name,
+                r_name=self.r_name
             ),
             'Benchmarks': ScalarFilterPlotter(
                 #layout_function=make_allaround_layout,

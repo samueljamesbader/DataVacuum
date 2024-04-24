@@ -40,7 +40,8 @@ class StandardIdVgPlotter(FilterPlotter):
     def _extract_gm(self, stacked_data):
         if len(stacked_data[f'ID']):
             try:
-                id=np.vstack(stacked_data[f'ID'])
+                nany=stacked_data['VG'].iloc[0]*np.NaN
+                id=np.vstack([(id if len(id) else nany) for id in stacked_data[f'ID']])
                 vg=np.vstack(stacked_data[f'VG'])
                 stacked_data[f'GM']=list((np.gradient(id,axis=1).T/(vg[:,1]-vg[:,0])).T)
             except Exception as e:
@@ -82,7 +83,7 @@ class StandardIdVgPlotter(FilterPlotter):
                 'GM':self._normalizer.get_scaled(idvg,f'GM',self.norm_by),
                 'legend':idvg[self.color_by],
                 'color':make_color_col(idvg[self.color_by],
-                           all_factors=self.param[self.color_by].objects)
+                           all_factors=self.param[{'VD':'vds'}.get(self.color_by,self.color_by)].objects)
             }
 
             # And make the y_axis names

@@ -85,9 +85,9 @@ class StandardCVPlotter(FilterPlotter):
                 'VG':cv[f'VG'],
                 'Cp':self._normalizer.get_scaled(cv,f'Cp',self.norm_by),
                 'theta': list(theta),
-                'legend':cv[self.color_by],
-                'color':make_color_col(cv[self.color_by],
-                           all_factors=self.param[self.color_by].objects)
+                'legend':cv[{'Freq':'freq'}.get(self.color_by,self.color_by)],
+                'color':make_color_col(cv[{'Freq':'freq'}.get(self.color_by,self.color_by)],
+                           all_factors=self.param[{'Freq':'freqs'}.get(self.color_by,self.color_by)].objects)
             }
 
             # And make the y_axis names
@@ -111,11 +111,11 @@ class StandardCVPlotter(FilterPlotter):
 
         figC = self._figC = figure(width=250,height=300)
         figC.multi_line(xs='VG',ys='Cp',source=source,legend_field='legend',color='color')
-        figC.xaxis.axis_label="$$V_G\\text{ [V]}$$"
+        figC.xaxis.axis_label="$$"+self.shownames.get('VG','V_G\\text{ [V]}')+"$$"
 
         figG = self._figG = figure(width=250,height=300,y_range=(-180,180))
         figG.multi_line(xs='VG',ys='theta',source=source,legend_field='legend',color='color')
-        figG.xaxis.axis_label="$$V_G\\text{ [V]}$$"
+        figG.xaxis.axis_label="$$"+self.shownames.get('VG','V_G\\text{ [V]}')+"$$"
         figG.add_layout((bokeh.models.Span(location=100,dimension='width',line_color='black',line_width=.5,line_dash='dashed')))
         figG.add_layout((bokeh.models.Span(location= 80,dimension='width',line_color='black',line_width=.5,line_dash='dashed')))
         figG.legend.location='bottom_center'

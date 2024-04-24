@@ -71,10 +71,7 @@ class Normalizer():
         if (normalizer is False) or (column not in self._udeets[normalizer]):
             #logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
             return ""
-        eu=self._udeets[normalizer][column]['end_units']\
-            .replace("*",r'$\cdot$').replace("ohm",r"$\Omega$")\
-            .replace("u",r"$\mu$").replace("$$","")\
-            .replace("^2",r"$^2$")
+        eu=self.units_replacer(self._udeets[normalizer][column]['end_units'])
         return eu
 
     def normalizer_columns(self):
@@ -83,5 +80,20 @@ class Normalizer():
     @property
     def norm_options(self):
         return list(self._udeets.keys())
+
+    @staticmethod
+    def units_replacer(units_string):
+        return units_string\
+            .replace("*",r'$\cdot$').replace("ohm",r"$\Omega$") \
+            .replace("u",r"$\mu$").replace("$$","") \
+            .replace("^2",r"$^2$")
+
+    @staticmethod
+    def clean_up_column_name_for_label(col):
+        if "[" in col:
+            name_part,units_part=col.split("[")
+            name_part=name_part.strip()
+            units_part=units_part[:-1]
+            return fr"$${name_part}\text{{ [{Normalizer.units_replacer(units_part)}]}}$$"
 
 

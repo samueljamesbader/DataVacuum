@@ -23,7 +23,7 @@ class AppCV(PanelAppWithLotPrefilter):
                 layout_function=make_allaround_layout,
                 filter_settings=self.filter_settings,
                 meas_groups=self.meas_groups,
-                normalization_details=self.normalization_details,
+                normalization_details=self.normalization_details, shownames=self.shownames,
                 shift_by_options=self.shift_by_options,freqs_options=self.freqs_options,
             ),
             'Benchmarks': ScalarFilterPlotter(

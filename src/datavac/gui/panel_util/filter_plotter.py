@@ -65,6 +65,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     color_by=hvparam.Selector()
     norm_by=hvparam.Selector()
 
+    # Subclasses may decide how to use...
+    shownames=hvparam.Parameter()
+
     normalization_details = hvparam.Parameter(instantiate=True)
 
     layout_function = hvparam.Callable(default=make_default_layout)
@@ -221,7 +224,8 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         factors={k:v for k,v in factors.items() if ((v is not None) and len(v))}
         factors.update({param:w.value for param,w in self._pre_filters.items()})
         factors={k:v for k,v in factors.items() if v is not None}
-        self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by='None'))
+        #self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by='None'))
+        self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by=self.color_by))
         self._dtypes=[d.dtypes.to_dict() for d in self._pre_sources]
 
     def get_raw_column_names(self):

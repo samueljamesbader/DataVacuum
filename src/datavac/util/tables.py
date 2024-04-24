@@ -63,7 +63,7 @@ def stack_multi_sweeps(df,x,ys,swvs, restrict_dirs=None, restrict_swvs=None, non
     except:
         raise
 
-    bystanders=[c for c in df.columns if c not in yheaders and c!=x]
+    bystanders=[c for c in df.columns if c not in yheaders and c!=x and '@' not in c]
     subtabs=[]
     for vs in vals:
         for d in restrict_dirs:
