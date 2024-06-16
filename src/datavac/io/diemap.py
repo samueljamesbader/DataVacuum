@@ -259,7 +259,7 @@ def read_velox_wafermap(file,mask,read_sites=True):
         f"Never ran this combination of Origin {origin}, WaferTestAngle {wafertestangle} before.  " \
         "I'm unsure of the die coordinate mapping."
     assert flatangle in [90,270], \
-        f"Never ran this flatangle {flatangle} before. 90 is NotchRight, 270 is NotchLeft."
+        f"Never ran this flatangle {flatangle} before. 270 is NotchRight, 90 is NotchLeft."
 
 
     if (origin,wafertestangle)==('LL',0):

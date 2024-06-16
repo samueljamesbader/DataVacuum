@@ -156,6 +156,7 @@ class LayoutParameters:
             if structure not in self._dut_to_catkey:
                 supplied_row,dut=structure.split("-",maxsplit=1)
                 corrected_row=self.search_partial_rowname(mask,supplied_row)
+                dut=dut.replace("PAD","")
                 if len(dut)!=5:
                     if dut.startswith("DUT"):
                         dut=int(dut[3:])

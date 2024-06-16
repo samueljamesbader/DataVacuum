@@ -66,6 +66,9 @@ class StandardCVPlotter(FilterPlotter):
 
             cv['MeasLength']=[len(a) for a in cv['Cp']]
             cv=cv[cv['MeasLength']>0]
+            if 'Copen [F]' not in cv:
+                logger.debug("Adding Copen=0 in CV plotter")
+                cv['Copen [F]']=0
 
             f=cv['freq'].map(self._freqstrs_to_freqfloats)
             if len(cv):
@@ -111,7 +114,11 @@ class StandardCVPlotter(FilterPlotter):
 
         figC = self._figC = figure(width=250,height=300)
         figC.multi_line(xs='VG',ys='Cp',source=source,legend_field='legend',color='color')
-        figC.xaxis.axis_label="$$"+self.shownames.get('VG','V_G\\text{ [V]}')+"$$"
+        try:
+            figC.xaxis.axis_label="$$"+self.shownames.get('VG','V_G\\text{ [V]}')+"$$"
+        except:
+            import pdb; pdb.set_trace()
+            raise
 
         figG = self._figG = figure(width=250,height=300,y_range=(-180,180))
         figG.multi_line(xs='VG',ys='theta',source=source,legend_field='legend',color='color')

@@ -41,7 +41,7 @@ class StandardIdVdPlotter(FilterPlotter):
             try:
                 id=np.vstack(stacked_data[f'ID'])
                 vd=np.vstack(stacked_data[f'VD'])
-                stacked_data[f'RO']=list((np.gradient(id,axis=1).T/(vd[:,1]-vd[:,0])).T)
+                stacked_data[f'RO']=list(1/(np.gradient(id,axis=1).T/(vd[:,1]-vd[:,0])).T)
             except Exception as e:
                 logger.error(f"Couldn't do RO extraction: {e}")
                 logger.error(f"Usually this is because the data is not uniform.")

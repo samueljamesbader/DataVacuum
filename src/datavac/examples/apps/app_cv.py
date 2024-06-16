@@ -64,13 +64,13 @@ class AppCVIV(PanelAppWithLotPrefilter):
                 layout_function=make_allaround_layout,
                 filter_settings=self.filter_settings,
                 meas_groups=[self.cv_meas_group],
-                normalization_details=self.normalization_details,
+                normalization_details=self.normalization_details,shownames=self.shownames,
                 shift_by_options=self.shift_by_options,freqs_options=self.freqs_options,
             ),
             'Raw IV': StandardDCIVPlotter(
                 layout_function=make_allaround_layout,
                 filter_settings=self.filter_settings,
-                meas_groups=[self.iv_meas_group],
+                meas_groups=[self.iv_meas_group],shownames=self.shownames,
                 normalization_details=self.normalization_details,
             ),
             #'Benchmarks': ScalarFilterPlotter(
