@@ -966,7 +966,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if self._sslrootcert:
             escaped_rootfile=str(self._sslrootcert).replace('\\','\\\\')
         string=\
-            f"""
+            fr"""
             New SQL Query(
                 Connection(
                     "ODBC:DRIVER={{PostgreSQL Unicode(x64)}};
