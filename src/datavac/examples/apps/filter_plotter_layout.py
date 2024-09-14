@@ -3,7 +3,7 @@ import panel as pn
 from datavac.gui.panel_util.filter_plotter import FilterPlotter
 
 
-def make_allaround_layout(filter_widgets, view_widgets, figure_pane):
+def make_allaround_layout(filter_widgets, view_widgets, figure_pane, main_row_height=300):
     top_filter_widgets={k:v for k,v in filter_widgets.items()\
                         if k not in ['Structure','LotWafer','DieXY','FileName']}
     side_filter_widgets={k:v for k,v in filter_widgets.items() \
@@ -23,7 +23,7 @@ def make_allaround_layout(filter_widgets, view_widgets, figure_pane):
                    sizing_mode='stretch_width',height=125)
     main_row=pn.Row(side,figure_pane,#pn.HSpacer(),
                     pn.Column(*view_widgets.values(),sizing_mode='stretch_both'),
-                    sizing_mode='stretch_width',height=300)
+                    sizing_mode='stretch_width',height=main_row_height)
     bottom_row=pn.Row(*bottom_filter_widgets.values(),
                     sizing_mode='stretch_width',height=300)
     return pn.Column(top_row,pn.HSpacer(height=10),main_row,bottom_row,sizing_mode='stretch_height',width=1200)

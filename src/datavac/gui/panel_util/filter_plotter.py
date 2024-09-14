@@ -48,6 +48,11 @@ def make_big_layout(filter_widgets, view_widgets, figure_pane):
     return pn.Column(top_row,pn.HSpacer(height=10),
                      main_row,
                      sizing_mode='stretch_both')
+def listify(x):
+    if hasattr(x,'__iter__'):
+        return list(x)
+    else:
+        return [x]
 
 class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _prefilter_measgroup = None
@@ -403,7 +408,7 @@ class ScalarFilterPlotter(FilterPlotter):
                 raise
             self._sources['stars'].data=dict(
                 **{
-                    p:[self._normalizer.get_scaled(self.stars,p,self.norm_by)]
+                    p:listify(self._normalizer.get_scaled(self.stars,p,self.norm_by))
                     for pp in self.plot_pairs for p in pp
                         if (p in self.stars and (self.norm_by=='None' or self.norm_by in self.stars))
                 })
@@ -446,6 +451,10 @@ class ScalarFilterPlotter(FilterPlotter):
             return bokeh.layouts.gridplot([self._figs],toolbar_location='right')
         elif self.fig_arrangement=='column':
             return bokeh.layouts.gridplot([[f] for f in self._figs],toolbar_location='right')
+        elif 'x' in self.fig_arrangement:
+            nx,ny=[int(x) for x in self.fig_arrangement.split("x")]
+            return bokeh.layouts.gridplot([[self._figs[ix+iy*nx] for ix in range(0,nx)] for iy in range(0,ny)],toolbar_location='right')
+
 
     def polish_figures(self):
         if (labels:=self._sources['labels']) is not None:

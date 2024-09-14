@@ -71,9 +71,10 @@ class IdVg(MeasurementType):
 
         W=self.get_norm(measurements)
         VG=measurements['VG']
-        IDsat=measurements[f'fID@VD={VDsat_str}'] if f'fID@VD={VDsat_str}' in measurements else VG*np.NaN
-        IDlin=measurements[f'fID@VD={VDlin_str}'] if f'fID@VD={VDlin_str}' in measurements else VG*np.NaN
-        IGsat=measurements[f'fIG@VD={VDsat_str}'] if f'fIG@VD={VDsat_str}' in measurements else VG*np.NaN
+        IDsat=measurements[f'fID@VD={VDsat_str}'] if (has_idsat:=(f'fID@VD={VDsat_str}' in measurements)) else VG*np.NaN
+        IDlin=measurements[f'fID@VD={VDlin_str}'] if (has_idlin:=(f'fID@VD={VDlin_str}' in measurements)) else VG*np.NaN
+        IGsat=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.NaN
+        if IDsat.shape[1]==1 and np.isnan(IDsat[0]): has_idsat=False
 
         # Requirements on VG
         assert np.sum(np.abs(np.diff(VG,axis=0)))==0, "Might assume all rows of VG are same for uniform meas"
@@ -88,8 +89,12 @@ class IdVg(MeasurementType):
         assert np.allclose(np.diff(VG),DVG), "VG should be even spacing"
         assert np.sign(DVG)==(-1 if self.pol=='p' else 1), "VG should sweep off-to-on"
 
-        gm=savgol_filter(IDsat,*gmsavgol,deriv=1)/DVG
-        invswing=savgol_filter(np.log10(np.abs(IDsat.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
+        if has_idsat:
+            gm=savgol_filter(IDsat,*gmsavgol,deriv=1)/DVG
+            invswing=savgol_filter(np.log10(np.abs(IDsat.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
+        else:
+            gm=VG*np.NaN
+            invswing=VG*np.NaN
 
         all_inds=np.arange(len(VG))
         inds_gmpeak=np.argmax(gm,axis=1)
@@ -99,7 +104,7 @@ class IdVg(MeasurementType):
         vt_gmpeak=v_gmpeak-np.sign(DVG)*i_gmpeak/gmpeak
 
         measurements['Ion [A]']=np.abs(IDsat[:,-1])
-        measurements['Ioff [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) else np.abs(IDsat[:,ind0])
+        measurements['Ioff [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idsat) else np.abs(IDsat[:,ind0])
         measurements['Ioffmin [A]']=np.min(np.abs(IDsat),axis=1)
         measurements['Ioffstart [A]']=np.abs(IDsat[:,0])
         measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
@@ -108,7 +113,8 @@ class IdVg(MeasurementType):
         measurements['Ron [ohm]']=np.abs(VDlin)/(np.abs(IDlin[:,-1])+tol)
         measurements['VTcc_lin']=VTCC((IDlin.T/W).T,VG,self.Icc,itol=tol)
         measurements['VTcc_sat']=VTCC((IDsat.T/W).T,VG,self.Icc,itol=tol)
-        measurements['DIBL']=-(measurements['VTcc_sat']-measurements['VTcc_lin'])/(VDsat-VDlin)
+        measurements['DIBL [mV/V]']=-1000*(measurements['VTcc_sat']-measurements['VTcc_lin'])/(VDsat-VDlin)
         measurements['VTgm_sat']=vt_gmpeak
-        measurements['Gm Peak [S]']=gmpeak
+        measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
+        measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
