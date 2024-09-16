@@ -2,9 +2,20 @@ Names Default To Here(1);
 dv = Namespace("%ADDINID%");
 
 dv:ConnectToWafermap = Function( { map_name="Default-Name.jmp" }, {Default Local},
-    diemap_path=Convert File Path(Pick File("Select Wafermap",dv:DATAVACUUM_DIEMAP_DIR,{"Die Maps|jmp"}),windows);
-    mr = Expr(Eval Expr(Map Role(Shape Name Use(Expr(diemap_path), "DieLoc"))));
-    Eval(EvalExpr(:DieXY << Set Property(
-        "Map Role", Expr(mr)
-    )));
+
+	diemap_path_raw = dv:DATAVACUUM_DIEMAP_DIR || "\" || map_name;
+	If(! File Exists( diemap_path_raw ),
+		Write("Map doesn't exist: " || diemap_path_raw || "\!N");
+		diemap_path_raw=Pick File("Select Wafermap",dv:DATAVACUUM_DIEMAP_DIR,{"Die Maps|jmp"});
+	);
+	If(diemap_path_raw=="",
+		Write("No diemap default or selected\!N");
+	, // Else
+		diemap_path=Convert File Path(diemap_path_raw,windows);
+		Print("diemap_path_raw is "||diemap_path_raw || "\!N");
+		mr = Expr(Eval Expr(Map Role(Shape Name Use(Expr(diemap_path), "DieLoc"))));
+		Eval(EvalExpr(:DieXY << Set Property(
+			"Map Role", Expr(mr)
+		)));
+	);
 );
