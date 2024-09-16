@@ -1,7 +1,0 @@
-Names Default To Here(1);
-DVSHARE_PATH = Load Text File( "$ADDIN_HOME(%ADDINID%)/dvsharepath" );
-diemap_path=Convert File Path(Pick File("Select Wafermap",DVSHARE_PATH||"Die Maps",{"Die Maps|jmp"}),windows);
-mr = Expr(Eval Expr(Map Role(Shape Name Use(Expr(diemap_path), "DieLoc"))));
-Eval(EvalExpr(:DieXY << Set Property(
-	"Map Role", Expr(mr)
-)));

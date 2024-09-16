@@ -1,4 +1,5 @@
 import io
+import importlib.resources as irsc
 import subprocess
 from functools import partial
 from importlib import import_module
@@ -45,6 +46,12 @@ def import_modfunc(dotpath):
     func=getattr(mod,func)
     if kwargs: func=partial(func,**kwargs)
     return func
+
+def get_resource_path(dotpath):
+    pkg,relpath=dotpath.split(":")
+    with irsc.as_file(irsc.files(pkg)) as pkg_path:
+        return pkg_path/relpath
+
 
 @contextmanager
 def returner_context(val):

@@ -9,19 +9,20 @@ import dotenv
 import requests
 import warnings
 
+import yaml
 from urllib3.exceptions import InsecureRequestWarning
 
 from datavac import logger
 from datavac.util.conf import CONFIG
+from datavac.util.util import get_resource_path
 
 jmp_folder=Path(os.environ['DATAVACUUM_CACHE_DIR'])/"JMP"
 jmp_folder.mkdir(exist_ok=True)
 
 def copy_in_file(filename,addin_folder,addin_id):
-    with irsc.as_file(irsc.files('datavac.jmp')) as jmpfiles:
-        with open(jmpfiles/filename,'r') as f1:
-            with open(addin_folder/filename,'w') as f2:
-                f2.write(f1.read().replace("%ADDINID%",addin_id))
+    with open(filename,'r') as f1:
+        with open((addin_folder/filename.name),'w') as f2:
+            f2.write(f1.read().replace("%ADDINID%",addin_id))
 
 def make_db_connect(addin_folder,addin_id, env_values):
     connection_info=dict([[s.strip() for s in x.split("=")] for x in
@@ -84,7 +85,13 @@ def cli_compile_jmp_addin(*args):
         else:
             env_values = os.environ
         envname=(env if len(env) else "LOCAL")
+        addin_id=f'datavacuum_helper.{envname.lower()}'
         print(f"Using {envname}")
+
+        if (jmp_conf:=Path(env_values["DATAVACUUM_CONFIG_DIR"])/"jmp.yaml").exists():
+            with open(jmp_conf,'r') as f:
+                jmp_conf=yaml.safe_load(f)
+        else: jmp_conf={}
 
         addin_folder=jmp_folder/envname
         if addin_folder.exists():
@@ -92,7 +99,6 @@ def cli_compile_jmp_addin(*args):
         addin_folder.mkdir(exist_ok=False)
 
         with open(addin_folder/"Addin.def",'w') as f:
-            addin_id=f'datavacuum_helper.{envname.lower()}'
             f.writelines([
                 f"id={addin_id}\n",
                 f"name=DataVac_{envname.capitalize()}\n",
@@ -100,11 +106,37 @@ def cli_compile_jmp_addin(*args):
                 "addinVersion=1\n",
                 "minJmpVersion=16",])
 
+        with open(addin_folder/"env_vars.jsl",'w') as f:
+            f.write("Names Default To Here(1);\n")
+            f.write(f"dv = Namespace(\"{addin_id}\");\n")
+            for varname, varvalue in jmp_conf.get("capture_variables",{}).items():
+                if varvalue[0]=="%" and varvalue[-1]=="%":
+                    varvalue=env_values[varvalue[1:-1]]
+                f.write(f"dv:{varname}=\"{varvalue}\";\n")
+
+        with open(addin_folder/"addinLoad.jsl",'w') as f:
+            generated_jsl=[addin_folder/'env_vars.jsl']
+            dv_base_jsl=[get_resource_path(x) for x in ['datavac.jmp:ConnectToWaferMap.jsl']]
+            request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])]
+            inc_files=[*generated_jsl,*dv_base_jsl,*request_jsl]
+            inc_filenames=[Path(inc_file).name for inc_file in inc_files]
+            assert len(set(inc_filenames))==len(inc_filenames), \
+                f"Repeated filename in {inc_files}"
+            f.writelines([
+                f'Names Default To Here(1);',
+                f'dv=New Namespace("{addin_id}");',
+                *[f'Include( "$ADDIN_HOME({addin_id})/{Path(filename).name}" );'
+                    for filename in inc_files]
+            ])
+            for add_file in [*dv_base_jsl,*request_jsl]:
+                copy_in_file(add_file,addin_folder=addin_folder,addin_id=addin_id)
+
         commands=[
             {
                 'name':'Connect to Wafermap',
                 'tip':'Assign map role for current table',
-                'filename':'ConnectToWafermap.jsl',
+                #'filename':'ConnectToWafermap.jsl',
+                'text': f'dv=Namespace("{addin_id}");dv:ConnectToWafermap();',
                 'icon':None
             }
         ]
@@ -130,21 +162,22 @@ def cli_compile_jmp_addin(*args):
                 comm.append((comm_cap:=gfg.Element("jm:caption")))
                 comm_cap.text=command['name']
                 comm.append((comm_act:=gfg.Element("jm:action")))
-                comm_act.set("type","path")
-                comm_act.text=fr"$ADDIN_HOME({addin_id})\{command['filename']}"
+                #comm_act.set("type","path")
+                #comm_act.text=fr"$ADDIN_HOME({addin_id})\{command['filename']}"
+                comm_act.text=command['text']
+                comm_act.set("type","text")
                 comm.append((comm_tip:=gfg.Element("jm:tip")))
                 comm_tip.text=command['tip']
                 assert command['icon'] is None
                 comm.append((comm_icon:=gfg.Element("jm:icon")))
                 comm_icon.set('type','None')
 
-                copy_in_file(command['filename'],addin_folder,addin_id=addin_id)
+                #copy_in_file(command['filename'],addin_folder,addin_id=addin_id)
 
             tree=gfg.ElementTree(root)
             gfg.indent(tree,'  ')
             tree.write(f)
 
-            copy_in_file('addinLoad.jsl',addin_folder,addin_id=addin_id)
             make_db_connect(addin_folder=addin_folder,addin_id=addin_id,env_values=env_values)
 
         shutil.make_archive(addin_folder/f"DataVac_{envname.capitalize()}",'zip', addin_folder)

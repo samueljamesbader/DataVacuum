@@ -1,0 +1,10 @@
+Names Default To Here(1);
+dv = Namespace("%ADDINID%");
+
+dv:ConnectToWafermap = Function( { map_name="Default-Name.jmp" }, {Default Local},
+    diemap_path=Convert File Path(Pick File("Select Wafermap",dv:DATAVACUUM_DIEMAP_DIR,{"Die Maps|jmp"}),windows);
+    mr = Expr(Eval Expr(Map Role(Shape Name Use(Expr(diemap_path), "DieLoc"))));
+    Eval(EvalExpr(:DieXY << Set Property(
+        "Map Role", Expr(mr)
+    )));
+);
