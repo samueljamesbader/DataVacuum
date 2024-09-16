@@ -7,6 +7,7 @@ from .measurement_type import MeasurementType
 from datavac.util.maths import VTCC
 from datavac.util.util import only
 from datavac.util.logging import logger
+from ..io.measurement_table import MeasurementTable
 
 
 @dataclasses.dataclass
@@ -35,8 +36,10 @@ class IdVg(MeasurementType):
         self._norm_col_units={'mm':1e-3,'um':1e-6,'nm':1e-9} \
             [self.norm_column.split("[")[1].split("]")[0]]
 
-    def get_norm(self, measurements):
-        return np.array(measurements[self.norm_column],dtype=np.float32)*self._norm_col_units
+    def get_norm(self, measurements: MeasurementTable):
+        return np.array(measurements\
+                        .scalar_table_with_layout_params(params=[self.norm_column],on_missing='ignore')[self.norm_column],dtype=np.float32)\
+            *self._norm_col_units
 
     def analyze(self, measurements):
 
@@ -56,17 +59,17 @@ class IdVg(MeasurementType):
             VDsat=float(VDsat_str)
         else:
             VDsat=self.abs_vdsat if self.pol=='n' else -self.abs_vdsat
-            print(f"Forcing VDsat {VDsat}")
+            #print(f"Forcing VDsat {VDsat}")
             VDsat_str=next((k for k in VD_strs if np.isclose(float(k),VDsat)),"NOPE")
-            if VDsat_str!='NOPE': print(f"VDsat {VDsat} is present among {VD_strs}")
+            #if VDsat_str!='NOPE': print(f"VDsat {VDsat} is present among {VD_strs}")
         if self.abs_vdlin is None:
             VDlin_str=min(VD_strs,key=lambda vds:(-1 if self.pol=='p' else 1)*float(vds))
             VDlin=float(VDlin_str)
         else:
             VDlin=self.abs_vdlin if self.pol=='n' else -self.abs_vdlin
-            print(f"Forcing VDlin {VDlin}")
+            #print(f"Forcing VDlin {VDlin}")
             VDlin_str=next((k for k in VD_strs if np.isclose(float(k),VDlin)),"NOPE")
-            if VDlin_str!='NOPE': print(f"VDlin {VDlin} is present among {VD_strs}")
+            #if VDlin_str!='NOPE': print(f"VDlin {VDlin} is present among {VD_strs}")
         assert VDsat*VDlin>0, "Oops, VDsat and VDlin have different signs"
 
         W=self.get_norm(measurements)
@@ -74,6 +77,7 @@ class IdVg(MeasurementType):
         IDsat=measurements[f'fID@VD={VDsat_str}'] if (has_idsat:=(f'fID@VD={VDsat_str}' in measurements)) else VG*np.NaN
         IDlin=measurements[f'fID@VD={VDlin_str}'] if (has_idlin:=(f'fID@VD={VDlin_str}' in measurements)) else VG*np.NaN
         IGsat=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.NaN
+        IGlin=measurements[f'fIG@VD={VDlin_str}'] if (has_iglin:=(f'fIG@VD={VDlin_str}' in measurements)) else VG*np.NaN
         if IDsat.shape[1]==1 and np.isnan(IDsat[0]): has_idsat=False
 
         # Requirements on VG
@@ -104,7 +108,9 @@ class IdVg(MeasurementType):
         vt_gmpeak=v_gmpeak-np.sign(DVG)*i_gmpeak/gmpeak
 
         measurements['Ion [A]']=np.abs(IDsat[:,-1])
+        measurements['Ion_lin [A]']=np.abs(IDlin[:,-1])
         measurements['Ioff [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idsat) else np.abs(IDsat[:,ind0])
+        measurements['Ioff_lin [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idlin) else np.abs(IDlin[:,ind0])
         measurements['Ioffmin [A]']=np.min(np.abs(IDsat),axis=1)
         measurements['Ioffstart [A]']=np.abs(IDsat[:,0])
         measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
@@ -118,3 +124,5 @@ class IdVg(MeasurementType):
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
+        measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
+        measurements['Igmax [A]']=np.maximum(np.abs(np.max(IGlin,axis=1)),np.abs(np.max(IGsat,axis=1)))

@@ -97,8 +97,10 @@ def read_folder_nonrecursive(folder: str,
                                 continue
                             read_data=MultiUniformMeasurementTable.from_read_data(read_dfs=read_dfs,
                                 meas_group=meas_group,meas_type=meas_type)
+                            try: relpath=f.relative_to(os.environ['DATAVACUUM_READ_DIR'])
+                            except: relpath=f
                             read_data['FilePath']=pd.Series([
-                                str(f.relative_to(os.environ['DATAVACUUM_READ_DIR']).as_posix())]*len(read_data),dtype='string')
+                                str(relpath.as_posix())]*len(read_data),dtype='string')
                             read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
 
                             if not (matname:=read_info_so_far.get(FULLNAME_COL,None)):
@@ -131,12 +133,14 @@ def read_folder_nonrecursive(folder: str,
                 logger.info(f"In {f.relative_to(folder)}, found {found_mgs}, didn't find {not_found_mgs}.")
     return matname_to_mg_to_data, matname_to_material_info
 
-def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='raise'):
+def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='raise', just_extraction=False):
     add_meas_groups1=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
     missing=[mg for mg in add_meas_groups1 if mg not in meas_groups]
     if on_error=='raise':
         assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
                                 (" to be checked." if not required_only else ".")
+    if just_extraction:
+        return list(set(meas_groups).union(set(add_meas_groups1)))
 
     ans=CONFIG.get_dependent_analyses(meas_groups)
     add_meas_groups2=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
@@ -150,7 +154,7 @@ def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='ra
 def perform_extraction(matname_to_mg_to_data):
     for matname, mg_to_data in matname_to_mg_to_data.items():
         to_be_extracted=list(mg_to_data.keys())
-        ensure_meas_group_sufficiency(to_be_extracted,required_only=True)
+        ensure_meas_group_sufficiency(to_be_extracted,required_only=True, just_extraction=True)
         while len(to_be_extracted):
             for mg in to_be_extracted:
                 deps=CONFIG.get_dependency_meas_groups_for_meas_groups([mg],required_only=False)
@@ -159,15 +163,11 @@ def perform_extraction(matname_to_mg_to_data):
                 data=mg_to_data[mg]
                 logger.debug(f"{mg} extraction")
                 for pre_analysis in CONFIG['measurement_groups'][mg].get('pre_analysis',[]):
-                    if type(pre_analysis) is list: pre_analysis,*args=pre_analysis
-                    else:                          pre_analysis,*args=pre_analysis,
-                    import_modfunc(pre_analysis)(data,*args)
+                    import_modfunc(pre_analysis)(data)
                 dep_kws={deps[d]:mg_to_data[d] for d in deps if d in mg_to_data}
                 data.analyze(**dep_kws)
                 for post_analysis in CONFIG['measurement_groups'][mg].get('post_analysis',[]):
-                    if type(post_analysis) is list: post_analysis,*args=post_analysis
-                    else:                           post_analysis,*args=post_analysis,
-                    import_modfunc(post_analysis)(data,*args)
+                    import_modfunc(post_analysis)(data)
                 check_dtypes(data.scalar_table)
 
                 to_be_extracted.remove(mg)
@@ -175,7 +175,7 @@ def perform_extraction(matname_to_mg_to_data):
 #@wraps(read_folder_nonrecursive,updated=('__name__',))
 def read_and_analyze_folders(folders, *args, **kwargs) -> dict:
 
-    folders=[READ_DIR/folder if not Path(folder).is_absolute() else folder for folder in folders]
+    folders=[READ_DIR/folder if not Path(folder).is_absolute() else Path(folder) for folder in folders]
     for folder in folders:
         assert folder.exists(), f"Can't find folder {str(folder)}"
 
@@ -189,7 +189,10 @@ def read_and_analyze_folders(folders, *args, **kwargs) -> dict:
                     if 'IGNORE' not in str(file):
                         dirs.append(file)
             try:
-                logger.info(f"Reading in {curdir.relative_to(READ_DIR)}")
+                try:
+                    logger.info(f"Reading in {curdir.relative_to(READ_DIR)}")
+                except ValueError:
+                    logger.info(f"Reading in {curdir}")
                 contributions.append(read_folder_nonrecursive(curdir, *args, **kwargs))
             except MissingFolderInfoException as e:
                 logger.info(f"Skipping {curdir.relative_to(READ_DIR)} because {str(e)}")

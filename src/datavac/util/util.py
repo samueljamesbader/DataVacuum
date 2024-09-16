@@ -1,5 +1,6 @@
 import io
 import subprocess
+from functools import partial
 from importlib import import_module
 
 from collections import deque
@@ -33,9 +34,17 @@ def run_subprocess_with_live_output(cmd_and_args, live_output=True, cwd=None):
     return caught_output.read(), p.returncode
 
 def import_modfunc(dotpath):
-    mod,func=dotpath.split(':')
+    if type(dotpath) is not str:
+        dotpath,kwargs=dotpath
+        assert type(kwargs) is dict
+    else: kwargs=None
+    try: mod,func=dotpath.split(':')
+    except ValueError:
+        raise ValueError(f"Dotpath '{dotpath}' is improperly formatted ('package.module:function')")
     mod=import_module(mod)
-    return getattr(mod,func)
+    func=getattr(mod,func)
+    if kwargs: func=partial(func,**kwargs)
+    return func
 
 @contextmanager
 def returner_context(val):

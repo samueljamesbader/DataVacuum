@@ -370,11 +370,13 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
     def dump_higher_analysis(self, analysis, conn):
         if (an_tab:=self._hat(analysis)) is None: return
+        mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
         conn.execute(
             pgsql_insert(self._reatab) \
                 .from_select(["matid","analysis"],
                              select(self._loadtab.c.matid,literal(analysis)) \
-                             .select_from(an_tab.join(self._loadtab)) \
+                             .select_from(an_tab.join(self._loadtab,
+                                                      onclause=(an_tab.c[f"loadid - {mg}"]==self._loadtab.c.loadid))) \
                              .distinct()) \
                 .on_conflict_do_nothing())
         conn.execute(delete(an_tab))
@@ -504,6 +506,21 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         in CONFIG.higher_analyses[analysis]['analysis_columns'].items()],
                   on_mismatch=(replacement_callback if on_mismatch=='replace' else on_mismatch))
 
+        # TODO: Replace this with SQLAlchemy select like in get_where
+        view_cols=[
+            CONFIG['database']['materials']['full_name'],
+            *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
+            f'Dies"."DieXY',f'Dies"."DieRadius [mm]',
+            *(CONFIG.higher_analyses[analysis]['analysis_columns'].keys())
+        ]
+        view_cols=",".join([f'"{c}"' for c in view_cols])
+        an=analysis; mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
+        conn.execute(text(f'DROP VIEW IF EXISTS jmp."{an}"; CREATE VIEW jmp."{an}" AS SELECT {view_cols} from ' \
+                          f'"Analysis -- {an}" ' \
+                          f'JOIN "Loads" ON "Loads".loadid="Analysis -- {an}"."loadid - {mg}"' \
+                          f'JOIN "Dies" ON "Analysis -- {an}".dieid="Dies".dieid ' \
+                          f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
+
     def _ensure_table_exists(self, conn, schema, table_name, *args,
                              on_mismatch:Union[str,Callable]='raise',
                              on_init: Callable= (lambda : None)):
@@ -571,7 +588,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         return matid
 
     def push_data(self, material_info, data_by_meas_group:dict,
-                  clear_all_from_material=True, user_called=True, re_extraction=False):
+                  clear_all_from_material=True, user_called=True, re_extraction=False,
+                  defer_analyses=False):
         """
         Notes
         -----
@@ -687,7 +705,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
                     collected_loadids[meas_group]=loadid
 
-            self.perform_analyses(conn, analyses,
+            if not defer_analyses:
+                self.perform_analyses(conn, analyses,
                                   precollected_data_by_meas_group=data_by_meas_group,
                                   precollected_loadids=collected_loadids,
                                   precollected_matid=matid)
@@ -1163,7 +1182,7 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                     logger.info(f"Pushing new extraction for {meas_groups}")
                     db.push_data({fullname:matname},{k:v for k,v in mumts.items() if k in meas_groups},
                                  clear_all_from_material=False,
-                                 user_called=False, re_extraction=True)
+                                 user_called=False, re_extraction=True, defer_analyses=True)
 
         res=conn.execute(select(db._reatab.c.matid,
                                 *[db._mattab.c[n] for n in [fullname]+matcolnames],) \
