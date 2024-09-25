@@ -354,6 +354,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         conn.execute(delete(extr_tab))
 
     def dump_measurements(self, measurement_group, conn):
+        if measurement_group not in CONFIG.measurement_groups: raise ValueError(f"Unknown group '{measurement_group}'")
         try:
             meas_tab=self._mgt(measurement_group,'meas')
         except KeyError:
@@ -369,6 +370,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             conn.execute(delete(meas_tab))
 
     def dump_higher_analysis(self, analysis, conn):
+        if analysis not in CONFIG.higher_analyses: raise ValueError(f"Unknown analysis '{analysis}'")
         if (an_tab:=self._hat(analysis)) is None: return
         mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
         conn.execute(
@@ -477,7 +479,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
             *mg_info['analysis_columns'].keys(),
             *mg_info['meas_columns'].keys(),
             *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]
-                  if mg in layout_params._tables_by_meas else [])
+                  if mg in layout_params._tables_by_meas else []),
+            f'Meas -- {mg}"."loadid',
+            f'Meas -- {mg}"."measid',
         ]
         view_cols=",".join([f'"{c}"' for c in view_cols])
         conn.execute(text(f'DROP VIEW IF EXISTS jmp."{mg}"; CREATE VIEW jmp."{mg}" AS SELECT {view_cols} from '\
@@ -873,6 +877,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
         sel=select(*selcols).select_from(thejoin)
         sel=functools.reduce((lambda s, f: s.where(get_col(f).in_(factors[f]))), factors, sel)
 
+        return self._get_data_from_meas_group_helper(meas_group,sel=sel,selcols=selcols,include_sweeps=include_sweeps,
+                                              unstack_headers=unstack_headers,raw_only=raw_only)
+
+    def _get_data_from_meas_group_helper(self,meas_group,sel,selcols,include_sweeps=False,
+                                         unstack_headers=False,raw_only=False) -> pd.DataFrame:
         with self.engine.connect() as conn:
             with time_it("Actual read_sql",threshold_time=.03):
                 data=pd.read_sql(sel,conn,dtype={c.name:self.sql_to_pd_types[c.type.__class__] for c in selcols
@@ -887,6 +896,33 @@ class PostgreSQLDatabase(AlchemyDatabase):
             unstacking_indices= ['loadid','measid'] if unstack_headers is True else unstack_headers
             data=self._unstack_header_helper(data,unstacking_indices, drop_index=(not raw_only))
         return data
+
+    def get_meas_data_for_jmp(self,meas_group,loadids,measids):
+        # https://stackoverflow.com/a/6672707
+        values="(VALUES "+",".join([f"({l},{m})" for l,m in zip(loadids,measids)])+") AS t2 (loadid, measid)"
+        query=f"SELECT t1.loadid, t1.measid, sweep, header from {self.int_schema}.\"Sweep -- {meas_group}\""\
+              f" AS t1 JOIN {values} ON t1.loadid = t2.loadid AND t1.measid = t2.measid"
+
+        data= self._get_data_from_meas_group_helper(meas_group,sel=query,selcols={},include_sweeps=True,
+                                              unstack_headers=True, raw_only=True)
+
+        from datavac.util.tables import stack_multi_sweeps
+        from datavac.util.util import only
+        headers=[k for k in data.columns if k not in ['loadid','measid']]
+        # Assume column names of form X, fY1@SWVR=val, fY2@SWVR=val ...
+        possible_xs=[k for k in headers if '@' not in k]
+        x=only(possible_xs,f"Multiple possible x values in {possible_xs}")
+        ys=list(set([k.split("@")[0][1:] for k in headers if '@' in k]))
+        swvs=list(set([k.split("@")[1].split("=")[0] for k in headers if '@' in k]))
+        #print(x,ys,swvs)
+        #print(data)
+        data=stack_multi_sweeps(data,x=x,ys=ys,swvs=swvs)
+        data = data.explode([x,*ys],ignore_index=True)\
+            [['loadid','measid',*[k for k in data.columns if k not in ['loadid','measid']]]]
+        #print(data)
+        #print(data.columns)
+        return data
+
 
     @staticmethod
     def _unstack_header_helper(data,unstacking_indices, drop_index=True):
@@ -979,39 +1015,39 @@ class PostgreSQLDatabase(AlchemyDatabase):
         with open(dsnpath,'w') as f:
             f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
 
-    def make_JMPstart(self,jslpath=None):
-        connection_info=dict([[s.strip() for s in x.split("=")] for x in
-                              os.environ['DATAVACUUM_DBSTRING'].split(";")])
-        if self._sslrootcert:
-            escaped_rootfile=str(self._sslrootcert).replace('\\','\\\\')
-        string=\
-            fr"""
-            New SQL Query(
-                Connection(
-                    "ODBC:DRIVER={{PostgreSQL Unicode(x64)}};
-                    DATABASE={connection_info['Database']};
-                    SERVER={connection_info['Server']};
-                    PORT={connection_info['Port']};
-                    UID={connection_info['Uid']};
-                    PWD={connection_info['Password']};
-                    {'SSLmode=verify-full;' if connection_info['Server']!='localhost' else ''}
-                    ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;
-                    ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;
-                    Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;
-                    Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;
-                    UseServerSidePrepare=1;LowerCaseIdentifier=0;
-                    {f'pqopt={{sslrootcert={escaped_rootfile}}};' if self._sslrootcert else '' }
-                    D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;"
-                ),
-                QueryName( "test_query" ),
-                CustomSQL("Select * from information_schema.tables;"),
-                PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
-                ) << Run;
-                Print("Wait five seconds and check the connections.");
-            """
-        Path(jslpath).parent.mkdir(parents=True,exist_ok=True)
-        with open(jslpath,'w') as f:
-            f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
+    #def make_JMPstart(self,jslpath=None):
+    #    connection_info=dict([[s.strip() for s in x.split("=")] for x in
+    #                          os.environ['DATAVACUUM_DBSTRING'].split(";")])
+    #    if self._sslrootcert:
+    #        escaped_rootfile=str(self._sslrootcert).replace('\\','\\\\')
+    #    string=\
+    #        fr"""
+    #        New SQL Query(
+    #            Connection(
+    #                "ODBC:DRIVER={{PostgreSQL Unicode(x64)}};
+    #                DATABASE={connection_info['Database']};
+    #                SERVER={connection_info['Server']};
+    #                PORT={connection_info['Port']};
+    #                UID={connection_info['Uid']};
+    #                PWD={connection_info['Password']};
+    #                {'SSLmode=verify-full;' if connection_info['Server']!='localhost' else ''}
+    #                ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;
+    #                ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;
+    #                Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;
+    #                Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;
+    #                UseServerSidePrepare=1;LowerCaseIdentifier=0;
+    #                {f'pqopt={{sslrootcert={escaped_rootfile}}};' if self._sslrootcert else '' }
+    #                D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;"
+    #            ),
+    #            QueryName( "test_query" ),
+    #            CustomSQL("Select * from information_schema.tables;"),
+    #            PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
+    #            ) << Run;
+    #            Print("Wait five seconds and check the connections.");
+    #        """
+    #    Path(jslpath).parent.mkdir(parents=True,exist_ok=True)
+    #    with open(jslpath,'w') as f:
+    #        f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
 
 
 ##### NOT FUNCTIONAL
@@ -1086,6 +1122,18 @@ def cli_dump_extraction(*args):
     with db.engine.connect() as conn:
         for mg in (namespace.group if namespace.group else CONFIG.measurement_groups):
             db.dump_extractions(mg,conn)
+        conn.commit()
+
+def cli_dump_analysis(*args):
+    parser=argparse.ArgumentParser(description='Dumps analysis')
+    parser.add_argument('-a','--analysis',action='append',help='Analysis to drop, eg -g ANALYSIS1 -g ANALYSIS2')
+    namespace=parser.parse_args(args)
+
+    db=get_database(skip_establish=True)
+    with db.engine.connect() as conn:
+        for an in (namespace.analysis if namespace.analysis else CONFIG.higher_analyses):
+            print(f"Dumping {an}")
+            db.dump_higher_analysis(an,conn)
         conn.commit()
 
 def cli_force_database(*args):

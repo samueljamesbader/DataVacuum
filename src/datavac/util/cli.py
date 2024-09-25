@@ -8,6 +8,7 @@ cli_funcs={
     'upload_data': 'datavac.io.database:cli_upload_data',
     'dump_extraction': 'datavac.io.database:cli_dump_extraction',
     'dump_measurement': 'datavac.io.database:cli_dump_measurement',
+    'dump_analysis': 'datavac.io.database:cli_dump_analysis',
     'print_database': 'datavac.io.database:cli_print_database',
     'clear_reextract_list': 'datavac.io.database:cli_clear_reextract_list',
     'force_database': 'datavac.io.database:cli_force_database',

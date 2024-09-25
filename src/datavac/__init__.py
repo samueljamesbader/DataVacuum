@@ -1,3 +1,5 @@
+import sys
+
 from dotenv import load_dotenv as _load_dotenv
 
 from .util.logging import logger
@@ -5,3 +7,10 @@ from .util.logging import logger
 __version__='0.0.1'
 
 _load_dotenv()
+
+def unload_my_imports(imports=['datavac','bokeh_transform_utils']):
+    modules_to_drop=[k for k in sys.modules if any((i in k for i in imports))]
+    if len(modules_to_drop):
+        print(f"Unloading {', '.join(sorted(modules_to_drop))}")
+    for k in modules_to_drop:
+        del sys.modules[k]
