@@ -5,7 +5,10 @@ from functools import partial
 from importlib import import_module
 
 from collections import deque
-from contextlib import contextmanager
+from contextlib import contextmanager, wraps
+from pathlib import Path
+from typing import Callable
+import pickle
 
 
 def last(it):
@@ -57,5 +60,33 @@ def get_resource_path(dotpath):
 def returner_context(val):
     yield val
 
+def pickle_cached(cache_dir:Path, namer: Callable):
+    """
+
+    Example
+    -------
+        def expensive_getter(key,**kwargs):
+            print(f"I'm expensive {key}")
+
+        CACHE=Path(os.environ['DATAVACUUM_CACHE_DIR'])/"example"
+        cached_getter=pickle_cached(CACHE,lambda key,**kwargs: f"{key}.pkl")(expensive_getter)
+
+    """
+    def wrapper(func):
+        if not cache_dir.exists(): cache_dir.mkdir()
+        @wraps(func)
+        def wrapped(*args,force=False,**kwargs):
+            cfile=cache_dir/namer(*args,**kwargs)
+            try:
+                if not force:
+                    with open(cfile,'rb') as f:
+                        return pickle.load(f)
+            except: pass
+            res=func(*args,**kwargs)
+            with open(cfile,'wb') as f:
+                pickle.dump(res,f)
+            return res
+        return wrapped
+    return wrapper
 
 

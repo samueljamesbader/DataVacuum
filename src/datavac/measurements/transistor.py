@@ -79,6 +79,9 @@ class IdVg(MeasurementType):
         IGsat=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.NaN
         IGlin=measurements[f'fIG@VD={VDlin_str}'] if (has_iglin:=(f'fIG@VD={VDlin_str}' in measurements)) else VG*np.NaN
         if IDsat.shape[1]==1 and np.isnan(IDsat[0]): has_idsat=False
+        if IDlin.shape[1]==1 and np.isnan(IDlin[0]): has_idlin=False
+        if IGsat.shape[1]==1 and np.isnan(IGsat[0]): has_igsat=False
+        if IGlin.shape[1]==1 and np.isnan(IGlin[0]): has_iglin=False
 
         # Requirements on VG
         assert np.sum(np.abs(np.diff(VG,axis=0)))==0, "Might assume all rows of VG are same for uniform meas"
@@ -125,4 +128,4 @@ class IdVg(MeasurementType):
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
-        measurements['Igmax [A]']=np.maximum(np.abs(np.max(IGlin,axis=1)),np.abs(np.max(IGsat,axis=1)))
+        measurements['Igmax [A]']=np.maximum(np.max(np.abs(IGlin),axis=1),np.max(np.abs(IGsat),axis=1))

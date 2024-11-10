@@ -18,7 +18,7 @@ class LayoutParameters:
     LAYOUT_PARAMS_DIR=Path(os.environ.get("DATAVACUUM_LAYOUT_PARAMS_DIR",Path.cwd()))
 
     # This singleton pattern gets really unwieldy, consider a factory_function instead...
-    def __new__(cls,force_regenerate=False):
+    def __new__(cls,force_regenerate=False) -> "LayoutParameters":
 
         # See if there's no singleton yet
         if cls._instance is None:
@@ -86,7 +86,7 @@ class LayoutParameters:
     def regenerate_from_excel(self,yaml):
         self._yaml=yaml
         self._cat_tables: dict[(str,str),pd.DataFrame] ={}
-        self._dut_to_catkey: dict[str,(str,str)] ={}
+        self._dut_to_catkey: dict[(str,str),(str,str)] ={}
         self._tables_by_meas: dict[str,pd.DataFrame] ={}
         self._rows_by_mask: dict[str,list[str]] ={}
 
@@ -99,7 +99,7 @@ class LayoutParameters:
                     for sh in xls.book.sheetnames:
                         table=pd.read_excel(xls,sh).ffill()
                         if not ('rowname' in table.keys() and 'DUT' in table.keys()):
-                            logger.debug(f"Ignoring {sh}")
+                            if 'IGNORE' not in sh: logger.debug(f"Ignoring {sh}")
                             continue
                         self._rows_by_mask[mask]+=list(table['rowname'].unique())
                         table=table.rename(columns={c:c.replace("\n"," ").strip() for c in table.columns})
@@ -115,7 +115,7 @@ class LayoutParameters:
                         table=table.convert_dtypes()
                         self._cat_tables[(mask,sh)]=table
                         for structure,r in table.iterrows():
-                            self._dut_to_catkey[structure]=(mask,sh)
+                            self._dut_to_catkey[(structure,mask)]=(mask,sh)
 
         logger.info("Collating by measurement group")
         by_meas_group=yaml['by_meas_group']
@@ -144,6 +144,7 @@ class LayoutParameters:
             pickle.dump(self,file=f)
 
     def __getitem__(self,item):
+        raise Exception("Didn't update this when I changed get_params to require mask")
         if type(item) is str:
             res=self.get_params([item])
             return res.iloc[0]
@@ -153,7 +154,7 @@ class LayoutParameters:
     def _get_correction_map(self,structures,mask):
         correction_map={}
         for structure in structures:
-            if structure not in self._dut_to_catkey:
+            if (structure,mask) not in self._dut_to_catkey:
                 supplied_row,dut=structure.split("-",maxsplit=1)
                 corrected_row=self.search_partial_rowname(mask,supplied_row)
                 dut=dut.replace("PAD","")
@@ -168,7 +169,7 @@ class LayoutParameters:
         return correction_map
 
 
-    def get_params(self,structures,drop_pads=True,for_measurement_group=None,allow_partial=False):
+    def get_params(self,structures,mask,drop_pads=True,for_measurement_group=None,allow_partial=False):
         if allow_partial:
             correction_map=self._get_correction_map(structures,mask=allow_partial)
             structures=[correction_map.get(structure,structure) for structure in structures]
@@ -182,7 +183,7 @@ class LayoutParameters:
         else:
             rows=[]
             for structure in structures:
-                rows.append(singular_row:=self._cat_tables[self._dut_to_catkey[structure]].loc[[structure]])
+                rows.append(singular_row:=self._cat_tables[self._dut_to_catkey[(structure,mask)]].loc[[structure]])
                 assert len(singular_row)==1
             tab=pd.concat(rows)
 
@@ -223,6 +224,9 @@ class LayoutParameters:
 
         meas_df['Structure']=meas_df['Structure'].map(correction_map).astype('string')
         meas_df['RowName']=meas_df['Structure'].str.split("-",expand=True)[0]
+        meas_df['Site']=meas_df['RowName']+\
+                        "-"+meas_df['RowRep'].astype(str).str.zfill(2)+\
+                        "-DUT"+meas_df['DUT'].astype(str).str.zfill(2)
 
     def validate_structures_in_meas_group(self,structures,meas_group):
         rejects=[structure for structure in structures if structure not in self._tables_by_meas[meas_group].index]

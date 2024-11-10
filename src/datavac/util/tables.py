@@ -55,7 +55,7 @@ def stack_multi_sweeps(df,x,ys,swvs, restrict_dirs=None, restrict_swvs=None, non
     swvsortinds=np.argsort(swvs)
     swvs=np.array(swvs,dtype=object)[swvsortinds]
     if restrict_swvs: restrict_swvs=np.array(restrict_swvs,dtype=object)[swvsortinds]
-    yheaders_to_vs={yheader:tuple((ve.split('=')[1] for ve in sorted(yheader.split("@")[1].split(',')))) for yheader in yheaders}
+    yheaders_to_vs={yheader:tuple((ve.split('=')[1] for ve in (sorted(yheader.split("@")[1].split(',')) if "@" in yheader else []))) for yheader in yheaders}
 
     vals=list(set(yheaders_to_vs.values()))
     try:

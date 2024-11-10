@@ -1,0 +1,35 @@
+Names Default To Here(1);
+dv = Namespace("%ADDINID%");
+
+ADDIN_HOME = Get Path Variable("ADDIN_HOME(%ADDINID%)");
+file_path=Convert File Path((ADDIN_HOME || "rootcertfile.crt"),windows);
+While(Pat Match(file_path,"\","%BACKSLASH%"),1);
+While(Pat Match(file_path,"%BACKSLASH%","\\"),1);
+
+dv:conn_str_no_pass =
+    "ODBC:DRIVER={PostgreSQL Unicode(x64)};" ||
+    "DATABASE=" || dv:DATAVACUUM_DB_DATABASE || ";" ||
+    "SERVER="   || dv:DATAVACUUM_DB_SERVER   || ";" ||
+    "PORT="     || dv:DATAVACUUM_DB_PORT     || ";" ||
+    "UID="      || dv:DATAVACUUM_DB_UID      || ";" ||
+    "PWD="      || "%_PWD_%"                 || ";" ||
+    If( dv:DATAVACUUM_DB_SERVER!="localhost", "SSLmode=verify-full;", "SSLmode=disable;") ||
+    "ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;" ||
+    "ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;" ||
+    "Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;" ||
+    "Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;" ||
+    "UseServerSidePrepare=1;LowerCaseIdentifier=0;" ||
+    If( dv:DATAVACUUM_DB_SSLROOTCERT!="", "pqopt={sslrootcert=" || file_path || "};", "") ||
+    "D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;";
+
+conn_str_with_pass = dv:conn_str_no_pass;
+Pat Match(conn_str_with_pass,"%_PWD_%",dv:DATAVACUUM_DB_PWD);
+
+Write("About to try connecting to DB\!N");
+New SQL Query(
+    Connection( conn_str_with_pass),
+    QueryName( "test_query" ),
+    CustomSQL("Select * from information_schema.tables;"),
+    PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
+    ) << Run Foreground();
+Write("Should now be connected to DB for %ADDINID%\!N");

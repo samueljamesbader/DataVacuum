@@ -102,7 +102,7 @@ class Waferplot(ReloadableDataModel):
             color_bar = ColorBar(color_mapper=cmap_transform, width=10, label_standoff=2)
             self.fig.add_layout(color_bar,'right')
 
-        print(self.source.data.keys())
+        #print(self.source.data.keys())
         self._inv_label=bokeh.models.Label(x=0,y=0,text='Duplicate Selection',angle=45,angle_units='deg',
                                            text_align='center',text_color='white',background_fill_color='black',
                                            visible=(len(self.source.data['DieXY'])!=len(set(self.source.data['DieXY']))))
@@ -145,7 +145,7 @@ class WaferplotGrid(ReloadableDataModel):
     def __init__(self,
                  row_values: list[Any]=[None], row_labeler: Callable[[Any], str] = str,
                  col_values: list[Any]=[None], col_labeler: Callable[[Any], str] = str,
-                 cds_col_namer=Callable[[Any, Any], str],
+                 cds_col_namer: Callable[[Any, Any], str]=None,
                  #row_col_die_callback:Optional[Callable[[Any,Any,str],None]]=None,
                  pre_source: Optional[DataFrame] = None, source: Optional[ColumnDataSource] = None, **waferplot_kwargs):
         super().__init__()
@@ -153,7 +153,15 @@ class WaferplotGrid(ReloadableDataModel):
         self._diemap=waferplot_kwargs['die_lb']
         self.row_values=row_values
         self.col_values=col_values
-        self._cds_col_namer=cds_col_namer
+        if cds_col_namer is not None:
+            self._cds_col_namer = cds_col_namer
+        elif 'color' in waferplot_kwargs:
+            color=waferplot_kwargs['color']
+            self._cds_col_namer=lambda x,y: color
+            waferplot_kwargs=waferplot_kwargs.copy()
+            del waferplot_kwargs['color']
+        else:
+            raise Exception("How to know color?")
 
         if source is None:
             self.source=ColumnDataSource({})
@@ -168,7 +176,7 @@ class WaferplotGrid(ReloadableDataModel):
                 #if row_col_die_callback:
                 #    die_callback=partial(row_col_die_callback,rv,cv)
                 #    waferplot_kwargs.update(die_callback=die_callback)
-                w=Waferplot(color=cds_col_namer(rv,cv),source=self.source,**waferplot_kwargs)
+                w=Waferplot(color=self._cds_col_namer(rv,cv),source=self.source,**waferplot_kwargs)
                 row.append(w.fig)
                 #fig.js_on_event('tap',CustomJS(args={'self':self},code="""
                 #if (self.source.selected.indices.length)

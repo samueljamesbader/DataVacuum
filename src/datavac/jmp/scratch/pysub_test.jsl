@@ -1,0 +1,49 @@
+Names Default To Here( 1 );
+dv = Namespace( "datavacuum_helper.local" );
+
+pyinit = dv:addin_home || "/jmp16_pyinit.py";
+dv:PySub = Function( {code},
+	{Default Local},
+	wrapped_code = "import traceback\!Ntry:\!N" || "    " || code ||
+	"\!Nexcept Exception: print(traceback.format_exc())";
+	dv:pc << Submit( wrapped_code );
+	Print( dv:pc << Term );
+);
+
+Show( pyinit );
+dv:pc << Submit File( pyinit );
+Print( dv:pc << Term );
+dv:pc << Submit( "print('hi')" );
+Print( dv:pc << Term );
+
+dv:PySub( "sys.path=list(set(sys.path));" );
+
+//pc<<Submit("print(sys.path);");
+//Print(pc<< Term);
+
+dv:pc << Submit( "print(np.r_[0]);" );
+Print( dv:pc << Term );
+
+dv:pc << Submit( "from datavac.io import database; print(np.r_[0]);" );
+Print( dv:pc << Term );
+
+dv:PySub(
+	"from datavac.io.database import get_database; db = get_database(); dat=db.get_data('Cyp4x4 PUN IdVg',include_sweeps=True,unstack_headers=True,raw_only=False); print(len(dat));"
+);
+
+dv:PySub("import numpy as _JMPnp");
+dv:PySub("import pandas as _JMPpd");
+dv:PySub("import matplotlib as _JMPmpl");
+dv:PySub("_JMPmpl.use('Agg')");
+dv:PySub("import matplotlib.pyplot as _JMPpp");
+
+
+
+
+x=8;
+dt=Current Data Table();
+//dt=127;
+dv:pc << Send(dt,PythonName("y"));
+Show(dv:pc << Get(y));
+dv:PySub("print('howdy',x)");
+dv:PySub("print('hi there',y)");

@@ -58,6 +58,7 @@ def read_folder_nonrecursive(folder: str,
     with import_modfunc(CONFIG['meta_reader']['caching_manager'])():
         for f in folder.iterdir():
             if f.name.startswith("~"): continue # Ignore temp files on windows
+            if f.name.startswith("IGNORE"): continue # Ignore on request
             if only_file_names and f.name not in only_file_names: continue
             found_mgs, not_found_mgs=[],[]
             for meas_group, mg_info in CONFIG['measurement_groups'].items():

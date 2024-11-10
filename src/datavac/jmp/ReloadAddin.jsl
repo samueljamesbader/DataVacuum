@@ -1,0 +1,11 @@
+Names Default To Here( 1 );
+dv = Namespace("%ADDINID%");
+dv:ReloadAddin=Function( {}, {Default Local},
+    Write("Reloading " || "%ADDINID%" || "\!N");
+	Register Addin(
+		"%ADDINID%",
+		"%LOCALADDINFOLDER%",
+		LoadsAtStartup(1), LoadNow(1)
+	);
+    Write("Reload complete\!N");
+);

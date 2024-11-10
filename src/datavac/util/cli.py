@@ -11,6 +11,7 @@ cli_funcs={
     'dump_analysis': 'datavac.io.database:cli_dump_analysis',
     'print_database': 'datavac.io.database:cli_print_database',
     'clear_reextract_list': 'datavac.io.database:cli_clear_reextract_list',
+    'clear_reanalyze_list': 'datavac.io.database:cli_clear_reanalyze_list',
     'force_database': 'datavac.io.database:cli_force_database',
     'update_mask_info': 'datavac.io.database:cli_update_mask_info',
     'heal': 'datavac.io.database:cli_heal',

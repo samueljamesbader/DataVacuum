@@ -1,0 +1,109 @@
+Names Default To Here( 1 );
+dv=Namespace("datavacuum_helper.local");
+
+// dv:PyConn()
+// Returns a Python Connection object, initializing it if it doesn't yet exist.
+// The initialization includes JMP's Python Init(), Python Connect(), and
+// running dv:PyRefresh().  All DataVacuum code should access Python Connection
+// through this object.
+// Args: None
+// Returns: a Python Connection
+dv:_pc=0;
+dv:PyConn=Function({},
+	If(dv:_pc==0,
+		Write("Starting Python Connection.\!N");
+		paths=Words(dv:PYTHON_SYS_PATHS,";");
+		initexpr=Eval Expr(Python Init(
+			//Init Trace( "TRUE"),
+			Path(Expr(dv:PYTHON_DLL)),
+			Python Sys Path(paths)));
+		Eval(initexpr);
+		dv:_pc=Python Connect();
+		dv:PyRefresh(dv:_pc);
+	);
+	dv:_pc
+);
+
+// dv:PyRefresh()
+// Reloads the DataVacuum modules inside of the connected Python
+// Args:
+//   pc - the Python Connection to use. Generally, this argument should NOT be supplied.
+//        When not supplied, dv:PyConn() will be used by default.
+//        This argument only exists for use by dv:PyConn() itself to avoid infinite loop.
+dv:PyRefresh = Function( {pc=0},
+	Write("Refreshing Python\!N");
+	pc=If(pc==0, dv:PyConn(), pc);
+	pc << Submit("from datavac import unload_my_imports; unload_my_imports();");
+	pyinit = dv:addin_home || "/jmp16_pyinit.py";
+	pc << Submit File( pyinit );
+);
+
+// dv:PySub()
+// Submits a python code after wrapping it in a try/except to print errors, and prints the result.
+// Purely a convenience, but handy since generally there's no helpful output for failed Python code.
+// Args:
+//   code - the python code (as a string) to use
+dv:PySub = Function( {code},
+	{Default Local},
+	wrapped_code = "import traceback\!Npython_error=None;\!Ntry:\!N" || "    " || code ||
+	"\!Nexcept Exception: print((python_error:=traceback.format_exc()))";
+	dv:PyConn() << Submit( wrapped_code );
+	//dv:PyConn() << Term();
+	dv:PyConn() << Get("python_error");
+);
+
+// dv:PullSweeps()
+// Pulls the corresponding sweep data for a main table and virtually joins it to the main
+// Args:
+//   dt - the view table (ie queried from the jmp schema of a DV database).  If not supplied,
+//        defaults to the current data table.
+dv:PullSweeps=Function({dt=0},
+	dt = If( dt!=0, dt, Current Data Table());
+	
+	// Get the info from the view data table's Modify Query script needed for query
+	source=dt << Get Script("Modify Query");
+	If( ! (Head(Arg(source,1))==Expr(New SQL Query())),
+		Throw("Table not based on a query."));
+	If( ! (Head(Arg(source,2))==Expr(Modify())),
+		Throw("Table not based on a query."));
+	from_clause=Eval(Eval Expr(Extract Expr(Expr(Arg(source,1)),From(Wild()))));
+	If( ! N Arg(Name Expr(from_clause))==1,
+		Throw("Multiple tables involved"));
+	db_table_name=Arg(Arg(Name Expr(from_clause),1),1);
+	Show(db_table_name);
+	
+	// Prep the view data table to be linked
+	If(! Contains( dt << Get Column Names(String), "loadid_measid"),
+		linkidcol = dt << New Column( "loadid_measid", Formula(:loadid*1e9+:measid));
+		linkidcol << Set Property( "Link ID", 1);
+	);
+	path="$temp/"||(dt << Get Name) || ".jmp";
+	dt << Save(path);
+	
+	// Run the query in Python
+	dv:PyConn() << Send(dt,Python Name("viewdf"));
+	error=dv:PySub("sweepdf=db.get_meas_data_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'])");
+	//Show(error);
+	//Show(error!=0);
+	If(!IsEmpty(error),
+		Write("Problem getting data..\!N"),
+	// Else
+		Write("Got data\!N");
+		sweeptab=dv:PyConn()<<Get("sweepdf");
+		
+		// Name appropriately and add linkage
+		sweeptab_name=(dt<<Get Name)||" -- Sweeps";
+		Try(Close(DataTable(sweeptab_name),NoSave), "No issue");
+		sweeptab<<Set Name(sweeptab_name);
+		linkidcol = sweeptab << New Column( "loadid_measid", Formula(:loadid*1e9+:measid));
+		Column(sweeptab, "loadid_measid") << Set Property( "Link Reference", Reference Table(path) );
+		sweeptab << New Data View();
+	);
+	sweeptab;
+);
+
+//dv:PyRefresh();
+
+//dv:PySub(
+//	"dat=db.get_data('Cyp4x4 PUN IdVg',include_sweeps=True,unstack_headers=True,raw_only=False); print(len(dat));"
+//);

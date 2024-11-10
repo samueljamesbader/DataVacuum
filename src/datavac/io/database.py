@@ -238,7 +238,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                           on_mismatch=on_mismatch,on_init=yes_needs_update)
         return needs_update
 
-    def ensure_die_constraint(self,conn):
+    def fix_die_constraint(self,conn,add_or_remove='add'):
         #tab=self._mgt(mg,'Meas').name
         res=conn.execute(
             text("SELECT table_name FROM information_schema.table_constraints"
@@ -254,15 +254,19 @@ class PostgreSQLDatabase(AlchemyDatabase):
             if (tab:=self._hat(an)) is not None:
                 if tab.name not in constrained_tabs:
                     unconstrained_tabs.append(tab.name)
-        for tab in unconstrained_tabs:
-            conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
-                              f' ADD CONSTRAINT "fk_dieid" FOREIGN KEY ("dieid")' \
-                              f' REFERENCES {self.int_schema}."Dies" ("dieid") ON DELETE CASCADE;'))
+        if add_or_remove=='add':
+            for tab in unconstrained_tabs:
+                conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
+                                  f' ADD CONSTRAINT "fk_dieid" FOREIGN KEY ("dieid")' \
+                                  f' REFERENCES {self.int_schema}."Dies" ("dieid") ON DELETE CASCADE;'))
+        elif add_or_remove=='remove':
+            for tab in constrained_tabs:
+                conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
+                                  f' DROP CONSTRAINT "fk_dieid";'))
+        else: raise ValueError(f"What is '{add_or_remove}'? Was expecting 'add' or 'remove'.")
 
     def update_mask_info(self,conn):
-        """ Warning, this will currently wipe any data because I haven't unreferenced keys"""
-
-        previous_masktab=pd.read_sql(select(*self._masktab.columns),conn)
+        #previous_masktab=pd.read_sql(select(*self._masktab.columns),conn)
         #######Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
         diemdf=[]
         for mask,info in CONFIG['diemaps'].items():
@@ -282,7 +286,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             "Can't add to die tables without messing up existing dies"
         self._upload_csv(diemdf.iloc[len(previous_dietab):],conn,self.int_schema,'Dies')
 
-        self.ensure_die_constraint(conn)
+        self.fix_die_constraint(conn,add_or_remove='add')
 
     def get_mask_info(self,mask):
         with self.engine.connect() as conn:
@@ -341,6 +345,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         # conn.connection.commit()
 
     def dump_extractions(self, measurement_group, conn):
+        if measurement_group not in CONFIG.measurement_groups: raise ValueError(f"Unknown group '{measurement_group}'")
         if (extr_tab:=self._mgt(measurement_group,'extr')) is None: return
         if (meas_tab:=self._mgt(measurement_group,'meas')) is None: return
         fullname=CONFIG['database']['materials']['full_name']
@@ -626,7 +631,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 for an in analyses:
                     insrt.append(
                         str(pgsql_insert(self._reatab) \
-                            .values(matid=matid,analysis=an)\
+                            .values(matid=matid,analysis=an) \
+                            .on_conflict_do_nothing()\
                             .compile(compile_kwargs={'literal_binds':True})))
                 conn.execute(text("; ".join(insrt)))
 
@@ -726,7 +732,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
             select(self._diemtab.c.DieXY,self._diemtab.c.dieid) \
                 .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
         for an in analyses:
-            logger.debug(f"Running analysis: {an}")
+            if all(k in mg_to_data for k in CONFIG.higher_analyses[an]['required_dependencies']):
+                logger.debug(f"Running analysis: {an}")
+            else:
+                logger.debug(f"Skipping analysis {an} because missing some required dependencies")
+                continue
             df=import_modfunc(CONFIG.higher_analyses[an]['analysis_func'])(
                 #**{v: mg_to_data[k].scalar_table_with_layout_params() for k,v in
                 **{v: mg_to_data[k] for k,v in
@@ -779,7 +789,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def get_data_for_regen(self, meas_group, matname, on_no_data='raise'):
         meas_cols=list(CONFIG['measurement_groups'][meas_group]['meas_columns'])
         data=self.get_data(meas_group=meas_group,
-                      scalar_columns=['loadid','measid','rawgroup','DieXY','DieCenterX [mm]','DieCenterY [mm]','Structure','Mask',*meas_cols],
+                      scalar_columns=['loadid','measid','rawgroup','LotWafer','DieXY','DieCenterX [mm]','DieCenterY [mm]','Structure','Mask',*meas_cols],
                       include_sweeps=True, raw_only=True, unstack_headers=True,
                       **{CONFIG['database']['materials']['full_name']:[matname]})
 
@@ -834,7 +844,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
         else:
             selcols=list(set([get_col(sc.name) for sc in all_cols]))
 
-        thejoin=functools.reduce((lambda x,y: x.join(y)),involved_tables)
+        mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
+        thejoin=functools.reduce((lambda x,y: x.join(y)
+                                    if y is not self._loadtab
+                                    else x.join(y,onclause=(anlytab.c[f"loadid - {mg}"]==self._loadtab.c.loadid))),
+                                 involved_tables)
         sel=select(*selcols).select_from(thejoin)
         sel=functools.reduce((lambda s, f: s.where(get_col(f).in_(factors[f]))), factors, sel)
         with self.engine.connect() as conn:
@@ -909,14 +923,25 @@ class PostgreSQLDatabase(AlchemyDatabase):
         from datavac.util.tables import stack_multi_sweeps
         from datavac.util.util import only
         headers=[k for k in data.columns if k not in ['loadid','measid']]
-        # Assume column names of form X, fY1@SWVR=val, fY2@SWVR=val ...
-        possible_xs=[k for k in headers if '@' not in k]
-        x=only(possible_xs,f"Multiple possible x values in {possible_xs}")
-        ys=list(set([k.split("@")[0][1:] for k in headers if '@' in k]))
-        swvs=list(set([k.split("@")[1].split("=")[0] for k in headers if '@' in k]))
+        if all(('@' not in k) for k in headers):
+            # Assume column names of form X, Y... doesn't actually matter which is independent, so say first
+            x=headers[0]
+            swvs=[]
+            ys_withdir=headers[1:]
+            #data=data.rename(columns=dict(zip(ys,[y+"@" for y in headers[1:]])))
+        else:
+            # Assume column names of form X, fY1@SWVR=val, fY2@SWVR=val ...
+            possible_xs=[k for k in headers if '@' not in k]
+            x=only(possible_xs,f"None or multiple possible x values in {possible_xs}")
+            swvs=list(set([k.split("@")[1].split("=")[0] for k in headers if '@' in k]))
+            ys_withdir=[k.split("@")[0] for k in headers if '@' in k]
+        directed=all(y[0] in ('f','r') for y in ys_withdir)
+        ys=list(set([y[1:] for y in ys_withdir] if directed else ys_withdir))
+        ys=[y for y in ys if y not in swvs]
         #print(x,ys,swvs)
         #print(data)
-        data=stack_multi_sweeps(data,x=x,ys=ys,swvs=swvs)
+        data=stack_multi_sweeps(data,x=x,ys=ys,swvs=swvs,restrict_dirs=(('f','r') if directed else ('',)))
+        print(x,ys)
         data = data.explode([x,*ys],ignore_index=True)\
             [['loadid','measid',*[k for k in data.columns if k not in ['loadid','measid']]]]
         #print(data)
@@ -1206,6 +1231,7 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                 if not len(res):
                     logger.info("Nothing to reload")
                 else:
+                    logger.info("Doing reloads")
                     meas_groups=None if force_all_meas_groups else [r[0] for r in res]
                     all_meas_groups=ensure_meas_group_sufficiency(meas_groups,on_error='ignore')
                     read_and_upload_data(db,
@@ -1220,6 +1246,7 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                 if not len(res):
                     logger.info("Nothing to re-extract")
                 else:
+                    logger.info("Doing re-extractions")
                     meas_groups=[r[0] for r in res]
                     all_meas_groups=ensure_meas_group_sufficiency(meas_groups,on_error='ignore')
                     logger.info(f"Pulling sweeps for {all_meas_groups} to re-extract {meas_groups}")
@@ -1239,6 +1266,7 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
         if not len(res):
             logger.info("Nothing needs re-analyzing!")
         else:
+            logger.info("Doing re-analyses")
             for matid,matname,*other_matinfo in res:
                 # Re-analyses
                 res=conn.execute(select(db._reatab.c.analysis) \
@@ -1246,6 +1274,7 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                 if not len(res):
                     logger.info("Nothing to re-analyze")
                 else:
+                    logger.info(f"Looking at {matname}")
                     analyses=[r[0] for r in res]
                     req_meas_groups=CONFIG.get_dependency_meas_groups_for_analyses(analyses,required_only=True)
                     all_meas_groups=CONFIG.get_dependency_meas_groups_for_analyses(analyses,required_only=False)
@@ -1262,13 +1291,16 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                                                          *CONFIG['database']['materials']['info_columns']],
                                          **{CONFIG['database']['materials']['full_name']:[matname]})
                         if mg in req_meas_groups:
-                            assert len(data), f"Missing required data for {mg}"
+                            #assert len(data), f"Missing required data for '{mg}' in {matname}"
+                            if not len(data):
+                                logger.warning(f"Missing required data for '{mg}' in {matname}")
+                                continue
                         if len(data):
                             mumts[mg]=UniformMeasurementTable(dataframe=data,headers=[],
                                                               meas_length=None,meas_type=None,meas_group=mg)
                         assert len(list(data['loadid'].unique()))==1
                         precol_loadids[mg]=data['loadid'].iloc[0]
-                    logger.info(f"Re-analyzing {analyses}")
+                    logger.info(f"Re-analyzing {analyses} for {matname}")
                     db.perform_analyses(conn,analyses=analyses,
                                         precollected_data_by_meas_group=mumts,
                                         precollected_loadids=precol_loadids,
@@ -1294,6 +1326,19 @@ def cli_clear_reextract_list(*args):
     dstat=delete(self._rextab)
     if namespace.group is not None:
         dstat=dstat.where(self._rextab.c.MeasGroup.in_(namespace.group))
+    with self.engine.begin() as conn:
+        conn.execute(dstat)
+
+def cli_clear_reanalyze_list(*args):
+    parser=argparse.ArgumentParser(description='Clears the list of items which will be re-analyzed upon healing')
+    parser.add_argument('-a','--analysis',action='append',help='Analyses to clear from list, eg -a ANALYSIS1 -a ANALYSIS2')
+    namespace=parser.parse_args(args)
+
+    self=get_database(skip_establish=True)
+
+    dstat=delete(self._reatab)
+    if namespace.analysis is not None:
+        dstat=dstat.where(self._reatab.c.analysis.in_(namespace.analysis))
     with self.engine.begin() as conn:
         conn.execute(dstat)
 
