@@ -55,22 +55,30 @@ dv:PySub = Function( {code},
 // dv:PullSweeps()
 // Pulls the corresponding sweep data for a main table and virtually joins it to the main
 // Args:
-//   dt - the view table (ie queried from the jmp schema of a DV database).  If not supplied,
+//   dt - the JMP table for which to pull the corresponding sweeeps.  If not supplied,
 //        defaults to the current data table.
-dv:PullSweeps=Function({dt=0},
+//   db_table_name -  the view table from DataVacuum from which the JMP table was queried.
+//        If not supplied, will be extracted from the Modify Query script of the JMP table.
+//        This implicit extraction only works if the JMP table was produced using JMP's
+//        Build Query, and other JMP operations which preserve the Modify Query script.
+//        So, if you're getting fancy, you may have to supply this explicitly.
+//
+dv:PullSweeps=Function({dt=0, db_table_name=0},
 	dt = If( dt!=0, dt, Current Data Table());
 	
-	// Get the info from the view data table's Modify Query script needed for query
-	source=dt << Get Script("Modify Query");
-	If( ! (Head(Arg(source,1))==Expr(New SQL Query())),
-		Throw("Table not based on a query."));
-	If( ! (Head(Arg(source,2))==Expr(Modify())),
-		Throw("Table not based on a query."));
-	from_clause=Eval(Eval Expr(Extract Expr(Expr(Arg(source,1)),From(Wild()))));
-	If( ! N Arg(Name Expr(from_clause))==1,
-		Throw("Multiple tables involved"));
-	db_table_name=Arg(Arg(Name Expr(from_clause),1),1);
-	Show(db_table_name);
+	If(db_table_name==0,
+		// Get the info from the view data table's Modify Query script needed for query
+		source=dt << Get Script("Modify Query");
+		If( ! (Head(Arg(source,1))==Expr(New SQL Query())),
+			Throw("Table not based on a query."));
+		If( ! (Head(Arg(source,2))==Expr(Modify())),
+			Throw("Table not based on a query."));
+		from_clause=Eval(Eval Expr(Extract Expr(Expr(Arg(source,1)),From(Wild()))));
+		If( ! N Arg(Name Expr(from_clause))==1,
+			Throw("Multiple tables involved"));
+		db_table_name=Arg(Arg(Name Expr(from_clause),1),1);
+		Show(db_table_name);
+	);
 	
 	// Prep the view data table to be linked
 	If(! Contains( dt << Get Column Names(String), "loadid_measid"),
