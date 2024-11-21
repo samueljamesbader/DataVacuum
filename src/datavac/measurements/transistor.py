@@ -18,14 +18,14 @@ class IdVg(MeasurementType):
 
     Args:
         norm_column: name of the column to use for calculations requiring normalized current
-        Icc: normalized current at which to extract VTcc
+        Iccs: normalized currents at which to extract VTcc
         Iswf: swing floor (constant current, normalized, added to abs(I) before extracting SS)
             should be much smaller than the current at which SS is expected to avoid degrading SS,
             but higher than noise floor to ensure noise is not caught as swing!
     """
 
     norm_column: str
-    Icc: float = 1
+    Iccs: dict[str,float] = dataclasses.field(default_factory=lambda:{'':1})
     Iswf: float = 1e-6
     pol: str = 'n'
     vgoff: float = 0
@@ -46,9 +46,6 @@ class IdVg(MeasurementType):
         # Properties of the Sav-Gol filter to apply to gm
         gmsavgol=(5,1)
         sssavgol=(3,1)
-
-        # VT CC definition
-        logIcc=np.log(self.Icc)
 
         # Numerical tol to avoid div/0
         tol=1e-14
@@ -120,9 +117,11 @@ class IdVg(MeasurementType):
         measurements['Ion/Ioffmin']=measurements['Ion [A]']/measurements['Ioffmin [A]']
         measurements['Ion/Ioffstart']=measurements['Ion [A]']/measurements['Ioffstart [A]']
         measurements['Ron [ohm]']=np.abs(VDlin)/(np.abs(IDlin[:,-1])+tol)
-        measurements['VTcc_lin']=VTCC((IDlin.T/W).T,VG,self.Icc,itol=tol)
-        measurements['VTcc_sat']=VTCC((IDsat.T/W).T,VG,self.Icc,itol=tol)
-        measurements['DIBL [mV/V]']=-1000*(measurements['VTcc_sat']-measurements['VTcc_lin'])/(VDsat-VDlin)
+        for k,v in self.Iccs.items():
+            measurements[f'VTcc{k}_lin']=VTCC((IDlin.T/W).T,VG,v,itol=tol)
+            measurements[f'VTcc{k}_sat']=VTCC((IDsat.T/W).T,VG,v,itol=tol)
+            measurements[f'DIBL{k} [mV/V]']=\
+                -1000*(measurements[f'VTcc{k}_sat']-measurements[f'VTcc{k}_lin'])/(VDsat-VDlin)
         measurements['VTgm_sat']=vt_gmpeak
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)

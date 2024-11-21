@@ -156,6 +156,7 @@ def cli_compile_jmp_addin(*args):
             dv_base_jsl=[get_resource_path(x) for x in ['datavac.jmp:ConnectToWaferMap.jsl',
                                                         'datavac.jmp:DBConnect.jsl',
                                                         'datavac.jmp:JMP16Python.jsl',
+                                                        'datavac.jmp:Util.jsl',
                                                         *(['datavac.jmp:ReloadAddin.jsl'] if envname=='LOCAL' else [])]]
             request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])]
             inc_files=[*generated_jsl,*dv_base_jsl,*request_jsl]

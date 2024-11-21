@@ -8,14 +8,11 @@ Revision: 2024-11-12
 import pickle
 from typing import Callable
 from pathlib import Path
-
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import patches
 
 def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 0, yoffset:float = 0,
-                          radius:float=150, notchsize:float=5, plot:bool = False,
+                          radius:float=150, notchsize:float=5, discard_ratio:float = .3, plot:bool = False,
                           save_csv:bool = True, save_pkl:bool = True, save_dir:Path=None,
                           labeller:Callable[[float,float],str] = (lambda x,y: f"{x:+d},{y:+d}")):
     """Produces a wafermap (ie set of points for each die) in the formats used by JMP or DataVacuum.
@@ -46,6 +43,7 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
         yoffset: y-coordinate of the bottom-left-when-notchleft corner of the reference die
         radius: radius in mm of the wafer
         notchsize: size in mm of the notch indentation [not real notch, just for visual purposes]
+        discard_ratio: dies which fit into a rectangle with area less than discard_ratio*xindex*yindex are deleted
         plot: whether to draw a matplotlib figure representing the wafer
         save_csv: produce the JMP-friendly .csv outputs
         save_pkl: produce the DataVacuum required python pickle file.
@@ -67,6 +65,8 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
 
     # Draw the circle
     if plot:
+        import matplotlib.pyplot as plt
+        from matplotlib import patches
         plt.figure()
         plt.xlim(-radius-notchsize,radius+notchsize)
         plt.ylim(-radius-notchsize,radius+notchsize)
@@ -153,7 +153,7 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
         # Find the area of a rectangle that would contain this polygon and if it's tiny, disregard die
         w=max([xy[0] for xy in refined_poly_points])-min([xy[0] for xy in refined_poly_points])
         h=max([xy[1] for xy in refined_poly_points])-min([xy[1] for xy in refined_poly_points])
-        if w*h<.3*xindex*yindex: continue
+        if w*h<discard_ratio*xindex*yindex: continue
 
         # Finally, remove the notch
         refined_poly_points_dodge_notch=[]
@@ -219,7 +219,6 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
                 zip(*[(i,i,mp[0],mp[1]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
             .to_csv(save_dir/f"{name}_NotchLeftDiemap-XY.csv",index=False)
 
-    if save_csv:
         pd.DataFrame(dict(
             zip(["Shape ID","DieXY"], \
                 zip(*enumerate(allmappoints.keys(),start=1))))) \
@@ -228,5 +227,23 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
             zip(["Shape ID","Part ID","X","Y"], \
                 zip(*[(i,i,-mp[1],mp[0]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
             .to_csv(save_dir/f"{name}_NotchDownDiemap-XY.csv",index=False)
+
+        pd.DataFrame(dict(
+            zip(["Shape ID","DieXY"], \
+                zip(*enumerate(allmappoints.keys(),start=1))))) \
+            .to_csv(save_dir/f"{name}_NotchRightDiemap-Name.csv",index=False)
+        pd.DataFrame(dict(
+            zip(["Shape ID","Part ID","X","Y"], \
+                zip(*[(i,i,-mp[0],-mp[1]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
+            .to_csv(save_dir/f"{name}_NotchRightDiemap-XY.csv",index=False)
+
+        pd.DataFrame(dict(
+            zip(["Shape ID","DieXY"], \
+                zip(*enumerate(allmappoints.keys(),start=1))))) \
+            .to_csv(save_dir/f"{name}_NotchUpDiemap-Name.csv",index=False)
+        pd.DataFrame(dict(
+            zip(["Shape ID","Part ID","X","Y"], \
+                zip(*[(i,i,mp[1],-mp[0]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
+            .to_csv(save_dir/f"{name}_NotchUpDiemap-XY.csv",index=False)
 
     return dbdf,die_info_to_pickle

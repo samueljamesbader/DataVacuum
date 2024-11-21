@@ -404,9 +404,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
             logger.debug(f"Layout parameters unchanged for {measurement_group}")
         else:
             logger.debug(f"Layout parameters changed for {measurement_group}, updating")
-            if dump_extractions:
-                self.dump_extractions(measurement_group,conn)
             if self._mgt(measurement_group,'meas') is not None:
+                if dump_extractions:
+                    self.dump_extractions(measurement_group,conn)
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}"'\
                                   f' DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
             conn.execute(delete(tab))

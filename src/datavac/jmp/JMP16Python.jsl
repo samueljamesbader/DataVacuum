@@ -82,9 +82,8 @@ dv:PullSweeps=Function({dt=0, db_table_name=0},
 	
 	// Prep the view data table to be linked
 	If(! Contains( dt << Get Column Names(String), "loadid_measid"),
-		linkidcol = dt << New Column( "loadid_measid", Formula(:loadid*1e9+:measid));
-		linkidcol << Set Property( "Link ID", 1);
-	);
+		linkidcol = dt << New Column( "loadid_measid","Continuous","Nominal",
+			Formula(:loadid*1e9+:measid), Set Property( "Link ID", 1)));
 	path="$temp/"||(dt << Get Name) || ".jmp";
 	dt << Save(path);
 	
@@ -103,7 +102,8 @@ dv:PullSweeps=Function({dt=0, db_table_name=0},
 		sweeptab_name=(dt<<Get Name)||" -- Sweeps";
 		Try(Close(DataTable(sweeptab_name),NoSave), "No issue");
 		sweeptab<<Set Name(sweeptab_name);
-		linkidcol = sweeptab << New Column( "loadid_measid", Formula(:loadid*1e9+:measid));
+		linkidcol = sweeptab << New Column( "loadid_measid", "Continuous","Nominal",
+			Formula(:loadid*1e9+:measid));
 		Column(sweeptab, "loadid_measid") << Set Property( "Link Reference", Reference Table(path) );
 		sweeptab << New Data View();
 	);

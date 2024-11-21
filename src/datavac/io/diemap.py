@@ -16,8 +16,8 @@ from datavac.io.make_diemap import make_fullwafer_diemap as standalone_mfd
 
 
 def make_fullwafer_diemap(name, xindex, yindex, radius=150, notchsize=5, plot=False, save=True):
-    standalone_mfd(name,xindex=xindex,yindex=yindex,
-                   radius=radius,notchsize=notchsize,plot=plot,save=save,
+    return standalone_mfd(name,xindex=xindex,yindex=yindex,
+                   radius=radius,notchsize=notchsize,plot=plot,save_csv=save,save_pkl=save,
                    labeller=(lambda x,y:f"L{x:+d}B{y:+d}"))
 
 def read_velox_wafermap(file,mask,read_sites=True):
