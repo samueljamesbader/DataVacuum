@@ -97,8 +97,6 @@ class LayoutParameters:
                 with open(self.LAYOUT_PARAMS_DIR/path,'rb') as f:
                     xls=pd.ExcelFile(f,engine='openpyxl')
                     for sh in xls.book.sheetnames:
-                        if sh=='GaN_PFT':
-                            print(f"hi {mask}")
                         table=pd.read_excel(xls,sh).ffill()
                         if not ('rowname' in table.keys() and 'DUT' in table.keys()):
                             if 'IGNORE' not in sh: logger.debug(f"Ignoring {sh}")

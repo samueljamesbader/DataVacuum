@@ -1040,40 +1040,6 @@ class PostgreSQLDatabase(AlchemyDatabase):
         with open(dsnpath,'w') as f:
             f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
 
-    #def make_JMPstart(self,jslpath=None):
-    #    connection_info=dict([[s.strip() for s in x.split("=")] for x in
-    #                          os.environ['DATAVACUUM_DBSTRING'].split(";")])
-    #    if self._sslrootcert:
-    #        escaped_rootfile=str(self._sslrootcert).replace('\\','\\\\')
-    #    string=\
-    #        fr"""
-    #        New SQL Query(
-    #            Connection(
-    #                "ODBC:DRIVER={{PostgreSQL Unicode(x64)}};
-    #                DATABASE={connection_info['Database']};
-    #                SERVER={connection_info['Server']};
-    #                PORT={connection_info['Port']};
-    #                UID={connection_info['Uid']};
-    #                PWD={connection_info['Password']};
-    #                {'SSLmode=verify-full;' if connection_info['Server']!='localhost' else ''}
-    #                ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;
-    #                ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;
-    #                Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;
-    #                Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;
-    #                UseServerSidePrepare=1;LowerCaseIdentifier=0;
-    #                {f'pqopt={{sslrootcert={escaped_rootfile}}};' if self._sslrootcert else '' }
-    #                D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;"
-    #            ),
-    #            QueryName( "test_query" ),
-    #            CustomSQL("Select * from information_schema.tables;"),
-    #            PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
-    #            ) << Run;
-    #            Print("Wait five seconds and check the connections.");
-    #        """
-    #    Path(jslpath).parent.mkdir(parents=True,exist_ok=True)
-    #    with open(jslpath,'w') as f:
-    #        f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
-
 
 ##### NOT FUNCTIONAL
 ####class SQLiteDatabase(AlchemyDatabase):
@@ -1346,14 +1312,6 @@ def cli_print_database():
     connection_info=dict([[s.strip() for s in x.split("=")] for x in
                           os.environ['DATAVACUUM_DBSTRING'].split(";")])
     print(connection_info['Server'])
-
-def entry_point_make_jmpstart():
-    try:
-        jslfile=sys.argv[1]
-    except IndexError:
-        raise Exception("Supply a path for the JSL file you want to produce," \
-                        " eg 'datavac_make_jmpstart JMP_DIR/this.jsl'.")
-    get_database().make_JMPstart(jslfile)
 
 def cli_update_mask_info(*args):
     parser=argparse.ArgumentParser(description='Updates the mask information in the database')

@@ -1,8 +1,25 @@
 import sys
+from functools import partial
 
 from datavac.util.util import import_modfunc
 
-cli_funcs={
+def cli_helper(cli_funcs,override_sysargs=None):
+    args=override_sysargs if override_sysargs is not None else sys.argv
+    try:
+        sub_call=args[1]
+        func_dotpath=cli_funcs[sub_call]
+    except:
+        print(f'Call like "{args[0]} COMMAND" where COMMAND options are:')
+        for name in sorted(cli_funcs):
+            print(f"- {name}")
+        exit()
+
+    #sys.argv=[f'{args[0]} {args[1]}',*args[2:]]
+    func=import_modfunc(func_dotpath)
+
+    return func(*args[2:])
+
+datavac_cli_funcs={
     'update_layout_params': 'datavac.io.database:cli_update_layout_params',
     'clear_database': 'datavac.io.database:cli_clear_database',
     'upload_data': 'datavac.io.database:cli_upload_data',
@@ -16,18 +33,6 @@ cli_funcs={
     'update_mask_info': 'datavac.io.database:cli_update_mask_info',
     'heal': 'datavac.io.database:cli_heal',
     'compile_jmp': 'datavac.jmp.compile_addin:cli_compile_jmp_addin',
+    'launch_apps':  'datavac.appserve.panel_serve:launch'
 }
-def cli_main():
-    try:
-        sub_call=sys.argv[1]
-        func_dotpath=cli_funcs[sub_call]
-    except:
-        print(f'Call like "datavac COMMAND" where COMMAND options are:')
-        for name in cli_funcs:
-            print(f"- {name}")
-        exit()
-
-    sys.argv=[f'{sys.argv[0]} {sys.argv[1]}',*sys.argv[2:]]
-    func=import_modfunc(func_dotpath)
-
-    return func(*sys.argv[1:])
+datavac_cli_main=partial(cli_helper,cli_funcs=datavac_cli_funcs)

@@ -162,7 +162,7 @@ def perform_extraction(matname_to_mg_to_data):
                 if any(d in to_be_extracted for d in deps): continue
 
                 data=mg_to_data[mg]
-                logger.debug(f"{mg} extraction")
+                logger.debug(f"{mg} extraction ({matname})")
                 for pre_analysis in CONFIG['measurement_groups'][mg].get('pre_analysis',[]):
                     import_modfunc(pre_analysis)(data)
                 dep_kws={deps[d]:mg_to_data[d] for d in deps if d in mg_to_data}

@@ -1,15 +1,13 @@
 import os
-
-import panel as pn
 from pathlib import Path
-
-from datavac.io.database import get_database
 from yaml import safe_load
 
+import panel as pn
 import panel.theme
 from panel.theme.material import MaterialDefaultTheme
 
-from datavac.appserve.ad_auth import monkeypatch_oauthprovider
+from datavac.io.database import get_database
+from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes
 from datavac.util.logging import logger
 from datavac.appserve.index import Indexer
 from datavac.util.util import import_modfunc
@@ -20,7 +18,11 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
     index_yaml_file=index_yaml_file or\
                     Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"server_index.yaml"
     with open(index_yaml_file, 'r') as f:
+        f=f.read()
+        for k,v in os.environ.items():
+            if 'DATAVAC' in k: f=f.replace(f"%{k}%",v)
         theyaml=safe_load(f)
+        additional_static_dirs={k:(v['path'],v['role']) for k,v in theyaml.get('additional_static_dirs',{}).items()}
         categorized_applications=theyaml['index']
         theme_module,theme_class=theyaml['theme'].split(":")
         theme=import_modfunc(theyaml['theme'])
@@ -52,11 +54,12 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
 
     pn.state.cache['index']=index=Indexer(categorized_applications=categorized_applications)
     pn.state.cache['theme']=theme
-    def authorize(user_info):
-
+    def authorize(user_info,request_path):
         if oauth_provider=='none': return True
         try:
-            uri=pn.state.curdoc.session_context._request.uri
+            #uri=pn.state.curdoc.session_context._request.uri
+            #print(uri,request_path)
+            uri=request_path
             assert uri[0]=="/", f"URI '{uri}' is not as expected"
             slug=uri[1:].split("?")[0]
 
@@ -77,11 +80,12 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
             logger.warning(str(e))
             return False
 
+    monkeypatch_authstaticroutes()
     pn.config.authorize_callback = authorize
     pn.serve(
         index.slug_to_app,
         port=port,websocket_origin='*',show=False,
-        #static_dirs={'server_static':str(ROOT_DIR/'src/datavac/server/static')},
+        static_dirs=additional_static_dirs,
         **kwargs)
 
 def launch():
