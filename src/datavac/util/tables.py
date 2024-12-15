@@ -1,4 +1,5 @@
 import os
+from io import StringIO
 from typing import Union
 
 import numpy as np
@@ -126,8 +127,21 @@ def pandas_to_typed_csv(df: pd.DataFrame, filename: Union[str,os.PathLike]):
     df=df.rename(columns={c:(c+"+++"+str(df.dtypes[c])) for c in df.columns})
     df.to_csv(filename,index=False)
 
+def pandas_to_typed_csv_string(df: pd.DataFrame):
+    bio=StringIO()
+    pandas_to_typed_csv(df,bio)
+    return bio.getvalue()
+
 def typed_csv_to_pandas(filename: Union[str,os.PathLike]):
     df=pd.read_csv(filename)
-    df=df.astype({c:c.split("+++")[1] for c in df.columns})
+    df=df.astype({c:c.split("+++")[1] if '+++' in c else 'string' for c in df.columns})
     df=df.rename(columns={c:c.split("+++")[0] for c in df.columns})
     return df
+
+def typed_csv_string_to_pandas(s: str):
+    bio=StringIO(s)
+    return typed_csv_to_pandas(bio)
+
+
+def fix_types(df):
+    return df.astype({c:(d if d!=object else 'string') for c,d in df.dtypes.items() if c!='RawData'})

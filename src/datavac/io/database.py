@@ -10,7 +10,8 @@ from typing import Union, Callable
 import requests
 
 from datavac.io.layout_params import LayoutParameters
-from datavac.io.meta_reader import ensure_meas_group_sufficiency
+from datavac.io.meta_reader import ensure_meas_group_sufficiency, ALL_MATERIAL_COLUMNS, ALL_LOAD_COLUMNS, \
+    ALL_MATLOAD_COLUMNS
 from datavac.io.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
 from prompt_toolkit import prompt
 from sqlalchemy import text, Engine, create_engine, ForeignKey, UniqueConstraint, PrimaryKeyConstraint, \
@@ -150,12 +151,14 @@ class PostgreSQLDatabase(AlchemyDatabase):
         'str':VARCHAR,
         'float32':DOUBLE_PRECISION,'Float32':DOUBLE_PRECISION,
         'float64':DOUBLE_PRECISION,'Float64':DOUBLE_PRECISION,
-        'bool':BOOLEAN,'boolean':BOOLEAN}
+        'bool':BOOLEAN,'boolean':BOOLEAN,
+        'datetime64[ns]':TIMESTAMP}
     sql_to_pd_types={
         INTEGER:'Int32',
         VARCHAR:'string',
         BOOLEAN: 'bool',
-        DOUBLE_PRECISION:'float64'
+        DOUBLE_PRECISION:'float64',
+        TIMESTAMP:'datetime64[ns]'
     }
 
     def establish_database(self, on_mismatch='raise'):
@@ -183,10 +186,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         on_mismatch='raise')
 
             # Loads table
+            loadscheme=CONFIG['database']['loads']
             loadtab=self._ensure_table_exists(conn,self.int_schema,'Loads',
                       Column('loadid',INTEGER,primary_key=True,autoincrement=True),
                       Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
                       Column('MeasGroup',VARCHAR,nullable=False),
+                      *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
                       UniqueConstraint('matid','MeasGroup'),
                       on_mismatch='raise')
 
@@ -195,6 +200,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                       Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
                       Column('MeasGroup',VARCHAR,nullable=False),
                       Column('full_reload',BOOLEAN,nullable=False),
+                      *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
                       UniqueConstraint('matid','MeasGroup'),
                       on_mismatch='raise')
 
@@ -306,6 +312,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
             if f"{self.int_schema}.Meas -- {mg}" in self._metadata.tables:
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {mg}" '
                                   f'DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
+            if f"{self.int_schema}.Analysis -- {mg}" in self._metadata.tables:
+                conn.execute(text(f'ALTER TABLE {self.int_schema}."Analysis -- {mg}" '
+                                  f'DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
             self.clear_database(only_tables=[tabname],conn=conn)
         def initialize_callback():
             self.update_layout_parameters(layout_params,mg,conn)
@@ -340,7 +349,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
             output.seek(0)
         with time_it(f"Upload of csv for {table}",.1):
             with conn.connection.cursor() as cur:
-                cur.copy_expert(f'COPY {schema+"." if schema else ""}"{table}" FROM STDIN WITH DELIMITER \'|\' NULL \'\'',file=output)
+                try:
+                    cur.copy_expert(f'COPY {schema+"." if schema else ""}"{table}" FROM STDIN WITH DELIMITER \'|\' NULL \'\'',file=output)
+                except Exception as e:
+                    import pdb; pdb.set_trace()
+                    raise
         ##### TEMPORARILY REMOVING DB-API COMMIT
         # conn.connection.commit()
 
@@ -351,9 +364,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
         fullname=CONFIG['database']['materials']['full_name']
         conn.execute(
             pgsql_insert(self._rextab)\
-                .from_select(["matid","MeasGroup",'full_reload'],
-                    select(self._loadtab.c.matid,literal(measurement_group),literal(False))\
-                           .select_from(extr_tab.join(meas_tab).join(self._loadtab))\
+                .from_select(["matid","MeasGroup",'full_reload',*ALL_LOAD_COLUMNS],
+                    select(self._loadtab.c.matid,literal(measurement_group),literal(False),*[self._loadtab.c[c] for c in ALL_LOAD_COLUMNS]) \
+                    .select_from(extr_tab.join(meas_tab).join(self._loadtab))\
                            .distinct())\
                 .on_conflict_do_nothing())
         conn.execute(delete(extr_tab))
@@ -365,10 +378,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
         except KeyError:
             return
         if meas_tab is not None:
+            #raise Exception("Should this say on_conflict_do_update in case the conflict is with a previous re-extraction request?")
             conn.execute(
                 pgsql_insert(self._rextab) \
-                    .from_select(["matid","MeasGroup",'full_reload'],
-                                 select(self._loadtab.c.matid,literal(measurement_group),literal(True)) \
+                    .from_select(["matid","MeasGroup",'full_reload',*ALL_LOAD_COLUMNS],
+                                 select(self._loadtab.c.matid,literal(measurement_group),literal(True),*[self._loadtab.c[c] for c in ALL_LOAD_COLUMNS]) \
                                  .select_from(meas_tab.join(self._loadtab)) \
                                  .distinct()) \
                     .on_conflict_do_nothing())
@@ -409,10 +423,19 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     self.dump_extractions(measurement_group,conn)
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}"'\
                                   f' DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
+            if self._hat(measurement_group) is not None:
+                if dump_extractions:
+                    self.dump_higher_analysis(measurement_group,conn)
+                conn.execute(text(f'ALTER TABLE {self.int_schema}."Analysis -- {measurement_group}"' \
+                                  f' DROP CONSTRAINT IF EXISTS "fk_struct -- {mg}";'))
             conn.execute(delete(tab))
             conn.execute(text(f'INSERT INTO {tab.schema}."{tab.name}" SELECT * from tmplay;'))
             if (self._mgt(measurement_group,'meas') is not None):
                 conn.execute(text(f'ALTER TABLE {self.int_schema}."Meas -- {measurement_group}"' \
+                                  f' ADD CONSTRAINT "fk_struct -- {mg}" FOREIGN KEY ("Structure")' \
+                                  f' REFERENCES {self.int_schema}."{tab.name}" ("Structure") ON DELETE CASCADE;'))
+            if (self._hat(measurement_group) is not None):
+                conn.execute(text(f'ALTER TABLE {self.int_schema}."Analysis -- {measurement_group}"' \
                                   f' ADD CONSTRAINT "fk_struct -- {mg}" FOREIGN KEY ("Structure")' \
                                   f' REFERENCES {self.int_schema}."{tab.name}" ("Structure") ON DELETE CASCADE;'))
 
@@ -424,6 +447,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
         mg, mg_info = measurement_group, CONFIG['measurement_groups'][measurement_group]
         layout_params=LayoutParameters()
 
+        do_recreate_view=False
+        def on_init():
+            nonlocal do_recreate_view
+            do_recreate_view=True
+        conlay=CONFIG['measurement_groups'][mg].get('connect_to_layout_table',True)
+        condie=CONFIG['measurement_groups'][mg].get('connect_to_die_table',True)
         # Meas table
         def meas_replacement_callback(conn,schema,table_name,*args,**kwargs):
             # If replacing, need to drop the other tables for this meas group as well
@@ -436,13 +465,15 @@ class PostgreSQLDatabase(AlchemyDatabase):
         self._ensure_table_exists(conn,self.int_schema,f'Meas -- {mg}',
             Column('loadid',INTEGER,ForeignKey("Loads.loadid",**_CASC),nullable=False),
             Column('measid',INTEGER,nullable=False),
-            Column('Structure',VARCHAR,ForeignKey(f'Layout -- {mg}.Structure',
-                                                  name=f'fk_struct -- {mg}',**_CASC),nullable=False),
-            Column('dieid',INTEGER,ForeignKey(f'Dies.dieid',name='fk_dieid',**_CASC),nullable=False),
+            *([Column('Structure',VARCHAR,ForeignKey(f'Layout -- {mg}.Structure',
+                                          name=f'fk_struct -- {mg}',**_CASC),nullable=False)] if conlay else []),
+            *([Column('dieid',INTEGER,ForeignKey(f'Dies.dieid',name='fk_dieid',**_CASC),nullable=False)]
+                                            if condie else []),
             Column('rawgroup',INTEGER,nullable=False),
             *[Column(k,self.pd_to_sql_types[dtype]) for k,dtype in mg_info['meas_columns'].items()],
             PrimaryKeyConstraint('loadid','measid'),
-            on_mismatch=(meas_replacement_callback if on_mismatch=='replace' else on_mismatch))
+            on_mismatch=(meas_replacement_callback if on_mismatch=='replace' else on_mismatch),
+            on_init=on_init)
 
         # Extr table
         def extr_replacement_callback(conn,schema,table_name,*args,**kwargs):
@@ -457,7 +488,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
             ForeignKeyConstraint(columns=['loadid','measid'],**_CASC,
                                  refcolumns=[f"Meas -- {mg}.loadid",f"Meas -- {mg}.measid",]),
             *[Column(k,self.pd_to_sql_types[dtype]) for k,dtype in mg_info['analysis_columns'].items()],
-            on_mismatch=(extr_replacement_callback if on_mismatch=='replace' else on_mismatch))
+            on_mismatch=(extr_replacement_callback if on_mismatch=='replace' else on_mismatch),
+            on_init=on_init)
 
         # Sweep table
         def sweep_replacement_callback(conn,schema,table_name,*args,**kwargs):
@@ -476,33 +508,40 @@ class PostgreSQLDatabase(AlchemyDatabase):
             on_mismatch=on_mismatch)
 
         # TODO: Replace this with SQLAlchemy select like in get_where
-        view_cols=[
-            CONFIG['database']['materials']['full_name'],
-            *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
-            f'Meas -- {mg}"."Structure',
-            f'Dies"."DieXY',f'Dies"."DieRadius [mm]',
-            *mg_info['analysis_columns'].keys(),
-            *mg_info['meas_columns'].keys(),
-            *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]
-                  if mg in layout_params._tables_by_meas else []),
-            f'Meas -- {mg}"."loadid',
-            f'Meas -- {mg}"."measid',
-        ]
-        view_cols=",".join([f'"{c}"' for c in view_cols])
-        conn.execute(text(f'DROP VIEW IF EXISTS jmp."{mg}"; CREATE VIEW jmp."{mg}" AS SELECT {view_cols} from '\
-            f'"Extr -- {mg}" '\
-            f'JOIN "Meas -- {mg}" ON "Extr -- {mg}".loadid="Meas -- {mg}".loadid '\
-                               f'AND "Extr -- {mg}".measid="Meas -- {mg}".measid '\
-            f'JOIN "Layout -- {mg}" ON "Meas -- {mg}"."Structure"="Layout -- {mg}"."Structure" '
-            f'JOIN "Loads" ON "Loads".loadid="Meas -- {mg}".loadid ' \
-            f'JOIN "Dies" ON "Meas -- {mg}".dieid="Dies".dieid '\
-            f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
+        if do_recreate_view:
+            #import pdb; pdb.set_trace()
+            logger.debug(f"(Re)-creating view for {mg}")
+            view_cols=[
+                CONFIG['database']['materials']['full_name'],
+                *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
+                *(f'Loads"."{i}' for i in CONFIG['database']['loads']['info_columns']),
+                *([f'Meas -- {mg}"."Structure'] if conlay else []),
+                *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
+                *mg_info['analysis_columns'].keys(),
+                *mg_info['meas_columns'].keys(),
+                *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]
+                      if mg in layout_params._tables_by_meas else []),
+                f'Meas -- {mg}"."loadid',
+                f'Meas -- {mg}"."measid',
+            ]
+            view_cols=",".join([f'"{c}"' for c in view_cols])
+            conn.execute(text(f'DROP VIEW IF EXISTS jmp."{mg}"; CREATE VIEW jmp."{mg}" AS SELECT {view_cols} from '\
+                f'"Extr -- {mg}" '\
+                f'JOIN "Meas -- {mg}" ON "Extr -- {mg}".loadid="Meas -- {mg}".loadid '\
+                                   f'AND "Extr -- {mg}".measid="Meas -- {mg}".measid ' +\
+                (f'JOIN "Layout -- {mg}" ON "Meas -- {mg}"."Structure"="Layout -- {mg}"."Structure" ' if conlay else '')+\
+                f'JOIN "Loads" ON "Loads".loadid="Meas -- {mg}".loadid ' +\
+                (f'JOIN "Dies" ON "Meas -- {mg}".dieid="Dies".dieid ' if condie else '')+\
+                f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
 
     def establish_higher_analysis_tables(self,analysis, conn, on_mismatch='raise'):
         reqlids=[Column(f'loadid - {mg}',INTEGER,ForeignKey(self._loadtab.c.loadid,**_CASC),nullable=False,index=True)
                  for mg in CONFIG.higher_analyses[analysis]['required_dependencies']]
         attlids=[Column(f'loadid - {mg}',INTEGER,ForeignKey(self._loadtab.c.loadid,**_CASC),nullable=True,index=True)
                  for mg in CONFIG.higher_analyses[analysis].get('attempt_dependencies',{})]
+        condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
+        conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
+        layout_params=LayoutParameters()
         def replacement_callback(conn,schema,table_name,*args,**kwargs):
             logger.warning(f"Dumping and replacing {table_name}")
             tab=self._metadata.tables[f'{schema}.{table_name}']
@@ -510,7 +549,10 @@ class PostgreSQLDatabase(AlchemyDatabase):
             self.clear_database(only_tables=[tab],conn=conn)
         self._ensure_table_exists(conn,self.int_schema,f'Analysis -- {analysis}',
                   *reqlids,*attlids,
-                  Column('dieid',INTEGER,ForeignKey(f'Dies.dieid',name='fk_dieid',**_CASC),nullable=False),
+                  *([Column('Structure',VARCHAR,ForeignKey(f'Layout -- {analysis}.Structure',
+                       name=f'fk_struct -- {analysis}',**_CASC),nullable=False)] if conlay else []),
+                  *([Column('dieid',INTEGER,ForeignKey(f'Dies.dieid',name='fk_dieid',**_CASC),nullable=False)]
+                        if condie else []),
                   *[Column(k,self.pd_to_sql_types[dtype]) for k,dtype
                         in CONFIG.higher_analyses[analysis]['analysis_columns'].items()],
                   on_mismatch=(replacement_callback if on_mismatch=='replace' else on_mismatch))
@@ -519,15 +561,20 @@ class PostgreSQLDatabase(AlchemyDatabase):
         view_cols=[
             CONFIG['database']['materials']['full_name'],
             *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
-            f'Dies"."DieXY',f'Dies"."DieRadius [mm]',
-            *(CONFIG.higher_analyses[analysis]['analysis_columns'].keys())
+            *(f'Loads"."{i}' for i in CONFIG['database']['loads']['info_columns']),
+            *([f'Analysis -- {analysis}"."Structure'] if conlay else []),
+            *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
+            *(CONFIG.higher_analyses[analysis]['analysis_columns'].keys()),
+            *([c for c in layout_params._tables_by_meas[analysis].columns if not c.startswith("PAD")]
+              if analysis in layout_params._tables_by_meas else []),
         ]
         view_cols=",".join([f'"{c}"' for c in view_cols])
         an=analysis; mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
         conn.execute(text(f'DROP VIEW IF EXISTS jmp."{an}"; CREATE VIEW jmp."{an}" AS SELECT {view_cols} from ' \
                           f'"Analysis -- {an}" ' \
-                          f'JOIN "Loads" ON "Loads".loadid="Analysis -- {an}"."loadid - {mg}"' \
-                          f'JOIN "Dies" ON "Analysis -- {an}".dieid="Dies".dieid ' \
+                          f'JOIN "Loads" ON "Loads".loadid="Analysis -- {an}"."loadid - {mg}"' + \
+                          (f'JOIN "Layout -- {an}" ON "Analysis -- {an}"."Structure"="Layout -- {an}"."Structure" ' if conlay else '')+\
+                          (f'JOIN "Dies" ON "Analysis -- {an}".dieid="Dies".dieid ' if condie else '') +\
                           f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
 
     def _ensure_table_exists(self, conn, schema, table_name, *args,
@@ -596,7 +643,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         .all()[0][0]
         return matid
 
-    def push_data(self, material_info, data_by_meas_group:dict,
+    def push_data(self, matload_info, data_by_meas_group:dict,
                   clear_all_from_material=True, user_called=True, re_extraction=False,
                   defer_analyses=False):
         """
@@ -609,6 +656,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         """
         fullmatname_col=CONFIG['database']['materials']['full_name']
         assert not (user_called and re_extraction), "Re-extraction is not a user-update"
+        material_info={k:v for k,v in matload_info.items() if k in ALL_MATERIAL_COLUMNS}
+        load_info={k:v for k,v in matload_info.items() if k in ALL_LOAD_COLUMNS}
 
         with self.engine.connect() as conn:
             conn.execute(text(f"SET SEARCH_PATH={self.int_schema};"))
@@ -649,7 +698,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
                     # Put an entry into the Loads table and get the loadid
                     loadid=conn.execute(pgsql_insert(self._loadtab)\
-                                       .values(matid=matid,MeasGroup=meas_group)\
+                                       .values(matid=matid,MeasGroup=meas_group,**load_info)\
                                        .returning(self._loadtab.c.loadid))\
                                 .all()[0][0]
 
@@ -665,22 +714,33 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         # Upload the measurement list
                         with time_it(f"Meas table {meas_group} altogether"):
                             mask=material_info['Mask']
-                            diem=pd.DataFrame.from_records(conn.execute(select(self._diemtab.c.DieXY,self._diemtab.c.dieid)\
-                                            .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
-                            df2=df.reset_index() \
-                                .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'}) \
-                                [['loadid','measid','Structure','DieXY','rawgroup',*meas_cols]].merge(diem,how='left',on='DieXY')\
-                                [['loadid','measid','Structure','dieid','rawgroup',*meas_cols]]
+                            condie=CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True)
+                            conlay=CONFIG['measurement_groups'][meas_group].get('connect_to_layout_table',True)
+                            if conlay!=condie: raise NotImplementedError("Haven't done condie!=conlay")
+                            if condie:
+                                diem=pd.DataFrame.from_records(conn.execute(select(self._diemtab.c.DieXY,self._diemtab.c.dieid)\
+                                                .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
+                                df2=df.reset_index() \
+                                    .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'}) \
+                                    [['loadid','measid','Structure','DieXY','rawgroup',*meas_cols]].merge(diem,how='left',on='DieXY')\
+                                    [['loadid','measid','Structure','dieid','rawgroup',*meas_cols]]
+                            else:
+                                df2=df.reset_index() \
+                                    .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'})\
+                                    [['loadid','measid','rawgroup',*meas_cols]]
                             self._upload_csv(df2,conn,self.int_schema,self._mgt(meas_group,'meas').name)
 
                         # Upload the raw sweep
+                        meas_type=CONFIG.get_meas_type(meas_group)
+                        sweepconv=(pd_to_pg_converters['STRING']) \
+                            if (hasattr(meas_type,'ONESTRING') and meas_type.ONESTRING) else lambda s: s.tobytes()
                         self._upload_binary(
                             df[mt_or_df.headers]
                                 .stack().reset_index()
                                 .assign(loadid=loadid).rename(columns={'level_0':'measid','level_1':'header',0:'sweep'}) \
                                 [['loadid','measid','sweep','header']],
                             conn,self.int_schema,self._mgt(meas_group,'sweep').name,
-                            override_converters={'sweep':lambda s: s.tobytes(),'header':pd_to_pg_converters['STRING']}
+                            override_converters={'sweep':sweepconv,'header':pd_to_pg_converters['STRING']}
                         )
 
                     # Upload the extracted values
@@ -721,7 +781,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                                   precollected_loadids=collected_loadids,
                                   precollected_matid=matid)
             conn.commit()
-            logger.debug(f"Completed all tasks for {str(material_info)}")
+            logger.debug(f"Completed all tasks for {str(matload_info)}")
 
     def perform_analyses(self, conn, analyses,
                          precollected_data_by_meas_group={}, precollected_loadids={}, precollected_matid=None):
@@ -732,6 +792,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
             select(self._diemtab.c.DieXY,self._diemtab.c.dieid) \
                 .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
         for an in analyses:
+            condie=CONFIG['higher_analyses'][an].get('connect_to_die_table',True)
+            conlay=CONFIG['higher_analyses'][an].get('connect_to_layout_table',False)
             if all(k in mg_to_data for k in CONFIG.higher_analyses[an]['required_dependencies']):
                 logger.debug(f"Running analysis: {an}")
             else:
@@ -764,10 +826,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
             #            [['loadid','measid','Structure','dieid','rawgroup',*meas_cols]]
             #        self._upload_csv(df2,conn,self.int_schema,self._mgt(meas_group,'meas').name)
 
-
-            df=df.merge(diem,how='left',on='DieXY').assign(**loadids)
+            if condie:
+                df=df.merge(diem,how='left',on='DieXY')
+            df=df.assign(**loadids)
             self._upload_csv(
-                df[[*(loadids.keys()),'dieid',*CONFIG.higher_analyses[an]['analysis_columns']]],
+                df[[*(loadids.keys()),*(['Structure'] if conlay else []),*(['dieid'] if condie else []),*CONFIG.higher_analyses[an]['analysis_columns']]],
                 conn,self.int_schema,self._hat(an).name
             )
 
@@ -788,8 +851,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
     def get_data_for_regen(self, meas_group, matname, on_no_data='raise'):
         meas_cols=list(CONFIG['measurement_groups'][meas_group]['meas_columns'])
+        die_cols=(['DieXY','DieCenterX [mm]','DieCenterY [mm]'] if CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True) else [])
+        laycols=(['Structure'] if CONFIG['measurement_groups'][meas_group].get('connect_to_layout_table',True) else [])
         data=self.get_data(meas_group=meas_group,
-                      scalar_columns=['loadid','measid','rawgroup','LotWafer','DieXY','DieCenterX [mm]','DieCenterY [mm]','Structure','Mask',*meas_cols],
+                      # TODO: BAD hardcoding of columns
+                      scalar_columns=['loadid','measid','rawgroup',*ALL_MATLOAD_COLUMNS,*die_cols,*laycols,*meas_cols],
                       include_sweeps=True, raw_only=True, unstack_headers=True,
                       **{CONFIG['database']['materials']['full_name']:[matname]})
 
@@ -819,8 +885,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def get_data(self,meas_group,scalar_columns=None,include_sweeps=False,
                          unstack_headers=False,raw_only=False,**factors):
         if meas_group in CONFIG.higher_analyses:
-            assert include_sweeps==False, f"For analysis (eg {meas_group}), include_sweeps must be False, not {include_sweeps}"
-            assert unstack_headers==False
+            assert (include_sweeps==False or include_sweeps==[]), f"For analysis (eg {meas_group}), include_sweeps must be False or [], not {include_sweeps}"
+            #assert unstack_headers==False
             assert raw_only==False
             return self.get_data_from_analysis(meas_group,scalar_columns=scalar_columns,**factors)
         elif meas_group in CONFIG.measurement_groups:
@@ -831,9 +897,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
 
     def get_data_from_analysis(self,analysis,scalar_columns=None, **factors):
+        conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
         anlytab=self._hat(analysis)
+        if conlay: layotab=self._mgt(analysis,'layout')
         involved_tables=([anlytab]+ \
-                         [self._diemtab,self._loadtab,self._mattab])
+                         [self._diemtab,self._loadtab,self._mattab]+ \
+                         ([layotab] if conlay else []))
         all_cols=[c for tab in involved_tables for c in tab.columns]
         def get_col(cname):
             try: return next(c for c in all_cols if c.name==cname)
@@ -862,6 +931,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         sweptab=self._mgt(meas_group,'sweep')
         extrtab=self._mgt(meas_group,'extr')
         layotab=self._mgt(meas_group,'layout')
+        diemtab=self._diemtab if CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True) else None
 
         if include_sweeps not in [True,False]:
             if len(include_sweeps):
@@ -869,8 +939,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
             else:
                 include_sweeps=False
         involved_tables=(([extrtab] if not raw_only else [])+\
-                            [meastab,self._diemtab,layotab,self._loadtab,self._mattab]\
+                            [meastab,diemtab,layotab,self._loadtab,self._mattab]\
                         +([sweptab] if include_sweeps else []))
+        involved_tables=[t for t in involved_tables if t is not None]
         all_cols=[c for tab in involved_tables for c in tab.columns]
         def get_col(cname):
             try:
@@ -902,10 +973,13 @@ class PostgreSQLDatabase(AlchemyDatabase):
                                                 if c.type.__class__ in self.sql_to_pd_types})
         if 'sweep' in data:
             meas_type=CONFIG.get_meas_type(meas_group)
-            for h in list(data['header'].unique()):
-                assert meas_type.get_preferred_dtype(h)==np.float32,\
-                    "Haven't dealt with sweeps that aren't float32"
-            data['sweep']=data['sweep'].map(functools.partial(np.frombuffer, dtype=np.float32))
+            if not (hasattr(meas_type,'ONESTRING') and meas_type.ONESTRING):
+                for h in list(data['header'].unique()):
+                    assert meas_type.get_preferred_dtype(h) in [np.float32,'onestring'],\
+                        "Haven't dealt with sweeps that aren't float32 or 'onestring'"
+                data['sweep']=data['sweep'].map(functools.partial(np.frombuffer, dtype=np.float32))
+            else:
+                data['sweep']=data['sweep'].map(lambda x: x.decode('utf-8'))
         if include_sweeps and unstack_headers:
             unstacking_indices= ['loadid','measid'] if unstack_headers is True else unstack_headers
             data=self._unstack_header_helper(data,unstacking_indices, drop_index=(not raw_only))
@@ -958,7 +1032,15 @@ class PostgreSQLDatabase(AlchemyDatabase):
         return pd.merge(sweep_part,other_part,how='inner',
                         left_index=True,right_index=True,validate='1:1').reset_index(drop=drop_index)
 
-    def get_factors(self,meas_group,factor_names,pre_filters={}):
+    def get_factors(self,meas_group_or_analysis,factor_names,pre_filters={}):
+        if meas_group_or_analysis in CONFIG['measurement_groups']:
+            return self.get_factors_for_meas_group(meas_group_or_analysis,factor_names,pre_filters=pre_filters)
+        elif meas_group_or_analysis in CONFIG['higher_analyses']:
+            return self.get_factors_for_analysis(meas_group_or_analysis,factor_names,pre_filters=pre_filters)
+        else:
+            return Exception(f"Couldn't identify '{meas_group_or_analysis}' as a meas_group or analysis")
+
+    def get_factors_for_meas_group(self,meas_group,factor_names,pre_filters={}):
         #import pdb; pdb.set_trace()
         assert meas_group in CONFIG['measurement_groups'], f"'{meas_group}' not in project measurement group listing"
         meastab=self._mgt(meas_group,'meas')
@@ -966,7 +1048,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         extrtab=self._mgt(meas_group,'extr')
         layotab=self._mgt(meas_group,'layout')
 
-        involved_tables=[meastab,extrtab,layotab,self._mattab,self._diemtab]#+([sweptab] if 'header' in pre_filters else [])
+        involved_tables=[meastab,extrtab,layotab,self._loadtab,self._mattab,self._diemtab]#+([sweptab] if 'header' in pre_filters else [])
         if any(t is None for t in involved_tables):
             raise Exception(f"WHAT {str(involved_tables)}")
         all_cols=[c for tab in involved_tables for c in tab.columns]
@@ -990,6 +1072,38 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if not len(records): return {f:[] for f in factor_names}
         return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
 
+    def get_factors_for_analysis(self,analysis,factor_names,pre_filters={}):
+        #import pdb; pdb.set_trace()
+        assert analysis in CONFIG['higher_analyses'], f"'{analysis}' not in project analysis listing"
+        conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
+        anlstab=self._hat(analysis)
+        if conlay:
+            layotab=self._mgt(analysis,'layout')
+
+        involved_tables=[anlstab,*([layotab] if conlay else []),self._loadtab,self._mattab,self._diemtab]#+([sweptab] if 'header' in pre_filters else [])
+        if any(t is None for t in involved_tables):
+            raise Exception(f"WHAT {str(involved_tables)}")
+        all_cols=[c for tab in involved_tables for c in tab.columns]
+        def get_col(cname):
+            try:
+                return next(c for c in all_cols if c.name==cname)
+            except StopIteration:
+                raise Exception(f"Couldn't find column {cname} among {[c.name for c in all_cols]}")
+        def apply_wheres(s):
+            for pf,values in pre_filters.items():
+                s=s.where(get_col(pf).in_(values))
+            return s
+        factor_cols=[get_col(f) for f in factor_names]
+        # TODO: Be more selective in thejoin
+        thejoin=anlstab.join(self._loadtab).join(self._mattab).join(self._diemtab)
+        if conlay: thejoin=thejoin.join(layotab)
+        sel=union_all(*[apply_wheres(select(*factor_cols).select_from(thejoin)).distinct(f) for f in factor_cols])
+
+        with self.engine.connect() as conn:
+            records=conn.execute(sel).all()
+
+        if not len(records): return {f:[] for f in factor_names}
+        return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
 
     def make_DSN(self,dsnpath):
         connection_info=dict([[s.strip() for s in x.split("=")] for x in
@@ -1133,10 +1247,10 @@ def cli_force_database(*args):
     db=get_database(on_mismatch='replace')
 
 def cli_upload_data(*args):
-    from datavac.io.meta_reader import ALL_MATERIAL_COLUMNS
+    from datavac.io.meta_reader import ALL_MATLOAD_COLUMNS
 
     parser=argparse.ArgumentParser(description='Extracts and uploads data')
-    for col in ALL_MATERIAL_COLUMNS:
+    for col in ALL_MATLOAD_COLUMNS:
         parser.add_argument(f'--{col.lower()}',action='append',
             help=f"Restrict to specified {col}(s): "\
                  f"eg --{col.lower()} {col.upper()}1 --{col.lower()} {col.upper()}2")
@@ -1151,14 +1265,14 @@ def cli_upload_data(*args):
     namespace=parser.parse_args(args)
 
     folders=namespace.folder
-    only_material={col: getattr(namespace,col.lower()) for col in ALL_MATERIAL_COLUMNS}
+    only_material={col: getattr(namespace,col.lower()) for col in ALL_MATLOAD_COLUMNS}
     only_material={k:v for k,v in only_material.items() if v is not None}
 
     db=get_database()
     read_and_upload_data(db, folders, only_material=only_material, only_meas_groups=namespace.group,
         clear_all_from_material=(not namespace.keep_other_groups),user_called=True)
 
-def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,clear_all_from_material=True, user_called=True):
+def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,clear_all_from_material=True, user_called=True, cached_glob=None):
     from datavac.io.meta_reader import read_and_analyze_folders
 
     if folders is None:
@@ -1170,19 +1284,23 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
 
     logger.info(f"Will read folder(s) {' and '.join(folders)}")
     matname_to_data,matname_to_inf=read_and_analyze_folders(folders,
-                only_material_info=only_material, only_meas_groups=only_meas_groups)
+                only_matload_info=only_material, only_meas_groups=only_meas_groups,cached_glob=cached_glob)
     for matname in matname_to_data:
         logger.info(f"Uploading {matname}")
         db.push_data(matname_to_inf[matname],matname_to_data[matname],
                      clear_all_from_material=clear_all_from_material, user_called=user_called)
 def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
     """ Goes in order of most recent material first, and within that, reloads first than re-extractions."""
-    from datavac.io.meta_reader import perform_extraction
+    from datavac.io.meta_reader import perform_extraction, get_cached_glob
+    cached_glob=get_cached_glob()
     fullname=CONFIG['database']['materials']['full_name']
     matcolnames=[*CONFIG['database']['materials']['info_columns']]
+    loadcolnames=[*CONFIG['database']['loads']['info_columns']]
     with db.engine.connect() as conn:
         res=conn.execute(select(db._rextab.c.matid,
-                                *[db._mattab.c[n] for n in [fullname]+matcolnames],)\
+                                *[db._mattab.c[n] for n in [fullname]+matcolnames],
+                                *[db._rextab.c[n] for n in loadcolnames],
+                                )\
                          .select_from(db._rextab.join(db._mattab))\
                          .order_by(db._mattab.c.date_user_changed.desc())).all()
         if not len(res):
@@ -1190,7 +1308,7 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
         else:
             for matid,matname,*other_matinfo in res:
                 # Reloads
-                logger.info(f"Looking at {matname}")
+                logger.info(f"Looking at {matname}: {other_matinfo}")
                 res=conn.execute(select(db._rextab.c.MeasGroup) \
                                  .where(db._rextab.c.matid==matid)\
                                  .where(db._rextab.c.full_reload==True)).all()
@@ -1201,9 +1319,10 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                     meas_groups=None if force_all_meas_groups else [r[0] for r in res]
                     all_meas_groups=ensure_meas_group_sufficiency(meas_groups,on_error='ignore')
                     read_and_upload_data(db,
-                         folders=None,only_material=dict(**{fullname:matname},**dict(zip(matcolnames,[[om] for om in other_matinfo]))),
+                         only_material=dict(**{fullname:matname},
+                                            **dict(zip(matcolnames+loadcolnames,[[om] for om in other_matinfo]))),
                          only_meas_groups=all_meas_groups,
-                         clear_all_from_material=False,user_called=False)
+                         clear_all_from_material=False,user_called=False,cached_glob=cached_glob)
 
                 # Re-extracts
                 res=conn.execute(select(db._rextab.c.MeasGroup) \
@@ -1250,9 +1369,11 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                     precol_loadids={}
                     for mg in all_meas_groups:
                         mg_info = CONFIG['measurement_groups'][mg]
+                        condie = mg_info.get('connect_to_die_table', True)
+                        conlay = mg_info.get('connect_to_layout_table', True)
                         data=db.get_data(meas_group=mg, include_sweeps=False,
                                          scalar_columns=[*mg_info['meas_columns'],*mg_info['analysis_columns'],
-                                                         'loadid','DieXY','Structure',
+                                                         'loadid',*(['DieXY'] if condie else []),*(['Structure'] if conlay else []),
                                                          CONFIG['database']['materials']['full_name'],
                                                          *CONFIG['database']['materials']['info_columns']],
                                          **{CONFIG['database']['materials']['full_name']:[matname]})

@@ -3,6 +3,14 @@ dv = Namespace("datavacuum_helper.local");
 
 
 dv:LotPreselector = Function({dbtable,single=0},{Default Local},
+	// Asks the user to choose a lot and returns it
+	// Args:
+	//   dbtable: the DataVacuum measurement group from which to list lots
+	//   single: if 1, allow only a single pick, return is either the lot or {}.
+	//           if 0, allow any number of lots, return is as a list of lots or {}.
+	// Returns:
+	//   See argument 'single' above
+	
 	qname="Lots For"||dbtable;
 	Try(Close(DataTable(qname),NoSave), "No issue");
 	dt=New SQL Query(
@@ -34,6 +42,11 @@ dv:LotPreselector = Function({dbtable,single=0},{Default Local},
 );
 
 dv:LotPreselectorSQL = Function({dbtable, single=0, err on none=0},
+	// Runs the dv:LotPreselector, except return is an SQL 'where' statement which
+	// can be concatenated onto a CustomSQL query
+	// Args:
+	//   dbtable, single: passed to dv:LotPreselector
+	//   err on none: whether to raise an error if the user makes no selection.
 	If(single,
 		lot=dv:LotPreselector(dbtable,single);
 		If(lot=={},
@@ -56,4 +69,19 @@ dv:LotPreselectorSQL = Function({dbtable, single=0, err on none=0},
 	)
 );
 
+
+dv:AbsCurrents = Function({dt},
+	cnames = dt << Get Column Names(String);
+	For Each( {col, _}, cnames,
+		If( Starts With(col, "I") & !Ends With(col, "]"),
+			target name="|"||col||"|";
+			If(!Contains(cnames, target name),
+				Eval(Eval Expr(
+					dt << New Column(target name,
+						Formula(Abs(Expr(Parse(col)))
+					))));
+			);
+		);
+	);
+);
 //Show(dv:LotPreselectorSQL("HVMIM BD",single=1,err on none=1));

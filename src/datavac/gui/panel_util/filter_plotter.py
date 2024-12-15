@@ -7,13 +7,15 @@ from bokeh.models import ColumnDataSource, LinearColorMapper, LogColorMapper, Fa
 from bokeh.plotting import figure
 from bokeh.transform import jitter
 from pandas import DataFrame
-from panel.widgets import Widget, MultiSelect, Select, CompositeWidget
+from panel import GridBox
+from panel.widgets import Widget, MultiSelect, Select, CompositeWidget, StaticText
 import panel as pn
 import param as hvparam
 import pandas as pd
 import numpy as np
 from param.parameterized import batch_call_watchers
 
+from datavac import logger
 from datavac.gui.bokeh_util import palettes
 from datavac.gui.bokeh_util.util import make_serializable, make_color_col, smaller_legend
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot
@@ -672,3 +674,61 @@ class QuickCurveFilterPlotter(FilterPlotter):
                     'color':make_color_col(pre_sources[0][self.color_by],
                                            all_factors=self.param[self.color_by].objects)}
                    if self.color_by else {}))}
+
+
+class ImageFilterPlotter(FilterPlotter):
+    _built_in_view_settings = ['rowvar','colvar']
+    rowvar=hvparam.Selector()
+    colvar=hvparam.Selector()
+    default_rowvar=hvparam.String()
+    default_colvar=hvparam.String()
+    additional_rcopts=hvparam.List(default=[])
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        rcopts=list(self.filter_settings.keys())+self.additional_rcopts
+        if self.param.rowvar.objects==[]:
+            self.param.rowvar.objects=rcopts
+        if self.rowvar is None:
+            self.rowvar=self.default_rowvar or rcopts[0]
+        if self.param.colvar.objects==[]:
+            self.param.colvar.objects=rcopts
+        if self.colvar is None:
+            self.colvar=self.default_colvar or rcopts[1]
+
+    def get_scalar_column_names(self):
+        return [super().get_scalar_column_names()[0]+['image_filename']+self.additional_rcopts]
+    def get_raw_column_names(self):
+        return [[]]
+
+    @staticmethod
+    def row_to_img(row):
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def update_sources(self,pre_sources):
+        if pre_sources is not None:
+            df:pd.DataFrame=pre_sources[0]
+            if len(df)==0:
+                self._gb.param.update(objects=[StaticText(value="No images selected")])
+            else:
+                rs=list(sorted(list(df[self.rowvar].unique())))
+                cs=list(sorted(list(df[self.colvar].unique())))
+                try:
+                    df=df.set_index([self.rowvar,self.colvar],verify_integrity=True)
+                except ValueError as e:
+                    if "duplicate keys" in str(e):
+                        self._gb.objects=[StaticText(value="Non-unique selection.")]
+                    else: raise e
+                else:
+                    lst=[   [StaticText(value=""),*[StaticText(value=c,align='center') for c in cs]],
+                            *[ [StaticText(value=r,align='center'),
+                                  *[ (self.row_to_img(df.loc[(r,c)])
+                                      if (r,c) in df.index else StaticText(value="None")) for c in cs]]
+                               for r in rs]]
+                    self._gb.param.update(**{'ncols':len(cs)+1,'nrows':len(rs)+1,'objects':[e for r in lst for e in r]})
+
+    @pn.depends('_need_to_recreate_figure')
+    def recreate_figures(self):
+        logger.debug("Creating figure")
+        self._gb=GridBox(StaticText(value="No images selected"),width=900)
+        return self._gb
