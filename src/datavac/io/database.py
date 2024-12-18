@@ -806,6 +806,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 #**{v: mg_to_data.get(k,None).scalar_table_with_layout_params() for k,v in
                 **{v: mg_to_data.get(k,None) for k,v in
                    CONFIG.higher_analyses[an].get('attempt_dependencies',{}).items()})
+            if df is None:
+                logger.debug(f"No data for analysis {an}")
+                continue
 
             loadids=dict(
                 **{f'loadid - {mg}':precollected_loadids[mg] for mg in
@@ -898,10 +901,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
     def get_data_from_analysis(self,analysis,scalar_columns=None, **factors):
         conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
+        condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
         anlytab=self._hat(analysis)
         if conlay: layotab=self._mgt(analysis,'layout')
         involved_tables=([anlytab]+ \
-                         [self._diemtab,self._loadtab,self._mattab]+ \
+                         [*([self._diemtab] if condie else []),self._loadtab,self._mattab]+ \
                          ([layotab] if conlay else []))
         all_cols=[c for tab in involved_tables for c in tab.columns]
         def get_col(cname):
@@ -1075,12 +1079,13 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def get_factors_for_analysis(self,analysis,factor_names,pre_filters={}):
         #import pdb; pdb.set_trace()
         assert analysis in CONFIG['higher_analyses'], f"'{analysis}' not in project analysis listing"
+        condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
         conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
         anlstab=self._hat(analysis)
         if conlay:
             layotab=self._mgt(analysis,'layout')
 
-        involved_tables=[anlstab,*([layotab] if conlay else []),self._loadtab,self._mattab,self._diemtab]#+([sweptab] if 'header' in pre_filters else [])
+        involved_tables=[anlstab,*([layotab] if conlay else []),self._loadtab,self._mattab,*([self._diemtab] if condie else [])]#+([sweptab] if 'header' in pre_filters else [])
         if any(t is None for t in involved_tables):
             raise Exception(f"WHAT {str(involved_tables)}")
         all_cols=[c for tab in involved_tables for c in tab.columns]
@@ -1095,7 +1100,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
             return s
         factor_cols=[get_col(f) for f in factor_names]
         # TODO: Be more selective in thejoin
-        thejoin=anlstab.join(self._loadtab).join(self._mattab).join(self._diemtab)
+        thejoin=anlstab.join(self._loadtab).join(self._mattab)
+        if condie: thejoin=thejoin.join(self._diemtab)
         if conlay: thejoin=thejoin.join(layotab)
         sel=union_all(*[apply_wheres(select(*factor_cols).select_from(thejoin)).distinct(f) for f in factor_cols])
 

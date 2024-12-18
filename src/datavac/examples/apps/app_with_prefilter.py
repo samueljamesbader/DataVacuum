@@ -40,7 +40,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         self.page.sidebar.append(pn.panel("## Lot pre-filter"))
         self.page.sidebar.append(self.lots_preselector)
         self.page.sidebar.append(pn.HSpacer(height=20))
-        self.page.sidebar.append(pn.widgets.FileDownload(callback=self._download_callback,filename=f'{self.title} Download.csv',label='Download shown'))
+        self.page.sidebar.append(pn.widgets.FileDownload(callback=self._download_callback,filename=self._get_download_filename(),label='Download shown'))
         self.page.sidebar_width=220
 
         tabs=[]
@@ -68,3 +68,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         logger.debug("In download callback")
         active_plotter=list(self._plotters.values())[self._tabs.active]
         return active_plotter.download_shown()
+    def _get_download_filename(self):
+        return 'DataVacuum Download.csv'
+        #active_plotter=list(self._plotters.values())[self._tabs.active]
+        #return active_plotter.get_download_filename()

@@ -1,3 +1,76 @@
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "datavac"
+dynamic = ["version"]
+authors = [
+    {name = "Samuel James Bader", email = "samuel.james.bader@gmail.com"}
+]
+description = "Data analysis, flow, and visualization for semiconductor research projects"
+readme = "README.md"
+
+requires-python = "~=3.12.1"
+
+dependencies = [
+    # BSD-3-Clause license, no CVE risk as of 1/24/2023
+    "scipy >= 1.10.0",
+    # BSD-3-Clause license, no CVE risk as of 1/24/2023
+    "numpy >= 1.24.1",
+    # BSD-3-Clause license, no CVE risk as of 1/24/2023
+    # TODO: pandas 2.2 leads to some odd warnings about chained assignment when loading data
+    #pandas >= 2.1.0
+    "pandas == 2.2.3",
+    # BSD-3-Clause license, no CVE risk as of 11/16/2023 (searched "holoviz")
+    "param ~= 2.0.1",
+    # BSD-3-Clause license, no CVE risk as of 1/24/2023
+    "panel == 1.3.6",
+    # BSD-3-Clause license, no CVE risk as of 1/24/2023
+    "bokeh ~= 3.3.0",
+    # custom PSF-based license (https://matplotlib.org/stable/project/license.html), no CVE risk as of 11/21/2024
+    "matplotlib ~= 3.9.3",
+    # MIT license, no CVE risk as of 3/4/2023
+    "appdirs >= 1.4.4",
+    # Apache2 license,  no CVE risk as of 1/24/2023
+    "aiofiles >= 22.1.0",
+    # LGPL-3.0 license, no CVE risk as of 1/24/2023
+    "aiopath >= 0.6.11",
+
+    # BSD-2-Clause license, no CVE risk as of 1/24/2023
+    "xlsxwriter >= 3.0.0",
+    # MIT license, no CVE risk as of 1/24/2023
+    "openpyxl >= 3.0.10",
+    # MIT license,      no CVE risk as of 1/24/2023
+    "python-slugify == 7.0.0",
+    # MIT license, no CVE risk as of 2/1/2023
+    "SQLAlchemy >= 2.0.0",
+    # BSD-3-Clause license, no CVE risk as of 2/4/2023
+    "h5py >= 3.8.0",
+
+    "pint >= 0.22"
+]
+
+[project.optional-dependencies]
+postgresql = [
+    # LGPL-3 license, no CVE risk as of 1/24/2023
+    "psycopg2 >= 2.9.5"
+]
+#asyncpg >= 0.28.0
+postgresql_no_pg_config = [
+    # use this instead of the above on certain machines where it's difficult to install pg_config
+    # this is my default
+    "psycopg2-binary"
+]
+test = [
+    "python-dotenv[cli]",
+    "pytest",
+    "pytest-dotenv"
+]
+
+[project.scripts]
+datavac = "datavac.util.cli:datavac_cli_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false

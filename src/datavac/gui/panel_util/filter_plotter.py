@@ -317,6 +317,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         sio.seek(0)
         return sio
 
+    def get_download_filename(self):
+        raise NotImplementedError
+        return f'DataVacuum Download.csv'
 
 
 
