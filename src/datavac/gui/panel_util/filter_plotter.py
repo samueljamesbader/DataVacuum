@@ -249,7 +249,10 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         raw_columns = self.get_raw_column_names()
         if any(v==[] for v in factors.values()):
             logger.info("Skipping DB call and return empty data because some factor is [].")
-            return [pd.DataFrame({k:[] for k in scs+rcs}) for scs,rcs in zip(scalar_columns,raw_columns)]
+            #if raw_columns==[False]:
+            #    import pdb; pdb.set_trace()
+            #    self.get_raw_column_names()
+            return [pd.DataFrame({k:[] for k in scs+(rcs or [])}) for scs,rcs in zip(scalar_columns,raw_columns)]
         logger.info(f"About to ask hose with {factors}, scalar: {scalar_columns}, raw: {raw_columns}")
         data: list[DataFrame] = [self.database.get_data(meas_group,
                                                      scalar_columns=sc, include_sweeps=rc,

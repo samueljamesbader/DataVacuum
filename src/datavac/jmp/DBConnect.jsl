@@ -19,7 +19,7 @@ dv:conn_str_no_pass =
     "Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;" ||
     "Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;" ||
     "UseServerSidePrepare=1;LowerCaseIdentifier=0;" ||
-    If( dv:DATAVACUUM_DB_SSLROOTCERT!="", "pqopt={sslrootcert=" || file_path || "};", "") ||
+    If( dv:DATAVACUUM_SSLROOTCERT!="", "pqopt={sslrootcert=" || file_path || "};", "") ||
     "D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;";
 
 conn_str_with_pass = dv:conn_str_no_pass;

@@ -30,12 +30,16 @@ dv:PyConn=Function({},
 //   pc - the Python Connection to use. Generally, this argument should NOT be supplied.
 //        When not supplied, dv:PyConn() will be used by default.
 //        This argument only exists for use by dv:PyConn() itself to avoid infinite loop.
-dv:PyRefresh = Function( {pc=0},
+dv:PyRefresh = Function( {pc=0}, {Default Local},
 	Write("Refreshing Python\!N");
 	pc=If(pc==0, dv:PyConn(), pc);
-	pc << Submit("from datavac import unload_my_imports; unload_my_imports();");
+	dv:PySub("from datavac import unload_my_imports; unload_my_imports();", pc);
 	pyinit = dv:addin_home || "/jmp16_pyinit.py";
-	pc << Submit File( pyinit );
+	pyinit = Load Text File(pyinit);
+	lines = Words(pyinit,"\!N");
+    indented_code="";
+    For Each({line,_},lines, indented_code=indented_code||"\!N    "||line;);
+	dv:PySub( indented_code, pc );
 );
 
 // dv:PySub()
@@ -43,13 +47,17 @@ dv:PyRefresh = Function( {pc=0},
 // Purely a convenience, but handy since generally there's no helpful output for failed Python code.
 // Args:
 //   code - the python code (as a string) to use
-dv:PySub = Function( {code},
-	{Default Local},
+//   pc - the Python Connection to use. Generally, this argument should NOT be supplied.
+//        When not supplied, dv:PyConn() will be used by default.
+//        This argument only exists for use by dv:PyRefresh() to avoid infinite loop.
+dv:PySub = Function( {code, pc=0}, {Default Local},
+	pc=If(pc==0, dv:PyConn(), pc);
+	indented_code=
 	wrapped_code = "import traceback\!Npython_error=None;\!Ntry:\!N" || "    " || code ||
 	"\!Nexcept Exception: print((python_error:=traceback.format_exc()))";
-	dv:PyConn() << Submit( wrapped_code );
-	//dv:PyConn() << Term();
-	dv:PyConn() << Get("python_error");
+	pc << Submit( wrapped_code );
+	//pc << Term();
+	pc << Get("python_error");
 );
 
 // dv:PullSweeps()

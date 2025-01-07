@@ -70,7 +70,8 @@ dv:LotPreselectorSQL = Function({dbtable, single=0, err on none=0},
 );
 
 
-dv:AbsCurrents = Function({dt},
+dv:AbsCurrents = Function({dt=0},
+	dt = If( dt!=0, dt, Current Data Table());
 	cnames = dt << Get Column Names(String);
 	For Each( {col, _}, cnames,
 		If( Starts With(col, "I") & !Ends With(col, "]"),

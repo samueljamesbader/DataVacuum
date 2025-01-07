@@ -127,4 +127,6 @@ class IdVg(MeasurementType):
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
-        measurements['Igmax [A]']=np.maximum(np.max(np.abs(IGlin),axis=1),np.max(np.abs(IGsat),axis=1))
+        measurements['Igmax_lin [A]']=np.max(np.abs(IGlin),axis=1)
+        measurements['Igmax_sat [A]']=np.max(np.abs(IGsat),axis=1)
+        measurements['Igmax [A]']=np.maximum(measurements['Igmax_lin [A]'],measurements['Igmax_sat [A]'])

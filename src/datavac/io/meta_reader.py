@@ -113,8 +113,8 @@ def read_folder_nonrecursive(folder: str,
                             try:
                                 read_dfs=import_modfunc(reader_func_dotpath)(file=f,
                                         meas_type=meas_type,meas_group=meas_group,only_matload_info=only_matload_info,
-                                        **reader['template'].get('default_args',{}),
-                                        **reader.get('fixed_args',{}),
+                                        **dict(reader['template'].get('default_args',{}),
+                                               **reader.get('fixed_args',{})),
                                         **{k:read_info_so_far[v] for k,v in reader['template']['read_so_far_args'].items()})
                                 if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
                                 if 'post_read' in reader:
@@ -223,6 +223,7 @@ def read_and_analyze_folders(folders, *args, cached_glob=None, **kwargs) -> dict
     folders=[READ_DIR/folder if not Path(folder).is_absolute() else Path(folder) for folder in folders]
     for folder in folders:
         assert folder.exists(), f"Can't find folder {str(folder)}"
+    ignore_folders=os.environ.get("DATAVACUUM_IGNORE_FOLDERS",".*IGNORE.*")
 
     if cached_glob is None:
         cached_glob=get_cached_glob()
@@ -233,7 +234,10 @@ def read_and_analyze_folders(folders, *args, cached_glob=None, **kwargs) -> dict
             curdir=dirs.pop(0)
             for file in cached_glob(curdir,'*'):
                 if file.is_dir():
-                    if 'IGNORE' not in str(file):
+                    if re.match(ignore_folders,file.name):
+                        logger.debug(f"Ignoring {file} because matches \"{ignore_folders}\"."\
+                            " Control via environment variable DATAVACUUM_IGNORE_FOLDERS.")
+                    else:
                         dirs.append(file)
             try:
                 try:

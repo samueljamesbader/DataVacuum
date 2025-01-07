@@ -1,3 +1,5 @@
+import datetime
+import logging
 import os
 from pathlib import Path
 from yaml import safe_load
@@ -7,13 +9,15 @@ import panel.theme
 from panel.theme.material import MaterialDefaultTheme
 
 from datavac.io.database import get_database
-from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes
+from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes, SimpleSecretShare, \
+    AccessKeyDownload
 from datavac.util.logging import logger
 from datavac.appserve.index import Indexer
 from datavac.util.util import import_modfunc
 
 
-def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultTheme):
+
+def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultTheme):
 
     index_yaml_file=index_yaml_file or\
                     Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"server_index.yaml"
@@ -28,22 +32,32 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
         theme=import_modfunc(theyaml['theme'])
         port=theyaml['port']
 
+
+    for sf in theyaml.get('setup_functions',[]):
+        import_modfunc(sf)()
+    for sf,sfi in theyaml.get('scheduled_functions',{}).items():
+        delay = datetime.datetime.strptime(sfi['delay'],"%H:%M:%S")
+        delay = datetime.timedelta(hours=delay.hour,minutes=delay.minute,seconds=delay.second)
+        pn.state.schedule_task(sf, import_modfunc(sfi['func']),
+                               period=sfi['period'],
+                               at=datetime.datetime.now()+delay)
+        logger.debug("Thing that needs KRB5")
+
+
     kwargs={}
     possible_oauth_providers=['none','azure']
+    auth_info=import_modfunc(theyaml['authentication']['get_auth_info'])()
     try:
-        oauth_provider=os.environ['DATAVACUUM_OAUTH_PROVIDER']
+        oauth_provider=auth_info['oauth_provider']
         assert oauth_provider in possible_oauth_providers
     except (KeyError,AssertionError):
         raise Exception(f"Must provide environment variable DATAVACUUM_OAUTH_PROVIDER," \
                 f" options are {possible_oauth_providers}")
     if oauth_provider=='azure':
         monkeypatch_oauthprovider()
-        kwargs['oauth_provider']='azure'
-        kwargs['oauth_key']=os.environ['DATAVACUUM_AZURE_APP_ID']
-        kwargs['oauth_secret']=os.environ['DATAVACUUM_AZURE_SSO_SECRET']
-        kwargs['oauth_extra_params']={'tenant_id':os.environ['DATAVACUUM_AZURE_TENANT_ID']}
-        kwargs['cookie_secret']=os.environ['DATAVACUUM_BOKEH_COOKIE_SECRET']
-        kwargs['oauth_redirect_uri']=os.environ['DATAVACUUM_OAUTH_REDIRECT']
+        for k in ['oauth_provider','oauth_key','oauth_secret',
+                  'oauth_extra_params','oauth_redirect_uri','cookie_secret']:
+            kwargs[k]=auth_info[k]
     elif oauth_provider=='none':
         if 'DATAVACUUM_PASSWORD' in os.environ:
             logger.warning("Launching with password authentication, NOT MEANT FOR PRODUCTION!")
@@ -65,7 +79,10 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
 
             if user_info:
                 logger.info(f"Login attempt to '{slug}'")
-                if (required_role:=index.slug_to_role[slug]) in user_info.get('roles',[]):
+                if (required_role:=index.slug_to_role[slug]) is None:
+                    logger.info(f"Role not required for '{slug}', accepting login.")
+                    return True
+                elif required_role in user_info.get('roles',[]):
                     logger.info(f"User has role '{required_role}', accepting login.")
                     return True
                 else:
@@ -82,16 +99,42 @@ def serve(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultT
 
     monkeypatch_authstaticroutes()
     pn.config.authorize_callback = authorize
+
+    if 'shareable_secrets' in theyaml:
+        extra_patterns={'extra_patterns':[
+            ('/secretshare',SimpleSecretShare,
+             {'callers':{k:import_modfunc(v)
+                             for k,v in theyaml['shareable_secrets']['callers'].items()}})]}
+        index.slug_to_app['accesskey']=lambda: AccessKeyDownload().get_page()
+        index.slug_to_role['accesskey']=theyaml['shareable_secrets']['role']
+    else: extra_patterns={}
+
+    db=get_database()
+    db.establish_database(on_mismatch='raise')
+
+    def alter_logs():
+        print("altering logs")
+        #blog=logging.getLogger(name="bokeh")
+        #blog.setLevel("INFO")
+        #blog=logging.getLogger(name="panel")
+        #blog.setLevel("DEBUG")
+        for bname in ['tornado.access','auth']:
+            blog=logging.getLogger(name=bname)
+            blog.setLevel(logging.DEBUG)
+            import sys
+            ch=logging.StreamHandler(sys.stdout)
+            ch.setLevel(logging.DEBUG)
+            blog.addHandler(ch)
+
+    alter_logs()
+    pn.state.schedule_task('altlogs',alter_logs,
+                           period='10m')
+    print("USING XHEADERS")
     pn.serve(
         index.slug_to_app,
         port=port,websocket_origin='*',show=False,
-        static_dirs=additional_static_dirs,
+        static_dirs=additional_static_dirs, **extra_patterns, use_xheaders=True,
         **kwargs)
-
-def launch():
-    db=get_database()
-    db.establish_database(on_mismatch='raise')
-    serve()
 
 if __name__=='__main__':
     launch()

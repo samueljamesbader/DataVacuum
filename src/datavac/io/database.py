@@ -9,11 +9,11 @@ from typing import Union, Callable
 
 import requests
 
+from datavac.appserve.secrets import get_db_connection_info
 from datavac.io.layout_params import LayoutParameters
 from datavac.io.meta_reader import ensure_meas_group_sufficiency, ALL_MATERIAL_COLUMNS, ALL_LOAD_COLUMNS, \
     ALL_MATLOAD_COLUMNS
 from datavac.io.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
-from prompt_toolkit import prompt
 from sqlalchemy import text, Engine, create_engine, ForeignKey, UniqueConstraint, PrimaryKeyConstraint, \
     ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
@@ -32,8 +32,8 @@ _CASC=dict(onupdate='CASCADE',ondelete='CASCADE')
 _database:'PostgreSQLDatabase'=None
 def get_database(cached=True,on_mismatch='raise',skip_establish=False) -> 'PostgreSQLDatabase':
     global _database
-    assert os.environ['DATAVACUUM_DB_DRIVERNAME']=='postgresql', \
-        "Must supply environment variable DATAVACUUM_DB_DRIVERNAME.  Only option at present is 'postgresql'"
+    assert 'postgre' in get_db_connection_info()['Driver'], \
+        "Only supported database driver is 'postgresql'."
     if not _database:
         _database=PostgreSQLDatabase(on_mismatch=on_mismatch,skip_establish=skip_establish)
     return _database
@@ -52,14 +52,6 @@ class AlchemyDatabase:
     _metadata: MetaData
 
     def __init__(self, on_mismatch='raise', skip_establish=False):
-        self._sslrootcert = os.environ.get('DATAVACUUM_DB_SSLROOTCERT',None)
-        if self._sslrootcert and not Path(self._sslrootcert).exists():
-            if (rootcerturl:=os.environ.get('DATAVACUUM_DB_SSLROOTCERT_DOWNLOAD',None)):
-                logger.debug(f"{self._sslrootcert} doesn't exist; downloading...")
-                with open(self._sslrootcert,'wb') as f:
-                    f.write((res:=requests.get(rootcerturl,verify=False)).content)
-        assert (self._sslrootcert is None or Path(self._sslrootcert).exists()),\
-            f"SSL root cert {self._sslrootcert} does not exist."
         with time_it("Initializing Database took"):
             self._make_engine()
             self._init_metadata()
@@ -67,22 +59,16 @@ class AlchemyDatabase:
                 self.establish_database(on_mismatch=on_mismatch)
 
     def _make_engine(self):
-        connection_info=dict([[s.strip() for s in x.split("=")] for x in
-                              os.environ['DATAVACUUM_DBSTRING'].split(";")])
+        connection_info=get_db_connection_info()
         url=URL.create(
-            drivername=os.environ["DATAVACUUM_DB_DRIVERNAME"],
+            drivername=connection_info['Driver'],
             username=connection_info['Uid'],
             password=connection_info['Password'],
             host=connection_info['Server'],
             port=int(connection_info['Port']),
             database=connection_info['Database'],
         )
-        # For synchronous
-        ssl_args = {'sslmode':'verify-full',
-                    'sslrootcert': self._sslrootcert}\
-            if self._sslrootcert else {}
-
-        self.engine=create_engine(url, connect_args=ssl_args, pool_recycle=60)
+        self.engine=create_engine(url, connect_args=connection_info['sslargs'], pool_recycle=60)
 
     def _init_metadata(self):
         self._metadata = MetaData(schema=CONFIG['database']['schema_names']['internal'])
@@ -319,8 +305,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
         def initialize_callback():
             self.update_layout_parameters(layout_params,mg,conn)
 
-        cols=[Column('Structure',VARCHAR,primary_key=True),
-              *[Column(k,self.pd_to_sql_types[str(dtype)]) for k,dtype in df.dtypes.items()]]
+        try:
+            cols=[Column('Structure',VARCHAR,primary_key=True),
+                  *[Column(k,self.pd_to_sql_types[str(dtype)]) for k,dtype in df.dtypes.items()]]
+        except:
+            import pdb; pdb.set_trace()
+            raise
         self._ensure_table_exists(conn,self.int_schema,f'Layout -- {mg}',*cols,
                                   on_mismatch=on_mismatch, on_init=initialize_callback)
 
@@ -589,7 +579,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 logger.warning(f"Column mismatch in {tab.name} (note, only name and type class are checked)")
                 logger.warning(f"Currently in DB: {[(c.name,c.type.__class__.__name__) for c in tab.columns]}")
                 logger.warning(f"Should be in DB: {[(c.name,c.type.__class__.__name__) for c in should_be_columns]}")
-                if on_mismatch=='raise':
+                if on_mismatch=='warn':
+                    pass
+                elif on_mismatch=='raise':
                     raise
                 elif on_mismatch=='replace':
                     logger.warning(f"Replacing {tab.name}")
@@ -599,9 +591,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 else:
                     raise Exception(f"Can't interpret on_mismatch={on_mismatch}")
         if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is None:
-            tab=Table(table_name,self._metadata,*args)
-            tab.create(conn)
-            on_init()
+            if on_mismatch=='warn':
+                logger.warning(f"Need to create {table_name}")
+            else:
+                tab=Table(table_name,self._metadata,*args)
+                tab.create(conn)
+                on_init()
         return tab
 
     def drop_material(self, material_info, conn, only_meas_group=None):
@@ -716,18 +711,17 @@ class PostgreSQLDatabase(AlchemyDatabase):
                             mask=material_info['Mask']
                             condie=CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True)
                             conlay=CONFIG['measurement_groups'][meas_group].get('connect_to_layout_table',True)
-                            if conlay!=condie: raise NotImplementedError("Haven't done condie!=conlay")
                             if condie:
                                 diem=pd.DataFrame.from_records(conn.execute(select(self._diemtab.c.DieXY,self._diemtab.c.dieid)\
                                                 .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
                                 df2=df.reset_index() \
                                     .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'}) \
-                                    [['loadid','measid','Structure','DieXY','rawgroup',*meas_cols]].merge(diem,how='left',on='DieXY')\
-                                    [['loadid','measid','Structure','dieid','rawgroup',*meas_cols]]
+                                    [['loadid','measid',*(['Structure'] if conlay else []),'DieXY','rawgroup',*meas_cols]].merge(diem,how='left',on='DieXY')\
+                                    [['loadid','measid',*(['Structure'] if conlay else []),'dieid','rawgroup',*meas_cols]]
                             else:
                                 df2=df.reset_index() \
                                     .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'})\
-                                    [['loadid','measid','rawgroup',*meas_cols]]
+                                    [['loadid','measid',*(['Structure'] if conlay else []),'rawgroup',*meas_cols]]
                             self._upload_csv(df2,conn,self.int_schema,self._mgt(meas_group,'meas').name)
 
                         # Upload the raw sweep
@@ -1042,7 +1036,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         elif meas_group_or_analysis in CONFIG['higher_analyses']:
             return self.get_factors_for_analysis(meas_group_or_analysis,factor_names,pre_filters=pre_filters)
         else:
-            return Exception(f"Couldn't identify '{meas_group_or_analysis}' as a meas_group or analysis")
+            raise Exception(f"Couldn't identify '{meas_group_or_analysis}' as a meas_group or analysis")
 
     def get_factors_for_meas_group(self,meas_group,factor_names,pre_filters={}):
         #import pdb; pdb.set_trace()
@@ -1111,56 +1105,6 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if not len(records): return {f:[] for f in factor_names}
         return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
 
-    def make_DSN(self,dsnpath):
-        connection_info=dict([[s.strip() for s in x.split("=")] for x in
-                              os.environ['DATAVACUUM_DBSTRING'].split(";")])
-        if self._sslrootcert:
-            escaped_rootfile=str(self._sslrootcert).replace('\\','\\\\')
-        string=\
-            f"""
-            [ODBC]
-            DRIVER=PostgreSQL Unicode(x64)
-            UID={connection_info['Uid']}
-            XaOpt=1
-            FetchRefcursors=0
-            OptionalErrors=0
-            D6=-101
-            {f'pqopt={{sslrootcert={escaped_rootfile}}}' if self._sslrootcert else ''}
-            LowerCaseIdentifier=0
-            UseServerSidePrepare=1
-            ByteaAsLongVarBinary=1
-            BI=0
-            TrueIsMinus1=0
-            UpdatableCursors=1
-            LFConversion=1
-            ExtraSysTablePrefixes=
-            Parse=0
-            BoolsAsChar=1
-            UnknownsAsLongVarchar=0
-            TextAsLongVarchar=1
-            UseDeclareFetch=0
-            CommLog=0
-            Debug=0
-            MaxLongVarcharSize=8190
-            MaxVarcharSize=255
-            UnknownSizes=0
-            Fetch=100
-            ShowSystemTables=0
-            RowVersioning=0
-            ShowOidColumn=0
-            FakeOidIndex=0
-            Protocol=7.4
-            ReadOnly=0
-            {f'SSLmode=verify-full' if connection_info['Server']!='localhost' else ''}
-            PORT={connection_info['Port']}
-            SERVER={connection_info['Server']}
-            DATABASE={connection_info['Database']}
-            """
-        Path(dsnpath).parent.mkdir(parents=True,exist_ok=True)
-        with open(dsnpath,'w') as f:
-            f.write("\n".join([l.strip() for l in string.split("\n") if l.strip()!=""]))
-
-
 ##### NOT FUNCTIONAL
 ####class SQLiteDatabase(AlchemyDatabase):
 ####
@@ -1193,7 +1137,7 @@ def cli_clear_database(*args):
                      if t.name not in ["Materials",f"ReExtract"]]
     logger.info(f"Tables that will get cleared: {sorted([t.name for t in only_tables])}")
     if namespace.yes \
-            or (prompt('Are you sure you want to clear the database? ').strip().lower()=='y'):
+            or (input('Are you sure you want to clear the database? ').strip().lower()=='y'):
         logger.warning("Clearing database")
         db.clear_database(only_tables=only_tables)
         logger.warning("Done clearing database")
@@ -1249,8 +1193,9 @@ def cli_dump_analysis(*args):
 
 def cli_force_database(*args):
     parser=argparse.ArgumentParser(description='Replaces any tables not currently in agreement with schema')
+    parser.add_argument('-dr','--dry_run',action='store_true',help='Just print what would be done')
     namespace=parser.parse_args(args)
-    db=get_database(on_mismatch='replace')
+    db=get_database(on_mismatch=('warn' if namespace.dry_run else 'replace'))
 
 def cli_upload_data(*args):
     from datavac.io.meta_reader import ALL_MATLOAD_COLUMNS
@@ -1285,7 +1230,7 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
         if ((connected:=CONFIG.meta_reader.get('connect_toplevel_folder_to',None)) and (connected in only_material)):
             folders=only_material[connected]
         else:
-            if not (prompt('No folder or lot restriction, continue to read EVERYTHING? [y/n] ').strip().lower()=='y'):
+            if not (input('No folder or lot restriction, continue to read EVERYTHING? [y/n] ').strip().lower()=='y'):
                 return
 
     logger.info(f"Will read folder(s) {' and '.join(folders)}")
@@ -1436,10 +1381,7 @@ def cli_clear_reanalyze_list(*args):
         conn.execute(dstat)
 
 def cli_print_database():
-    connection_info=dict([[s.strip() for s in x.split("=")] for x in
-                          os.environ['DATAVACUUM_DBSTRING'].split(";")])
-    print(connection_info['Server'])
-
+    print({k:v for k,v in get_db_connection_info().items() if k!='Password'})
 def cli_update_mask_info(*args):
     parser=argparse.ArgumentParser(description='Updates the mask information in the database')
     namespace=parser.parse_args(args)

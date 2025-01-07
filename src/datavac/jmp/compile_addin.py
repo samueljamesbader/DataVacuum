@@ -14,8 +14,9 @@ import yaml
 from urllib3.exceptions import InsecureRequestWarning
 
 from datavac import logger
+from datavac.appserve.secrets import get_ssl_rootcert_for_db, get_db_connection_info
 from datavac.util.conf import CONFIG
-from datavac.util.util import get_resource_path, only
+from datavac.util.util import get_resource_path, only, import_modfunc
 
 jmp_folder=Path(os.environ['DATAVACUUM_CACHE_DIR'])/"JMP"
 jmp_folder.mkdir(exist_ok=True)
@@ -29,52 +30,8 @@ def copy_in_file(filename,addin_folder,addin_id):
                      .replace("%LOCALADDINFOLDER%",str(addin_folder)))
 
 def make_db_connect(addin_folder,addin_id, env_values):
-#    connection_info=dict([[s.strip() for s in x.split("=")] for x in
-#                          env_values['DATAVACUUM_DBSTRING'].split(";")])
-#    #print(env_values)
-#    content= \
-#        f"""
-#            Names Default To Here(1);
-#            ADDIN_HOME = Get Path Variable("ADDIN_HOME({addin_id})");
-#            file_path=Convert File Path((ADDIN_HOME || "rootcertfile.crt"),windows);
-#            While(Pat Match(file_path,"\\","%BACKSLASH%"),1);
-#            While(Pat Match(file_path,"%BACKSLASH%","\\\\"),1);
-#            conn_str =
-#                "ODBC:DRIVER={{PostgreSQL Unicode(x64)}};
-#                DATABASE={connection_info['Database']};
-#                SERVER={connection_info['Server']};
-#                PORT={connection_info['Port']};
-#                UID={connection_info['Uid']};
-#                PWD={connection_info['Password']};
-#                {'SSLmode=verify-full;' if connection_info['Server']!='localhost' else ''}
-#                ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;
-#                ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;
-#                Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;
-#                Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;
-#                UseServerSidePrepare=1;LowerCaseIdentifier=0;
-#                {f'pqopt={{sslrootcert=%ROOTFILE%}};' if 'DATAVACUUM_DB_SSLROOTCERT' in env_values else '' }
-#                D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;";
-#            Pat Match(conn_str,"%ROOTFILE%",file_path);
-#            New SQL Query(
-#                Connection( conn_str),
-#                QueryName( "test_query" ),
-#                CustomSQL("Select * from information_schema.tables;"),
-#                PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
-#                ) << Run;
-#                Print("Should now be connected to DB for {addin_id}");
-#            """
-#    with open(addin_folder/'dbconn.jsl','w') as f2:
-#        f2.write(content)
-
-    if (rootcertfile:=env_values.get('DATAVACUUM_DB_SSLROOTCERT',None)):
-        if Path(rootcertfile).exists():
-            shutil.copy(rootcertfile,addin_folder/"rootcertfile.crt")
-        else:
-            with open(addin_folder/'rootcertfile.crt','wb') as f2:
-                with warnings.catch_warnings():
-                    logger.debug("Submitting an ssl-unverified request to download SSLROOTCERT.")
-                    warnings.filterwarnings(category=InsecureRequestWarning,action='ignore')
-                    f2.write(requests.get(env_values['DATAVACUUM_DB_SSLROOTCERT_DOWNLOAD'],verify=False).content)
+    if (rootcertfile:=import_modfunc(CONFIG['database']['credentials']['get_ssl_rootcert_for_db'])()):
+        shutil.copy(rootcertfile,addin_folder/"rootcertfile.crt")
 
 def cli_compile_jmp_addin(*args):
     parser=argparse.ArgumentParser(description='Makes a .jmpaddin')
@@ -113,12 +70,12 @@ def cli_compile_jmp_addin(*args):
         with open(addin_folder/"env_vars.jsl",'w') as f:
             print(sys.path)
             potential_dlls=sum((list(Path(p).glob("Python31*.dll")) for p in sys.path),[])
-            built_in_capture_vars={'DATAVACUUM_DB_SSLROOTCERT':env_values.get('DATAVACUUM_DB_SSLROOTCERT',''),
+            # TODO: Remove SSLROOTCERT info here, rely on rootcertfile existing or not
+            built_in_capture_vars={'DATAVACUUM_SSLROOTCERT':(get_ssl_rootcert_for_db() or ''),
                                    'PYTHON_SYS_PATHS': ";".join(sys.path),
-                                   'PYTHON_DLL':str(potential_dlls[0])
-                                   }
-            connection_info=dict([[s.strip() for s in x.split("=")] for x in
-                                  env_values['DATAVACUUM_DBSTRING'].split(";")])
+                                   'PYTHON_DLL':str(potential_dlls[0])}
+            # TODO: Remove DB connection info from JMP add-in, rely on shareable secrets
+            connection_info=get_db_connection_info()
 
             f.write("Names Default To Here(1);\n")
             f.write(f"dv = Namespace(\"{addin_id}\");\n")
@@ -142,7 +99,7 @@ def cli_compile_jmp_addin(*args):
             #f.write("paths=[r'"+"',r'".join(sys.path)+"']\n")
             #f.write("print(paths);")
             #f.write("[sys.path.append(path) for path in paths if path not in sys.path]\n")
-            for x in ['DATAVACUUM_DB_SSLROOTCERT','DATAVACUUM_CONFIG_DIR','DATAVACUUM_DB_DRIVERNAME',
+            for x in ['DATAVACUUM_CONFIG_DIR','DATAVACUUM_DB_DRIVERNAME',
                       'DATAVACUUM_DBSTRING','DATAVACUUM_CACHE_DIR','DATAVACUUM_LAYOUT_PARAMS_DIR']:
                 f.write(f"os.environ['{x}']=r'{env_values.get(x,None)}'\n" if env_values.get(x,None) else "")
             f.write("import numpy as np\n")
@@ -190,6 +147,12 @@ def cli_compile_jmp_addin(*args):
                 'name':'Pull Sweeps',
                 'tip':'Pull raw curves corresponding to open table',
                 'text': f'dv=Namespace("{addin_id}");dv:PullSweeps();',
+                'icon':None
+            },
+            {
+                'name':'Abs Currents',
+                'tip':'For headers that look like currents, take absolute value',
+                'text': f'dv=Namespace("{addin_id}");dv:AbsCurrents();',
                 'icon':None
             },
         ]

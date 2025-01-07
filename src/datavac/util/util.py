@@ -1,5 +1,8 @@
+import argparse
+import base64
 import io
 import importlib.resources as irsc
+import secrets
 import subprocess
 from functools import partial
 from importlib import import_module
@@ -89,4 +92,19 @@ def pickle_cached(cache_dir:Path, namer: Callable):
         return wrapped
     return wrapper
 
+def base64encode(s):
+    return base64.b64encode(s.encode()).decode()
 
+# TODO: tuck these into a 'datavac util ...'
+def cli_base64encode(*args):
+    parser=argparse.ArgumentParser(description='Encodes a string to base64')
+    parser.add_argument('thestring',nargs='?',help='the string to encode')
+    namespace=parser.parse_args(args)
+    thestring=namespace.thestring or input("String to encode: ")
+    print(base64encode(thestring))
+
+def cli_b64rand(*args):
+    parser=argparse.ArgumentParser(description='Generates a cryptographically random 32 bytes and encodes it to base64')
+    namespace=parser.parse_args(args)
+    random_bytes = secrets.token_bytes(32)
+    print(base64.b64encode(random_bytes).decode())

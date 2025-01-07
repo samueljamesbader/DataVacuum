@@ -1,6 +1,15 @@
-import os
+import base64
+import shutil
 
+import yaml
+import os
+from datetime import datetime, timedelta
+from typing import Callable
+
+import nacl.signing
 import panel
+from nacl.encoding import Base64Encoder
+from nacl.exceptions import BadSignatureError
 from panel.auth import AzureAdLoginHandler, OAuthProvider
 from datavac.util.logging import logger
 
@@ -124,3 +133,103 @@ def authed_get_static_routes(static_dirs):
 def monkeypatch_authstaticroutes():
     panel.io.server.get_static_routes=authed_get_static_routes
     logger.debug("Extra static routes monkey-patched to support authentication")
+
+from tornado.web import RequestHandler
+class SimpleSecretShare(RequestHandler):
+    def initialize(self, callers:dict[str,Callable[[],str]]):
+        self._callers=callers
+    def get(self):
+        self.write(f"Should be using POST")
+    def post(self):
+        accesskey=self.get_argument('access_key',default=None)
+        if not accesskey:
+            self.set_status(400)
+            self.write("Need to supply access_key")
+            return
+        try:
+            validated=AccessKeyDownload.validate_access_key(accesskey.encode())
+        except BadSignatureError:
+            self.set_status(403)
+            self.write("Access key failed signature check!")
+            return
+        if not validated:
+            self.set_status(403)
+            self.write("Access key not valid")
+            return
+        age=datetime.now()-datetime.fromisoformat(validated['Generated'])
+        if age>timedelta(days=14):
+            self.set_status(403)
+            self.write(f"Access key expired.  Its ages is {age}.")
+            return
+        secretname=self.get_argument('secretname',default=None)
+        if not secretname:
+            self.set_status(400)
+            self.write("Need to supply secretname")
+            return
+        if secretname not in self._callers:
+            self.set_status(404)
+            self.write(f"Secret '{secretname}' not recognized, options include {list(self._callers)}")
+            return
+        self.set_status(200)
+        self.write(f"You are {validated}.\n")
+        self.write(self._callers[secretname]())
+
+from datavac.appserve.app import PanelApp
+import panel as pn
+from io import StringIO
+class AccessKeyDownload(PanelApp):
+    def get_page(self):
+        self.page.main.append(pn.Row(
+            pn.layout.HSpacer(),
+                pn.Column(
+                    pn.pane.Markdown(
+                        f"""
+                        # Access Key
+                        
+                        This access key will allow DataVacuum code on your machine to retrieve temporary
+                        database credentials to read our data.  Treat it like a password and do not share it.
+                        """,width=500,dedent=True,renderer='markdown'),
+                    pn.widgets.FileDownload(label='Download',icon='key',
+                                          filename="datavacuum_access_key.txt",
+                                          callback=self.generate_access_key,
+                                          width=500),),
+                pn.layout.HSpacer()))
+        return self.page
+
+    @staticmethod
+    def generate_access_key() -> StringIO:
+        user=pn.state.user_info['unique_name']
+        gentime=str(datetime.now())
+        bitstoverify=(gentime+user).encode()
+
+        sign_seed=os.environ['DATAVACUUM_SIGN_SEED_B64'].encode()
+        signing_key=nacl.signing.SigningKey(seed=sign_seed,encoder=Base64Encoder)
+
+        sig=signing_key.sign(bitstoverify).signature
+        key={'User':user,
+             'Generated':gentime,
+             'Signature':base64.b64encode(sig).decode()}
+
+        sio=StringIO()
+        yaml.dump(key,sio)
+        sio.seek(0)
+
+        logger.debug(f"Access key generated for {user}")
+        sio.seek(0)
+
+        return sio
+
+    @staticmethod
+    def validate_access_key(bytestring:bytes) -> dict:
+        key=yaml.safe_load(bytestring.decode())
+        user=key['User']
+        gentime=key['Generated']
+        sig=base64.b64decode(key['Signature'].encode())
+        bitstoverify=(gentime+user).encode()
+
+        sign_seed=os.environ['DATAVACUUM_SIGN_SEED_B64'].encode()
+        verify_key=nacl.signing.SigningKey(seed=sign_seed,encoder=Base64Encoder).verify_key
+
+        verify_key.verify(bitstoverify,sig)
+        logger.debug("Signature accepted")
+        return {k:v for k,v in key.items() if k!='Signature'}

@@ -97,9 +97,12 @@ class LayoutParameters:
                 with open(self.LAYOUT_PARAMS_DIR/path,'rb') as f:
                     xls=pd.ExcelFile(f,engine='openpyxl')
                     for sh in xls.book.sheetnames:
+                        if 'IGNORE' in sh:
+                            #logger.debug(f"Ignoring '{sh}' because of its name")
+                            continue
                         table=pd.read_excel(xls,sh).ffill()
                         if not ('rowname' in table.keys() and 'DUT' in table.keys()):
-                            if 'IGNORE' not in sh: logger.debug(f"Ignoring {sh}")
+                            logger.debug(f"Ignoring '{sh}' because missing rowname and/or DUT")
                             continue
                         self._rows_by_mask[mask]+=list(table['rowname'].unique())
                         table=table.rename(columns={c:c.replace("\n"," ").strip() for c in table.columns})
@@ -113,6 +116,10 @@ class LayoutParameters:
                                 table[c]=[int(p[3:]) for p in table[c]]
                         table=table.rename(columns={col:"PAD:"+col[4:].lower() for col in pad_cols})
                         table=table.convert_dtypes()
+                        for c in table.columns:
+                            if table[c].dtype==np.dtype('O'):
+                                logger.debug(f"Stringifying '{c}' in '{sh}'")
+                                table[c]=table[c].astype('string')
                         self._cat_tables[(mask,sh)]=table
                         for structure,r in table.iterrows():
                             self._dut_to_catkey[(structure,mask)]=(mask,sh)
@@ -133,6 +140,10 @@ class LayoutParameters:
                     afunc=getattr(import_module(afunc_dotpath.split(":")[0]),
                                   afunc_dotpath.split(":")[1])
                     afunc(self._tables_by_meas[meas_key])
+            for c in self._tables_by_meas[meas_key].columns:
+                if self._tables_by_meas[meas_key][c].dtype==np.dtype('O'):
+                    logger.debug(f"Stringifying '{c}' in '{meas_key}'")
+                    self._tables_by_meas[meas_key][c]=self._tables_by_meas[meas_key][c].astype('string')
             if 'names' in by_meas_group[meas_key]:
                 tab_to_rename=self._tables_by_meas[meas_key]
                 del self._tables_by_meas[meas_key]
@@ -236,6 +247,8 @@ class LayoutParameters:
     def merge_with_layout_params(self,meas_df,for_measurement_group,param_names=None, on_missing='error'):
         #structures_to_get=meas_df['Structure'].unique()
         #params=self.get_params(structures_to_get,allow_partial=False,for_measurement_group=for_measurement_group)
+        if for_measurement_group not in self._tables_by_meas:
+            raise Exception(f"No layout parameters for measurement group {for_measurement_group}")
         params=self._tables_by_meas[for_measurement_group]
         if param_names:
             params=params[[pn for pn in param_names if pn in params.columns]].copy()

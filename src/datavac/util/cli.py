@@ -33,6 +33,8 @@ datavac_cli_funcs={
     'update_mask_info': 'datavac.io.database:cli_update_mask_info',
     'heal': 'datavac.io.database:cli_heal',
     'compile_jmp': 'datavac.jmp.compile_addin:cli_compile_jmp_addin',
-    'launch_apps':  'datavac.appserve.panel_serve:launch'
+    'launch_apps':  'datavac.appserve.panel_serve:launch',
+    'base64encode':  'datavac.util.util:cli_base64encode',
+    'generate_secret':  'datavac.util.util:cli_b64rand',
 }
 datavac_cli_main=partial(cli_helper,cli_funcs=datavac_cli_funcs)
