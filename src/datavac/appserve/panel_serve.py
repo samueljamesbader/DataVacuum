@@ -9,7 +9,7 @@ import panel.theme
 from panel.theme.material import MaterialDefaultTheme
 
 from datavac.io.database import get_database
-from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes, SimpleSecretShare, \
+from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes, \
     AccessKeyDownload
 from datavac.util.logging import logger
 from datavac.appserve.index import Indexer
@@ -101,8 +101,9 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     pn.config.authorize_callback = authorize
 
     if 'shareable_secrets' in theyaml:
+        from datavac.appserve.ad_auth import SimpleKerberosSecretShare
         extra_patterns={'extra_patterns':[
-            ('/secretshare',SimpleSecretShare,
+            ('/secretshare',SimpleKerberosSecretShare,
              {'callers':{k:import_modfunc(v)
                              for k,v in theyaml['shareable_secrets']['callers'].items()}})]}
         index.slug_to_app['accesskey']=lambda: AccessKeyDownload().get_page()

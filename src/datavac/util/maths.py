@@ -8,6 +8,7 @@ def multiy_singlex_linregress(x,ys):
     Args:
         x - the single array of predictors (length n) to use for all the regressions
         y - the multiple arrays of outputs (dimension m,n) to regress on
+
     Returns:
         slopes - an array (length m) of slopes
         intercepts - an array (length m) of intercepts
@@ -68,3 +69,44 @@ def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
     VTcc[~valid_crossing]=np.NaN
 
     return VTcc
+
+# TODO: Test this out and then use it to replace the above
+#def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
+#    logI=np.log(np.abs(I)+itol)
+#    logicc=np.log(icc)
+#    return YatX(X=logI, Y=V, x=logicc)
+
+def YatX(X: np.ndarray, Y: np.ndarray, x: float):
+    """ Finds the `Y` where `X` crosses x by linear interpolation.
+
+    This function is vectorized, so `X` and `Y` are 2-D arrays of multiple sweeps.
+
+    X does not have to be evenly spaced or monotonic, but, for any sweep, if it doesn't cross the point exactly once,
+    the resulting output for that sweep will be NaN.
+
+    Args:
+        X: an n x m numpy array of X's (n sweeps, m points)
+        Y: an n x m numpy array of Y's (n sweeps, m points)
+        x: the target point
+
+    Returns:
+        an array (of length n) of interpolated targets
+    """
+
+    ind_aboves=np.argmax(X>=x, axis=1)
+    ind_belows=X.shape[1]-np.argmax(X[:,::-1]<x, axis=1)-1
+    valid_crossing=(ind_aboves==(ind_belows+1))
+
+    allinds=np.arange(len(X))
+    X1,X2=X[allinds,ind_belows],X[allinds,ind_aboves]
+    Y1,Y2=Y[allinds,ind_belows],Y[allinds,ind_aboves]
+
+    slope=(Y2-Y1)/(X2-X1)
+    Yavg=(Y1+Y2)/2
+    Xavg=(X1+X2)/2
+
+    Ycc=np.empty_like(Yavg)
+    Ycc[valid_crossing]=Yavg[valid_crossing]+(x-Xavg[valid_crossing])*slope[valid_crossing]
+    Ycc[~valid_crossing]=np.NaN
+
+    return Ycc

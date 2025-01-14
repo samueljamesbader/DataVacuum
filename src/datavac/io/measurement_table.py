@@ -46,7 +46,7 @@ class MeasurementTable:
     def scalar_table(self):
         return self._dataframe.drop(columns=self.headers)
 
-    def scalar_table_with_layout_params(self, params=None, on_missing='error'):
+    def scalar_table_with_layout_params(self, params=None, on_missing='error') -> pd.DataFrame:
         if self.meas_group:
             return LayoutParameters().merge_with_layout_params(
                 self.scalar_table,self.meas_group,param_names=params,on_missing=on_missing)
@@ -145,7 +145,8 @@ class UniformMeasurementTable(MeasurementTable):
         if isinstance(value,pd.Series):
             assert isinstance(value.index,pd.RangeIndex) and value.index.start==0 and value.index.step==1, \
                 "Make sure the value has a default index for setting to UniformMeasurementTable"
-        self._the_dataframe.__setitem__(item,value)
+        #self._the_dataframe.__setitem__(item,value)
+        self._the_dataframe[item]=value
 
     def drop(self,columns=None):
         assert all(c not in self.headers for c in columns)
@@ -275,6 +276,14 @@ class MultiUniformMeasurementTable(MeasurementTable):
     def analyze(self,*args,**kwargs):
         for umt in self._umts:
             umt.analyze(*args,**kwargs)
+        umt_headers=[umt.headers for umt in self._umts]
+        self.headers=umt_headers[0]
+        try:
+            assert all(h==self.headers for h in umt_headers), "Header mismatch after analysis"
+        except Exception as e:
+            import pdb; pdb.set_trace()
+            raise e
+
 
     def __len__(self):
         return sum([len(umt) for umt in self._umts])

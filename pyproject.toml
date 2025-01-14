@@ -11,7 +11,7 @@ authors = [
 description = "Data analysis, flow, and visualization for semiconductor research projects"
 readme = "README.md"
 
-requires-python = "~=3.12.1"
+requires-python = ">=3.11.1"
 
 dependencies = [
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
@@ -51,7 +51,11 @@ dependencies = [
     "pint >= 0.22",
 
     # Public Domain + BSD license, no CVE risk as of 12/31/2024
-    "pynacl >= 1.5.0"
+    "pynacl >= 1.5.0",
+
+
+    # BSD License (BSD-3-Clause), no CVE risk as of 1/10/2025
+    "python-dotenv[cli]",
 ]
 
 [project.optional-dependencies]
@@ -66,14 +70,17 @@ postgresql_no_pg_config = [
     "psycopg2-binary"
 ]
 test = [
-    "python-dotenv[cli]",
     "pytest",
     "pytest-dotenv"
 ]
 
 [project.scripts]
 datavac = "datavac.util.cli:datavac_cli_main"
+datavac_with_context = "datavac.util.conf:cli_datavac_with_context"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "datavac.__version__"}

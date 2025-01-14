@@ -115,6 +115,9 @@ class AlchemyDatabase:
         return self._metadata.tables.get(f"{self.int_schema}.{wh.capitalize()} -- {mg}",None)
     def _hat(self,an) -> Table:
         return self._metadata.tables.get(f"{self.int_schema}.Analysis -- {an}",None)
+    @property
+    def _blobtab(self) -> Table:
+        return self._metadata.tables.get(f"{self.int_schema}.Blob Store")
 
 
         #@staticmethod
@@ -147,13 +150,68 @@ class PostgreSQLDatabase(AlchemyDatabase):
         TIMESTAMP:'datetime64[ns]'
     }
 
+
+    def clear_excess_tables(self, conn, on_mismatch='raise',check_for_wasteful_layout_tables=False):
+        layout_params=LayoutParameters(database=self) # Don't do this until Blob Store exists!
+        # First check for "excess" old tables
+        table_names=self._metadata.tables.keys()
+        ins=self.int_schema+"."
+        alljmptabs=set(CONFIG['measurement_groups']).union(set(CONFIG['higher_analyses']))
+        excess_tables_and_comments=[]
+        for table in sorted(table_names):
+            if table in [f'{ins}Masks',f'{ins}Materials',f'{ins}Loads',f'{ins}ReExtract',f'{ins}ReAnalyze',f'{ins}Dies',f'{ins}Blob Store']:
+                continue
+            elif table.startswith(f"{ins}Meas -- ") or table.startswith(f"{ins}Sweep -- ") or table.startswith(f"{ins}Extr -- "):
+                if table.split("-- ")[1] not in CONFIG['measurement_groups']:
+                    excess_tables_and_comments.append((table,f"Unrecognized meas group table {table}"))
+            elif table.startswith(f"{ins}Analysis -- "):
+                if table.split("-- ")[1] not in CONFIG['higher_analyses']:
+                    excess_tables_and_comments.append((table,f"Unrecognized analysis table {table}"))
+            elif table.startswith(f"{ins}Layout -- "):
+                if (g:=table.split("-- ")[1]) not in layout_params._tables_by_meas:
+                    excess_tables_and_comments.append((table,f"Layout table {table} not fed by layout_params"))
+                    feeding=', unfed,'
+                else: feeding=''
+                if check_for_wasteful_layout_tables:
+                    if g in CONFIG['measurement_groups']:
+                        if not CONFIG['measurement_groups'][g].get('connect_to_layout_table',True):
+                            logger.warning(f"Warning: Layout table {g}{feeding} not used by its measurement group")
+                    elif g in CONFIG['higher_analyses']:
+                        if not CONFIG['higher_analyses'][g].get('connect_to_layout_table',False):
+                            logger.warning(f"Warning: Layout table {g}{feeding} not used by its analysis")
+                    else:
+                        logger.warning(f"Warning: Layout table {g}{feeding} not associated with any measurement group or analysis")
+            elif table.startswith("jmp."):
+                if table.split(".")[1] not in alljmptabs:
+                    excess_tables_and_comments.append((table,f"Unrecognized view {table}"))
+            else:
+                excess_tables_and_comments.append((table,f"What is table {table}?"))
+        if len(excess_tables_and_comments):
+            for table,comment in excess_tables_and_comments:
+                if on_mismatch=='raise':
+                    raise Exception(comment)
+                elif on_mismatch=='warn':
+                    logger.warning(comment)
+                elif on_mismatch=='replace':
+                    logger.warning(f"Deleting table '{table}' because: {comment}")
+                    conn.execute(text(f'DROP TABLE "{table.replace(".","\".\"")}" CASCADE;'))
+
+
     def establish_database(self, on_mismatch='raise'):
-        layout_params=LayoutParameters()
 
         with self.engine.connect() as conn:
             make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema};"
                                    for schema in CONFIG['database']['schema_names'].values()])
             conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
+
+            self._ensure_table_exists(conn,self.int_schema,'Blob Store',
+                                      Column('name',VARCHAR,primary_key=True),
+                                      Column('blob',BYTEA,nullable=False),
+                                      Column('date_stored',TIMESTAMP,nullable=False),
+                                      on_mismatch=on_mismatch)
+            conn.commit()
+
+            self.clear_excess_tables(conn,on_mismatch=on_mismatch)
 
             if self.establish_mask_tables(conn, on_mismatch=on_mismatch):
                 self.update_mask_info(conn)
@@ -199,6 +257,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             conn.commit()
 
             # TODO: when moving layout params into main config, this loop should go over CONFIG['measurement_groups']
+            layout_params=LayoutParameters(database=self) # Don't do this until Blob Store exists!
             for mg in layout_params._tables_by_meas:
                 if mg not in CONFIG['measurement_groups']: continue
                 self.establish_layout_parameters(layout_params,mg,conn,on_mismatch=on_mismatch)
@@ -209,6 +268,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             for an in CONFIG['higher_analyses']:
                 self.establish_higher_analysis_tables(an,conn,on_mismatch=on_mismatch)
                 conn.commit()
+
 
     def establish_mask_tables(self,conn, on_mismatch='raise'):
         needs_update=False
@@ -435,7 +495,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
     def establish_measurement_group_tables(self,measurement_group,conn, on_mismatch='raise'):
         mg, mg_info = measurement_group, CONFIG['measurement_groups'][measurement_group]
-        layout_params=LayoutParameters()
+        layout_params=LayoutParameters(database=self)
 
         do_recreate_view=False
         def on_init():
@@ -499,8 +559,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
         # TODO: Replace this with SQLAlchemy select like in get_where
         if do_recreate_view:
-            #import pdb; pdb.set_trace()
             logger.debug(f"(Re)-creating view for {mg}")
+            #import pdb; pdb.set_trace()
             view_cols=[
                 CONFIG['database']['materials']['full_name'],
                 *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
@@ -531,7 +591,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                  for mg in CONFIG.higher_analyses[analysis].get('attempt_dependencies',{})]
         condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
         conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
-        layout_params=LayoutParameters()
+        layout_params=LayoutParameters(database=self)
         def replacement_callback(conn,schema,table_name,*args,**kwargs):
             logger.warning(f"Dumping and replacing {table_name}")
             tab=self._metadata.tables[f'{schema}.{table_name}']
@@ -1105,6 +1165,25 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if not len(records): return {f:[] for f in factor_names}
         return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
 
+    def store_obj(self,name,obj):
+        with self.engine.begin() as conn:
+            update_info=dict(name=name,blob=pickle.dumps(obj),date_stored=datetime.now())
+            conn.execute(pgsql_insert(self._blobtab).values(**update_info) \
+                         .on_conflict_do_update(index_elements=['name'],set_=update_info))
+    def get_obj(self,name):
+        with self.engine.connect() as conn:
+            res=list(conn.execute(select(self._blobtab.c.blob).where(self._blobtab.c.name==name)).all())
+        if not len(res): raise KeyError(name)
+        assert len(res)==1
+        return pickle.loads(res[0][0])
+    def get_obj_date(self,name):
+        with self.engine.connect() as conn:
+            res=list(conn.execute(select(self._blobtab.c.date_stored).where(self._blobtab.c.name==name)).all())
+        if not len(res): raise KeyError(name)
+        assert len(res)==1
+        return res[0][0]
+
+
 ##### NOT FUNCTIONAL
 ####class SQLiteDatabase(AlchemyDatabase):
 ####
@@ -1380,7 +1459,9 @@ def cli_clear_reanalyze_list(*args):
     with self.engine.begin() as conn:
         conn.execute(dstat)
 
-def cli_print_database():
+def cli_print_database(*args):
+    parser=argparse.ArgumentParser(description='Prints the database connection info')
+    namespace=parser.parse_args(args)
     print({k:v for k,v in get_db_connection_info().items() if k!='Password'})
 def cli_update_mask_info(*args):
     parser=argparse.ArgumentParser(description='Updates the mask information in the database')

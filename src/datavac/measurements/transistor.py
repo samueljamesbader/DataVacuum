@@ -113,6 +113,7 @@ class IdVg(MeasurementType):
         measurements['Ioff_lin [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idlin) else np.abs(IDlin[:,ind0])
         measurements['Ioffmin [A]']=np.min(np.abs(IDsat),axis=1)
         measurements['Ioffstart [A]']=np.abs(IDsat[:,0])
+        measurements['Ioffstart_lin [A]']=np.abs(IDlin[:,0])
         measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
         measurements['Ion/Ioffmin']=measurements['Ion [A]']/measurements['Ioffmin [A]']
         measurements['Ion/Ioffstart']=measurements['Ion [A]']/measurements['Ioffstart [A]']
