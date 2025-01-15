@@ -281,8 +281,10 @@ class MultiUniformMeasurementTable(MeasurementTable):
         try:
             assert all(h==self.headers for h in umt_headers), "Header mismatch after analysis"
         except Exception as e:
-            import pdb; pdb.set_trace()
-            raise e
+            old_headers=self.headers
+            self.headers=list(set([h for umt in self._umts for h in umt.headers]))
+            logger.warning(str(e))
+            logger.warning(f"WARNING: Expanding header collection from {old_headers} to {self.headers}")
 
 
     def __len__(self):

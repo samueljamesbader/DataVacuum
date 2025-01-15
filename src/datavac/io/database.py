@@ -1165,8 +1165,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if not len(records): return {f:[] for f in factor_names}
         return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
 
-    def store_obj(self,name,obj):
-        with self.engine.begin() as conn:
+    def store_obj(self,name,obj,conn=None):
+        with (returner_context(conn) if conn else self.engine.begin()) as conn:
             update_info=dict(name=name,blob=pickle.dumps(obj),date_stored=datetime.now())
             conn.execute(pgsql_insert(self._blobtab).values(**update_info) \
                          .on_conflict_do_update(index_elements=['name'],set_=update_info))

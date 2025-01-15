@@ -56,6 +56,9 @@ dependencies = [
 
     # BSD License (BSD-3-Clause), no CVE risk as of 1/10/2025
     "python-dotenv[cli]",
+
+    # MIT License, no CVE risk as of 1/14/2025
+    "bokeh_transform_utils"
 ]
 
 [project.optional-dependencies]

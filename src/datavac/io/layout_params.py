@@ -29,6 +29,8 @@ class LayoutParameters:
             db=get_database(skip_establish=True);
             cls._db=db
 
+        #import pdb; pdb.set_trace()
+
         # See if there's no singleton yet
         if cls._instance is None:
 
@@ -52,13 +54,13 @@ class LayoutParameters:
                 cls._instance=super().__new__(cls)
                 if ytr is None:
                     ytr=cls.yaml_to_regenerate(force_regenerate=True)
-                cls._instance.regenerate_from_excel(ytr)
+                cls._instance.regenerate_from_excel(*ytr)
         # If there is a singleton
         else:
             # Regenerate if required
             if force_regenerate:
                 ytr=cls.yaml_to_regenerate(force_regenerate=force_regenerate)
-                cls._instance.regenerate_from_excel(ytr)
+                cls._instance.regenerate_from_excel(*ytr)
 
         # Return singleton
         return cls._instance
@@ -72,12 +74,34 @@ class LayoutParameters:
         except: cached_time:float= -np.inf
 
         need_to_regenerate=force_regenerate
-        if yaml_path.stat().st_mtime>cached_time:
-            logger.info("layout_params.yaml has changed")
-            need_to_regenerate=True
-
         with open(yaml_path,'r') as f:
-            loaded_yaml=yaml.safe_load(f)
+            loaded_yaml_str=f.read()
+            loaded_yaml=yaml.safe_load(loaded_yaml_str)
+        if yaml_path.stat().st_mtime>cached_time:
+            logger.info("layout_params.yaml has more recent timestamp than cache...")
+            try:
+                last_used_yaml_str=cls._db.get_obj('layout_params.yaml')
+                if last_used_yaml_str==loaded_yaml_str:
+                    logger.info("...but is equivalent to the last-used one.")
+                    need_to_regenerate=False
+                else:
+                    logger.info("...and is different from the last-used one.")
+                    need_to_regenerate=True
+            except:
+                logger.info("...and previous one is unavailable.")
+                need_to_regenerate=True
+        else:
+            try:
+                last_used_yaml_str=cls._db.get_obj('layout_params.yaml')
+            except:
+                logger.info("layout_params.yaml has older timestamp than cache but can't get cached layout_params.yaml")
+                need_to_regenerate=True
+            else:
+                if not (last_used_yaml_str==loaded_yaml_str):
+                    raise Exception("layout_params.yaml is older than cached one and different.")
+                else:
+                    need_to_regenerate=False
+
 
         layout_param_paths=loaded_yaml['layout_param_paths']
         for mask,paths_by_mask in layout_param_paths.items():
@@ -89,9 +113,9 @@ class LayoutParameters:
                         need_to_regenerate=True; break
 
         if need_to_regenerate:
-            return loaded_yaml
+            return loaded_yaml,loaded_yaml_str
 
-    def regenerate_from_excel(self,yaml):
+    def regenerate_from_excel(self,yaml,yaml_str):
         self._yaml=yaml
         self._cat_tables: dict[(str,str),pd.DataFrame] ={}
         self._dut_to_catkey: dict[(str,str),(str,str)] ={}
@@ -168,7 +192,9 @@ class LayoutParameters:
                     self._tables_by_meas[altname]=tab_to_rename
 
         logger.info("Saving cache")
-        self._db.store_obj('LayoutParams',self)
+        with self._db.engine.begin() as conn:
+            self._db.store_obj('LayoutParams',self)
+            self._db.store_obj('layout_params.yaml',yaml_str)
 
     def __getitem__(self,item):
         raise Exception("Didn't update this when I changed get_params to require mask")
