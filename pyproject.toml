@@ -72,6 +72,14 @@ postgresql_no_pg_config = [
     # this is my default
     "psycopg2-binary"
 ]
+kerberos_serverside = [
+    # To use kerberos (authenticating datavacuum user to the server)
+    "kerberos"
+]
+kerberos_clientside = [
+    # To use kerberos (authenticating datavacuum user to the server)
+    "requests-kerberos"
+]
 test = [
     "pytest",
     "pytest-dotenv"

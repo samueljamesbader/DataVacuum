@@ -3,7 +3,7 @@ import re
 from importlib import import_module
 from pathlib import Path
 
-from datavac.util.logging import logger
+from datavac.util.logging import logger, time_it
 import pandas as pd
 import numpy as np
 import pickle
@@ -22,12 +22,13 @@ class LayoutParameters:
         """ Database option is so Database can supply itself (partially built but with the Blob Store existing),
         since it needs LayoutParameters to exist too. """
 
-        if database is not None:
-            cls._db=database
-        if cls._db is None:
-            from datavac.io.database import get_database;
-            db=get_database(skip_establish=True);
-            cls._db=db
+        with time_it("DB setup for layout_params took",threshold_time=.1):
+            if database is not None:
+                cls._db=database
+            if cls._db is None:
+                from datavac.io.database import get_database;
+                db=get_database(skip_establish=True);
+                cls._db=db
 
         #import pdb; pdb.set_trace()
 
@@ -35,7 +36,8 @@ class LayoutParameters:
         if cls._instance is None:
 
             # If there's no singleton, see if you need to regenerate (forced or cache-out-of-date)
-            ytr=cls.yaml_to_regenerate(force_regenerate=force_regenerate)
+            with time_it("Checking for need to regenerate layout_params took",threshold_time=.1):
+                ytr=cls.yaml_to_regenerate(force_regenerate=force_regenerate)
 
             # If no need to regenerate, try unpickling and return the result
             if not ytr:

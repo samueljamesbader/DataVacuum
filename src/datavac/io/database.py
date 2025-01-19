@@ -30,7 +30,7 @@ from datavac.util.util import returner_context, import_modfunc
 _CASC=dict(onupdate='CASCADE',ondelete='CASCADE')
 
 _database:'PostgreSQLDatabase'=None
-def get_database(cached=True,on_mismatch='raise',skip_establish=False) -> 'PostgreSQLDatabase':
+def get_database(on_mismatch='raise',skip_establish=False) -> 'PostgreSQLDatabase':
     global _database
     assert 'postgre' in get_db_connection_info()['Driver'], \
         "Only supported database driver is 'postgresql'."
@@ -53,8 +53,10 @@ class AlchemyDatabase:
 
     def __init__(self, on_mismatch='raise', skip_establish=False):
         with time_it("Initializing Database took"):
-            self._make_engine()
-            self._init_metadata()
+            with time_it("Make engine took", threshold_time=.1):
+                self._make_engine()
+            with time_it("Init metadata took", threshold_time=.1):
+                self._init_metadata()
             if not skip_establish:
                 self.establish_database(on_mismatch=on_mismatch)
 
@@ -152,7 +154,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
 
     def clear_excess_tables(self, conn, on_mismatch='raise',check_for_wasteful_layout_tables=False):
-        layout_params=LayoutParameters(database=self) # Don't do this until Blob Store exists!
+        with time_it("Building layout params took", threshold_time=.1):
+            layout_params=LayoutParameters(database=self) # Don't do this until Blob Store exists!::
         # First check for "excess" old tables
         table_names=self._metadata.tables.keys()
         ins=self.int_schema+"."
@@ -200,61 +203,64 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def establish_database(self, on_mismatch='raise'):
 
         with self.engine.connect() as conn:
-            make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema};"
-                                   for schema in CONFIG['database']['schema_names'].values()])
-            conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
+            with time_it("Ensuring schema and blob store took",threshold_time=.1):
+                make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema};"
+                                       for schema in CONFIG['database']['schema_names'].values()])
+                conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
 
-            self._ensure_table_exists(conn,self.int_schema,'Blob Store',
-                                      Column('name',VARCHAR,primary_key=True),
-                                      Column('blob',BYTEA,nullable=False),
-                                      Column('date_stored',TIMESTAMP,nullable=False),
-                                      on_mismatch=on_mismatch)
-            conn.commit()
+                self._ensure_table_exists(conn,self.int_schema,'Blob Store',
+                                          Column('name',VARCHAR,primary_key=True),
+                                          Column('blob',BYTEA,nullable=False),
+                                          Column('date_stored',TIMESTAMP,nullable=False),
+                                          on_mismatch=on_mismatch)
+                conn.commit()
 
-            self.clear_excess_tables(conn,on_mismatch=on_mismatch)
+            with time_it("Clearing excess tables took", threshold_time=.1):
+                self.clear_excess_tables(conn,on_mismatch=on_mismatch)
 
-            if self.establish_mask_tables(conn, on_mismatch=on_mismatch):
-                self.update_mask_info(conn)
 
             # Always raise if mismatch on these core tables because
             # there are foreign keys to them that will be lost if they are recreated
+            with time_it("Ensuring core tables took",threshold_time=.1):
+                # Mask tables
+                self.establish_mask_tables(conn, on_mismatch='raise')
 
-            # Materials table
-            matscheme=CONFIG['database']['materials']
-            self._ensure_table_exists(conn,self.int_schema,'Materials',
-                        Column('matid',INTEGER,primary_key=True,autoincrement=True),
-                        *[Column(name,VARCHAR,nullable=False) for name in matscheme['info_columns'] if name!='Mask'],
-                        Column(matscheme['full_name'],VARCHAR,unique=True,nullable=False),
-                        Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
-                        Column('date_user_changed',TIMESTAMP,nullable=False),
-                        on_mismatch='raise')
+                # Materials table
+                matscheme=CONFIG['database']['materials']
+                self._ensure_table_exists(conn,self.int_schema,'Materials',
+                            Column('matid',INTEGER,primary_key=True,autoincrement=True),
+                            *[Column(name,VARCHAR,nullable=False) for name in matscheme['info_columns'] if name!='Mask'],
+                            Column(matscheme['full_name'],VARCHAR,unique=True,nullable=False),
+                            Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
+                            Column('date_user_changed',TIMESTAMP,nullable=False),
+                            on_mismatch='raise')
 
-            # Loads table
-            loadscheme=CONFIG['database']['loads']
-            loadtab=self._ensure_table_exists(conn,self.int_schema,'Loads',
-                      Column('loadid',INTEGER,primary_key=True,autoincrement=True),
-                      Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
-                      Column('MeasGroup',VARCHAR,nullable=False),
-                      *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
-                      UniqueConstraint('matid','MeasGroup'),
-                      on_mismatch='raise')
+                # Loads table
+                loadscheme=CONFIG['database']['loads']
+                loadtab=self._ensure_table_exists(conn,self.int_schema,'Loads',
+                          Column('loadid',INTEGER,primary_key=True,autoincrement=True),
+                          Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
+                          Column('MeasGroup',VARCHAR,nullable=False),
+                          *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
+                          UniqueConstraint('matid','MeasGroup'),
+                          on_mismatch='raise')
 
-            # Data that's been killed from Meas/Extr
-            rextab=self._ensure_table_exists(conn,self.int_schema,'ReExtract',
-                      Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
-                      Column('MeasGroup',VARCHAR,nullable=False),
-                      Column('full_reload',BOOLEAN,nullable=False),
-                      *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
-                      UniqueConstraint('matid','MeasGroup'),
-                      on_mismatch='raise')
+                # Data that's been killed from Meas/Extr
+                rextab=self._ensure_table_exists(conn,self.int_schema,'ReExtract',
+                          Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
+                          Column('MeasGroup',VARCHAR,nullable=False),
+                          Column('full_reload',BOOLEAN,nullable=False),
+                          *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
+                          UniqueConstraint('matid','MeasGroup'),
+                          on_mismatch='raise')
 
-            reatab=self._ensure_table_exists(conn,self.int_schema,'ReAnalyze',
-                      Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
-                      Column('analysis',VARCHAR,nullable=False),
-                      UniqueConstraint('matid','analysis'),
-                      on_mismatch='raise')
+                reatab=self._ensure_table_exists(conn,self.int_schema,'ReAnalyze',
+                          Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
+                          Column('analysis',VARCHAR,nullable=False),
+                          UniqueConstraint('matid','analysis'),
+                          on_mismatch='raise')
 
-            conn.commit()
+                conn.commit()
 
             # TODO: when moving layout params into main config, this loop should go over CONFIG['measurement_groups']
             layout_params=LayoutParameters(database=self) # Don't do this until Blob Store exists!
@@ -288,7 +294,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
                           Column('DieCenterY [mm]',DOUBLE_PRECISION,nullable=False),
                           UniqueConstraint('Mask','DieXY'),
                           on_mismatch=on_mismatch,on_init=yes_needs_update)
-        return needs_update
+        if needs_update:
+            self.update_mask_info(conn)
 
     def fix_die_constraint(self,conn,add_or_remove='add'):
         #tab=self._mgt(mg,'Meas').name

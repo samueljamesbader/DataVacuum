@@ -35,15 +35,17 @@ def make_db_connect(addin_folder,addin_id, env_values):
 
 def cli_compile_jmp_addin(*args):
     parser=argparse.ArgumentParser(description='Makes a .jmpaddin')
-    parser.add_argument('envname',nargs="*",help='Environments (ie *.env files) to use',default=[''])
+    #parser.add_argument('envname',nargs="*",help='Environments (ie *.env files) to use',default=[''])
     namespace=parser.parse_args(args)
+    namespace.envname=[os.environ['DATAVACUUM_DEPLOYMENT_NAME']]
 
     for env in namespace.envname:
-        if env != '':
-            dotenv_path=dotenv.find_dotenv(f".{env}.env")
-            assert dotenv_path, f"Didn't find .{env}.env"
-            env_values=dotenv.dotenv_values(dotenv_path)
-        else:
+        if True:
+        #if env != '':
+        #    dotenv_path=dotenv.find_dotenv(f".{env}.env")
+        #    assert dotenv_path, f"Didn't find .{env}.env"
+        #    env_values=dotenv.dotenv_values(dotenv_path)
+        #else:
             env_values = os.environ
         envname=(env if len(env) else "LOCAL")
         addin_id=f'datavacuum_helper.{envname.lower()}'
@@ -71,7 +73,7 @@ def cli_compile_jmp_addin(*args):
             print(sys.path)
             potential_dlls=sum((list(Path(p).glob("Python31*.dll")) for p in sys.path),[])
             # TODO: Remove SSLROOTCERT info here, rely on rootcertfile existing or not
-            built_in_capture_vars={'DATAVACUUM_SSLROOTCERT':(get_ssl_rootcert_for_db() or ''),
+            built_in_capture_vars={'DATAVACUUM_SSLROOTCERT':(str(get_ssl_rootcert_for_db()) or ''),
                                    'PYTHON_SYS_PATHS': ";".join(sys.path),
                                    'PYTHON_DLL':str(potential_dlls[0])}
             # TODO: Remove DB connection info from JMP add-in, rely on shareable secrets
