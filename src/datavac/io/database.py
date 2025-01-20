@@ -5,17 +5,17 @@ import pickle
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Union, Callable
+from typing import Union, Callable, Optional
 
 import requests
 
 from datavac.appserve.secrets import get_db_connection_info
-from datavac.io.layout_params import LayoutParameters
+from datavac.io.layout_params import get_layout_params
 from datavac.io.meta_reader import ensure_meas_group_sufficiency, ALL_MATERIAL_COLUMNS, ALL_LOAD_COLUMNS, \
     ALL_MATLOAD_COLUMNS
 from datavac.io.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
 from sqlalchemy import text, Engine, create_engine, ForeignKey, UniqueConstraint, PrimaryKeyConstraint, \
-    ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert
+    ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert, Connection
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
 from sqlalchemy import INTEGER, VARCHAR, BOOLEAN, Column, Table, MetaData
 import numpy as np
@@ -25,18 +25,45 @@ import pandas as pd
 
 from datavac.util.conf import CONFIG
 from datavac.util.logging import logger, time_it
+from datavac.util.paths import USER_CACHE
 from datavac.util.util import returner_context, import_modfunc
 
 _CASC=dict(onupdate='CASCADE',ondelete='CASCADE')
 
 _database:'PostgreSQLDatabase'=None
-def get_database(on_mismatch='raise',skip_establish=False) -> 'PostgreSQLDatabase':
+def get_database(metadata_source:Optional[str]=None,populate_metadata:bool=True) -> 'PostgreSQLDatabase':
+    """ Returns a singleton PostgreSQLDatabase object
+
+    Arguments allow determining the source of the metadata (local yaml or DB itself), and, in the case of local
+    generation, allow postponing the metadata population.  Note: the Blob Store table will exist in metadata even
+    if the metadata is not populated since that is generally required by routines which run during metadata creation.
+
+    Args:
+        metadata_source (str): If 'yaml', then generate the metadata (if needed) based on the local yaml.
+            If 'reflect', then reflect the actual database into metadata.  If this parameter is supplied and
+            the singleton already exists, it must match the metadata source of the singleton.  If not supplied,
+            and creating the singleton, defaults to 'yaml'
+        populate_metadata (bool): Default True.  If the metadata source is 'reflect', then this argument is ignored and
+            the metadata will be reflected from the database.  If the metadata source is 'yaml', this argument can be
+            set False to avoid building up the metadata from the yaml.  This is useful for some operations which need
+            a database object but may be indirectly called during the process of building the metadata.
+    Returns:
+        a PostgreSQLDatabase singleton
+    """
     global _database
     assert 'postgre' in get_db_connection_info()['Driver'], \
         "Only supported database driver is 'postgresql'."
+    if metadata_source is not None: assert metadata_source in ['yaml','reflect']
     if not _database:
-        _database=PostgreSQLDatabase(on_mismatch=on_mismatch,skip_establish=skip_establish)
+        _database=PostgreSQLDatabase(metadata_source=(metadata_source or 'yaml'))
+    if metadata_source and (metadata_source!=_database._metadata_source):
+        raise ValueError("Can't change metadata source after database is initialized")
+    if populate_metadata and not _database._populated_metadata:
+        _database.establish_database(just_metadata=True)
     return _database
+
+def get_blob_store() -> 'PostgreSQLDatabase':
+    return get_database(populate_metadata=False)
 
 class Database:
     def get_data(self,meas_group,scalar_columns=None,include_sweeps=False,
@@ -51,14 +78,22 @@ class AlchemyDatabase:
     engine:  Engine
     _metadata: MetaData
 
-    def __init__(self, on_mismatch='raise', skip_establish=False):
-        with time_it("Initializing Database took"):
-            with time_it("Make engine took", threshold_time=.1):
+    def __init__(self, metadata_source='yaml'):
+        self._populated_metadata=False
+        self._metadata_source=metadata_source
+        assert self._metadata_source in ['yaml','reflect']
+        with time_it("Initializing Database",threshold_time=.1):
+            with time_it("Make engine", threshold_time=.1):
                 self._make_engine()
-            with time_it("Init metadata took", threshold_time=.1):
-                self._init_metadata()
-            if not skip_establish:
-                self.establish_database(on_mismatch=on_mismatch)
+            with time_it("Init metadata", threshold_time=.1):
+                self._init_metadata(reflect=(self._metadata_source=='reflect'))
+
+    def validate(self, on_mismatch='raise'):
+        assert self._metadata_source=='reflect', "Need to reflect DB metadata to validate it!"
+        self.establish_database(on_mismatch=on_mismatch,just_metadata=False)
+
+    def establish_database(self, on_mismatch='raise', just_metadata=True):
+        raise NotImplementedError
 
     def _make_engine(self):
         connection_info=get_db_connection_info()
@@ -72,10 +107,18 @@ class AlchemyDatabase:
         )
         self.engine=create_engine(url, connect_args=connection_info['sslargs'], pool_recycle=60)
 
-    def _init_metadata(self):
+    def establish_blob_store(self,conn,on_mismatch='raise',just_metadata=False): raise NotImplementedError
+    def get_obj(self,name): raise NotImplementedError
+    def store_obj(self,name,obj,conn=None): raise NotImplementedError
+
+    def _init_metadata(self, reflect=False):
         self._metadata = MetaData(schema=CONFIG['database']['schema_names']['internal'])
-        with self.engine.connect() as conn:
-            self._metadata.reflect(conn)
+        if reflect:
+            with time_it("Reflecting",threshold_time=.1):
+                with self.engine.connect() as conn:
+                    self._metadata.reflect(conn)
+        self.establish_blob_store(conn=None,just_metadata=(not reflect))
+        self._populated_metadata=True
 
     def clear_database(self, only_tables=None, conn=None):
         removed_tables=[]
@@ -154,8 +197,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
 
     def clear_excess_tables(self, conn, on_mismatch='raise',check_for_wasteful_layout_tables=False):
-        with time_it("Building layout params took", threshold_time=.1):
-            layout_params=LayoutParameters(database=self) # Don't do this until Blob Store exists!::
+        layout_params=get_layout_params(conn=conn) # Don't do this until Blob Store exists!::
         # First check for "excess" old tables
         table_names=self._metadata.tables.keys()
         ins=self.int_schema+"."
@@ -200,30 +242,38 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     conn.execute(text(f'DROP TABLE "{table.replace(".","\".\"")}" CASCADE;'))
 
 
-    def establish_database(self, on_mismatch='raise'):
+    def establish_database(self, on_mismatch='raise', just_metadata=False):
 
-        with self.engine.connect() as conn:
-            with time_it("Ensuring schema and blob store took",threshold_time=.1):
-                make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema};"
-                                       for schema in CONFIG['database']['schema_names'].values()])
-                conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
+        class FakeConnect():
+            def commit(self): pass
+            def execute(self,*args,**kwargs): raise Exception("Executing on FakeConnect")
+            def __enter__(self): return self
+            def __exit__(self, exc_type, exc_val, exc_tb): pass
 
-                self._ensure_table_exists(conn,self.int_schema,'Blob Store',
-                                          Column('name',VARCHAR,primary_key=True),
-                                          Column('blob',BYTEA,nullable=False),
-                                          Column('date_stored',TIMESTAMP,nullable=False),
-                                          on_mismatch=on_mismatch)
+        with (self.engine.connect() if not just_metadata else FakeConnect()) as conn:
+            with time_it("Ensuring schema and blob store",threshold_time=.1):
+                if not just_metadata:
+                    make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema};"
+                                           for schema in CONFIG['database']['schema_names'].values()])
+                    conn.execute(text(make_schemas))
+                    #conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
+                    #conn.execute(text(f"ALTER DATABASE {get_db_connection_info()['Database']} SET search_path TO {self.int_schema};"))
+
+                self.establish_blob_store(conn,on_mismatch=on_mismatch, just_metadata=just_metadata)
                 conn.commit()
 
-            with time_it("Clearing excess tables took", threshold_time=.1):
-                self.clear_excess_tables(conn,on_mismatch=on_mismatch)
+            layout_params=get_layout_params(conn=conn)
+
+            if not just_metadata:
+                with time_it("Clearing excess tables", threshold_time=.1):
+                    self.clear_excess_tables(conn,on_mismatch=on_mismatch)
 
 
             # Always raise if mismatch on these core tables because
             # there are foreign keys to them that will be lost if they are recreated
-            with time_it("Ensuring core tables took",threshold_time=.1):
+            with time_it("Ensuring core tables",threshold_time=.1):
                 # Mask tables
-                self.establish_mask_tables(conn, on_mismatch='raise')
+                self.establish_mask_tables(conn, on_mismatch='raise',just_metadata=just_metadata)
 
                 # Materials table
                 matscheme=CONFIG['database']['materials']
@@ -233,7 +283,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                             Column(matscheme['full_name'],VARCHAR,unique=True,nullable=False),
                             Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
                             Column('date_user_changed',TIMESTAMP,nullable=False),
-                            on_mismatch='raise')
+                            on_mismatch='raise',just_metadata=just_metadata)
 
                 # Loads table
                 loadscheme=CONFIG['database']['loads']
@@ -243,7 +293,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                           Column('MeasGroup',VARCHAR,nullable=False),
                           *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
                           UniqueConstraint('matid','MeasGroup'),
-                          on_mismatch='raise')
+                          on_mismatch='raise',just_metadata=just_metadata)
 
                 # Data that's been killed from Meas/Extr
                 rextab=self._ensure_table_exists(conn,self.int_schema,'ReExtract',
@@ -252,31 +302,34 @@ class PostgreSQLDatabase(AlchemyDatabase):
                           Column('full_reload',BOOLEAN,nullable=False),
                           *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
                           UniqueConstraint('matid','MeasGroup'),
-                          on_mismatch='raise')
+                          on_mismatch='raise',just_metadata=just_metadata)
 
                 reatab=self._ensure_table_exists(conn,self.int_schema,'ReAnalyze',
                           Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
                           Column('analysis',VARCHAR,nullable=False),
                           UniqueConstraint('matid','analysis'),
-                          on_mismatch='raise')
+                          on_mismatch='raise',just_metadata=just_metadata)
 
                 conn.commit()
 
             # TODO: when moving layout params into main config, this loop should go over CONFIG['measurement_groups']
-            layout_params=LayoutParameters(database=self) # Don't do this until Blob Store exists!
-            for mg in layout_params._tables_by_meas:
-                if mg not in CONFIG['measurement_groups']: continue
-                self.establish_layout_parameters(layout_params,mg,conn,on_mismatch=on_mismatch)
-                conn.commit()
-            for mg in CONFIG['measurement_groups']:
-                self.establish_measurement_group_tables(mg,conn,on_mismatch=on_mismatch)
-                conn.commit()
-            for an in CONFIG['higher_analyses']:
-                self.establish_higher_analysis_tables(an,conn,on_mismatch=on_mismatch)
-                conn.commit()
+            with time_it("Ensuring layout params tables",threshold_time=.1):
+                for mg in layout_params._tables_by_meas:
+                    if mg not in CONFIG['measurement_groups']: continue
+                    self.establish_layout_parameters(layout_params,mg,conn,on_mismatch=on_mismatch,just_metadata=just_metadata)
+                    conn.commit()
+            with time_it("Ensuring measurement group tables",threshold_time=.1):
+                for mg in CONFIG['measurement_groups']:
+                    self.establish_measurement_group_tables(mg,conn,on_mismatch=on_mismatch,just_metadata=just_metadata)
+                    with time_it("The commit ",threshold_time=.000001):
+                        conn.commit()
+            with time_it("Ensuring higher_analyses tables",threshold_time=.1):
+                for an in CONFIG['higher_analyses']:
+                    self.establish_higher_analysis_tables(an,conn,on_mismatch=on_mismatch,just_metadata=just_metadata)
+                    conn.commit()
+        self._established=True
 
-
-    def establish_mask_tables(self,conn, on_mismatch='raise'):
+    def establish_mask_tables(self,conn, on_mismatch='raise',just_metadata=False):
         needs_update=False
         def yes_needs_update():
             nonlocal needs_update
@@ -284,7 +337,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         self._ensure_table_exists(conn,self.int_schema,f'Masks',
                           Column('Mask',VARCHAR,nullable=False,unique=True,primary_key=True),
                           Column('info_pickle',BYTEA,nullable=False),
-                          on_mismatch=on_mismatch,on_init=yes_needs_update)
+                          on_mismatch=on_mismatch,on_init=yes_needs_update,just_metadata=just_metadata)
         self._ensure_table_exists(conn,self.int_schema,f'Dies',
                           Column('dieid',INTEGER,autoincrement=True,nullable=False,primary_key=True),
                           Column('Mask',VARCHAR,ForeignKey("Masks.Mask",**_CASC),nullable=False,index=True),
@@ -293,7 +346,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                           Column('DieCenterX [mm]',DOUBLE_PRECISION,nullable=False),
                           Column('DieCenterY [mm]',DOUBLE_PRECISION,nullable=False),
                           UniqueConstraint('Mask','DieXY'),
-                          on_mismatch=on_mismatch,on_init=yes_needs_update)
+                          on_mismatch=on_mismatch,on_init=yes_needs_update,just_metadata=just_metadata)
         if needs_update:
             self.update_mask_info(conn)
 
@@ -354,7 +407,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         # Must ensure restricted write access to DB since this allows arbitrary code execution
         return pickle.loads(res[0][0])
 
-    def establish_layout_parameters(self,layout_params, measurement_group, conn, on_mismatch='raise'):
+    def establish_layout_parameters(self,layout_params, measurement_group, conn, on_mismatch='raise',just_metadata=False):
         mg, df=measurement_group, layout_params._tables_by_meas[measurement_group]
         assert len(df), f"Empty layout param table for {mg}"
         assert df.index.name=='Structure'
@@ -372,14 +425,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
         def initialize_callback():
             self.update_layout_parameters(layout_params,mg,conn)
 
-        try:
+        with time_it(f"Ensuring layout params for {mg}",threshold_time=.005):
             cols=[Column('Structure',VARCHAR,primary_key=True),
                   *[Column(k,self.pd_to_sql_types[str(dtype)]) for k,dtype in df.dtypes.items()]]
-        except:
-            import pdb; pdb.set_trace()
-            raise
-        self._ensure_table_exists(conn,self.int_schema,f'Layout -- {mg}',*cols,
-                                  on_mismatch=on_mismatch, on_init=initialize_callback)
+            self._ensure_table_exists(conn,self.int_schema,f'Layout -- {mg}',*cols,
+                                  on_mismatch=on_mismatch, on_init=initialize_callback, just_metadata=just_metadata)
 
 
     def _upload_binary(self, df, conn, schema, table, override_converters={}):
@@ -500,9 +550,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         conn.commit()
 
 
-    def establish_measurement_group_tables(self,measurement_group,conn, on_mismatch='raise'):
+    def establish_measurement_group_tables(self,measurement_group,conn, on_mismatch='raise',just_metadata=False):
         mg, mg_info = measurement_group, CONFIG['measurement_groups'][measurement_group]
-        layout_params=LayoutParameters(database=self)
 
         do_recreate_view=False
         def on_init():
@@ -530,7 +579,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             *[Column(k,self.pd_to_sql_types[dtype]) for k,dtype in mg_info['meas_columns'].items()],
             PrimaryKeyConstraint('loadid','measid'),
             on_mismatch=(meas_replacement_callback if on_mismatch=='replace' else on_mismatch),
-            on_init=on_init)
+            on_init=on_init, just_metadata=just_metadata)
 
         # Extr table
         def extr_replacement_callback(conn,schema,table_name,*args,**kwargs):
@@ -546,7 +595,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                                  refcolumns=[f"Meas -- {mg}.loadid",f"Meas -- {mg}.measid",]),
             *[Column(k,self.pd_to_sql_types[dtype]) for k,dtype in mg_info['analysis_columns'].items()],
             on_mismatch=(extr_replacement_callback if on_mismatch=='replace' else on_mismatch),
-            on_init=on_init)
+            on_init=on_init, just_metadata=just_metadata)
 
         # Sweep table
         def sweep_replacement_callback(conn,schema,table_name,*args,**kwargs):
@@ -562,10 +611,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
             PrimaryKeyConstraint('loadid','measid','header'),
             ForeignKeyConstraint(columns=['loadid','measid'],**_CASC,
                                  refcolumns=[f"Meas -- {mg}.loadid",f"Meas -- {mg}.measid",]),
-            on_mismatch=on_mismatch)
+            on_mismatch=sweep_replacement_callback, just_metadata=just_metadata)
 
         # TODO: Replace this with SQLAlchemy select like in get_where
         if do_recreate_view:
+            layout_params=get_layout_params(conn=conn)
             logger.debug(f"(Re)-creating view for {mg}")
             #import pdb; pdb.set_trace()
             view_cols=[
@@ -591,19 +641,23 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 (f'JOIN "Dies" ON "Meas -- {mg}".dieid="Dies".dieid ' if condie else '')+\
                 f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
 
-    def establish_higher_analysis_tables(self,analysis, conn, on_mismatch='raise'):
+    def establish_higher_analysis_tables(self,analysis, conn, on_mismatch='raise',just_metadata=False):
         reqlids=[Column(f'loadid - {mg}',INTEGER,ForeignKey(self._loadtab.c.loadid,**_CASC),nullable=False,index=True)
                  for mg in CONFIG.higher_analyses[analysis]['required_dependencies']]
         attlids=[Column(f'loadid - {mg}',INTEGER,ForeignKey(self._loadtab.c.loadid,**_CASC),nullable=True,index=True)
                  for mg in CONFIG.higher_analyses[analysis].get('attempt_dependencies',{})]
         condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
         conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
-        layout_params=LayoutParameters(database=self)
+        layout_params=get_layout_params(conn=conn)
         def replacement_callback(conn,schema,table_name,*args,**kwargs):
             logger.warning(f"Dumping and replacing {table_name}")
             tab=self._metadata.tables[f'{schema}.{table_name}']
             self.dump_higher_analysis(analysis,conn)
             self.clear_database(only_tables=[tab],conn=conn)
+        do_recreate_view=False
+        def on_init():
+            nonlocal do_recreate_view
+            do_recreate_view=True
         self._ensure_table_exists(conn,self.int_schema,f'Analysis -- {analysis}',
                   *reqlids,*attlids,
                   *([Column('Structure',VARCHAR,ForeignKey(f'Layout -- {analysis}.Structure',
@@ -612,31 +666,33 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         if condie else []),
                   *[Column(k,self.pd_to_sql_types[dtype]) for k,dtype
                         in CONFIG.higher_analyses[analysis]['analysis_columns'].items()],
-                  on_mismatch=(replacement_callback if on_mismatch=='replace' else on_mismatch))
+                  on_mismatch=(replacement_callback if on_mismatch=='replace' else on_mismatch),
+                  on_init=on_init,just_metadata=just_metadata)
 
         # TODO: Replace this with SQLAlchemy select like in get_where
-        view_cols=[
-            CONFIG['database']['materials']['full_name'],
-            *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
-            *(f'Loads"."{i}' for i in CONFIG['database']['loads']['info_columns']),
-            *([f'Analysis -- {analysis}"."Structure'] if conlay else []),
-            *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
-            *(CONFIG.higher_analyses[analysis]['analysis_columns'].keys()),
-            *([c for c in layout_params._tables_by_meas[analysis].columns if not c.startswith("PAD")]
-              if analysis in layout_params._tables_by_meas else []),
-        ]
-        view_cols=",".join([f'"{c}"' for c in view_cols])
-        an=analysis; mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
-        conn.execute(text(f'DROP VIEW IF EXISTS jmp."{an}"; CREATE VIEW jmp."{an}" AS SELECT {view_cols} from ' \
-                          f'"Analysis -- {an}" ' \
-                          f'JOIN "Loads" ON "Loads".loadid="Analysis -- {an}"."loadid - {mg}"' + \
-                          (f'JOIN "Layout -- {an}" ON "Analysis -- {an}"."Structure"="Layout -- {an}"."Structure" ' if conlay else '')+\
-                          (f'JOIN "Dies" ON "Analysis -- {an}".dieid="Dies".dieid ' if condie else '') +\
-                          f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
+        if do_recreate_view:
+            view_cols=[
+                CONFIG['database']['materials']['full_name'],
+                *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
+                *(f'Loads"."{i}' for i in CONFIG['database']['loads']['info_columns']),
+                *([f'Analysis -- {analysis}"."Structure'] if conlay else []),
+                *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
+                *(CONFIG.higher_analyses[analysis]['analysis_columns'].keys()),
+                *([c for c in layout_params._tables_by_meas[analysis].columns if not c.startswith("PAD")]
+                  if analysis in layout_params._tables_by_meas else []),
+            ]
+            view_cols=",".join([f'"{c}"' for c in view_cols])
+            an=analysis; mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
+            conn.execute(text(f'DROP VIEW IF EXISTS jmp."{an}"; CREATE VIEW jmp."{an}" AS SELECT {view_cols} from ' \
+                              f'"Analysis -- {an}" ' \
+                              f'JOIN "Loads" ON "Loads".loadid="Analysis -- {an}"."loadid - {mg}"' + \
+                              (f'JOIN "Layout -- {an}" ON "Analysis -- {an}"."Structure"="Layout -- {an}"."Structure" ' if conlay else '')+\
+                              (f'JOIN "Dies" ON "Analysis -- {an}".dieid="Dies".dieid ' if condie else '') +\
+                              f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
 
     def _ensure_table_exists(self, conn, schema, table_name, *args,
                              on_mismatch:Union[str,Callable]='raise',
-                             on_init: Callable= (lambda : None)):
+                             on_init: Callable= (lambda : None), just_metadata=False):
         should_be_columns=[x for x in args if isinstance(x,Column)]
         if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is not None:
             try:
@@ -662,8 +718,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 logger.warning(f"Need to create {table_name}")
             else:
                 tab=Table(table_name,self._metadata,*args)
-                tab.create(conn)
-                on_init()
+                if not just_metadata:
+                    tab.create(conn)
+                    on_init()
         return tab
 
     def drop_material(self, material_info, conn, only_meas_group=None):
@@ -1172,20 +1229,32 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if not len(records): return {f:[] for f in factor_names}
         return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
 
+
+    def establish_blob_store(self,conn,on_mismatch='raise',just_metadata=False):
+        self._ensure_table_exists(conn,self.int_schema,'Blob Store',
+                                  Column('name',VARCHAR,primary_key=True),
+                                  Column('blob',BYTEA,nullable=False),
+                                  Column('date_stored',TIMESTAMP,nullable=False),
+                                  on_mismatch=on_mismatch, just_metadata=just_metadata)
+
     def store_obj(self,name,obj,conn=None):
         with (returner_context(conn) if conn else self.engine.begin()) as conn:
             update_info=dict(name=name,blob=pickle.dumps(obj),date_stored=datetime.now())
             conn.execute(pgsql_insert(self._blobtab).values(**update_info) \
                          .on_conflict_do_update(index_elements=['name'],set_=update_info))
-    def get_obj(self,name):
-        with self.engine.connect() as conn:
-            res=list(conn.execute(select(self._blobtab.c.blob).where(self._blobtab.c.name==name)).all())
+    def get_obj(self,name, conn=None):
+        with time_it(f"Getting {name} from DB",threshold_time=.1):
+            with (returner_context(conn) if conn else self.engine.begin()) as conn:
+                res=list(conn.execute(select(self._blobtab.c.blob).where(self._blobtab.c.name==name)).all())
         if not len(res): raise KeyError(name)
         assert len(res)==1
-        return pickle.loads(res[0][0])
-    def get_obj_date(self,name):
-        with self.engine.connect() as conn:
-            res=list(conn.execute(select(self._blobtab.c.date_stored).where(self._blobtab.c.name==name)).all())
+        with time_it(f"Unpickling {name} from DB",threshold_time=.1):
+            print(len(res[0][0]))
+            return pickle.loads(res[0][0])
+    def get_obj_date(self,name, conn=None):
+        with time_it(f"Getting '{name}' date from DB",threshold_time=.001):
+            with (returner_context(conn) if conn else self.engine.begin()) as conn:
+                res=list(conn.execute(select(self._blobtab.c.date_stored).where(self._blobtab.c.name==name)).all())
         if not len(res): raise KeyError(name)
         assert len(res)==1
         return res[0][0]
@@ -1209,7 +1278,7 @@ def cli_clear_database(*args):
     parser.add_argument('--keep_rex',action='store_true',help="Keep the materials and re-ex tables (ie leave enough info to heal)")
     namespace=parser.parse_args(args)
 
-    db=get_database(skip_establish=True)
+    db=get_database(metadata_source='reflect')
     try:
         only_tables=list(db._metadata.tables.values()) if namespace.table is None else [db._metadata.tables[t] for t in namespace.table]
     except KeyError as e:
@@ -1234,10 +1303,11 @@ def cli_clear_database(*args):
 
 def cli_update_layout_params(*args):
     parser=argparse.ArgumentParser(description='Updates layout params in database.')
+    parser.add_argument('-sr','--skip-regenerate',action='store_true',help='Skip regenerating layout parameters')
     namespace=parser.parse_args(args)
 
-    layout_params=LayoutParameters(force_regenerate=True)
-    db=get_database(skip_establish=True)
+    db=get_database(metadata_source='reflect')
+    layout_params=get_layout_params(force_regenerate=(not namespace.skip_regenerate))
     with db.engine.connect() as conn:
         for mg in layout_params._tables_by_meas:
             db.update_layout_parameters(layout_params,mg,conn)
@@ -1248,7 +1318,7 @@ def cli_dump_measurement(*args):
     parser.add_argument('-g','--group',action='append',help='Measurement group(s) to drop, eg -g GROUP1 -g GROUP2')
     namespace=parser.parse_args(args)
 
-    db=get_database(skip_establish=True)
+    db=get_database(metadata_source='reflect')
     with db.engine.connect() as conn:
         for mg in (namespace.group if namespace.group else CONFIG.measurement_groups):
             db.dump_measurements(mg,conn)
@@ -1259,7 +1329,7 @@ def cli_dump_extraction(*args):
     parser.add_argument('-g','--group',action='append',help='Measurement group(s) to drop, eg -g GROUP1 -g GROUP2')
     namespace=parser.parse_args(args)
 
-    db=get_database(skip_establish=True)
+    db=get_database(metadata_source='reflect')
     with db.engine.connect() as conn:
         for mg in (namespace.group if namespace.group else CONFIG.measurement_groups):
             db.dump_extractions(mg,conn)
@@ -1270,7 +1340,7 @@ def cli_dump_analysis(*args):
     parser.add_argument('-a','--analysis',action='append',help='Analysis to drop, eg -g ANALYSIS1 -g ANALYSIS2')
     namespace=parser.parse_args(args)
 
-    db=get_database(skip_establish=True)
+    db=get_database(metadata_source='reflect')
     with db.engine.connect() as conn:
         for an in (namespace.analysis if namespace.analysis else CONFIG.higher_analyses):
             print(f"Dumping {an}")
@@ -1281,7 +1351,8 @@ def cli_force_database(*args):
     parser=argparse.ArgumentParser(description='Replaces any tables not currently in agreement with schema')
     parser.add_argument('-dr','--dry_run',action='store_true',help='Just print what would be done')
     namespace=parser.parse_args(args)
-    db=get_database(on_mismatch=('warn' if namespace.dry_run else 'replace'))
+    db=get_database(metadata_source='reflect')
+    db.validate(on_mismatch=('warn' if namespace.dry_run else 'replace'))
 
 def cli_upload_data(*args):
     from datavac.io.meta_reader import ALL_MATLOAD_COLUMNS
@@ -1445,7 +1516,7 @@ def cli_clear_reextract_list(*args):
     parser.add_argument('-g','--group',action='append',help='Measurement group(s) to clear from list, eg -g GROUP1 -g GROUP2')
     namespace=parser.parse_args(args)
 
-    self=get_database(skip_establish=True)
+    self=get_database()
 
     dstat=delete(self._rextab)
     if namespace.group is not None:
@@ -1458,7 +1529,7 @@ def cli_clear_reanalyze_list(*args):
     parser.add_argument('-a','--analysis',action='append',help='Analyses to clear from list, eg -a ANALYSIS1 -a ANALYSIS2')
     namespace=parser.parse_args(args)
 
-    self=get_database(skip_establish=True)
+    self=get_database()
 
     dstat=delete(self._reatab)
     if namespace.analysis is not None:
@@ -1473,7 +1544,7 @@ def cli_print_database(*args):
 def cli_update_mask_info(*args):
     parser=argparse.ArgumentParser(description='Updates the mask information in the database')
     namespace=parser.parse_args(args)
-    self=get_database(skip_establish=True)
+    self=get_database(metadata_source='reflect')
     with self.engine.connect() as conn:
         self.update_mask_info(conn)
         conn.commit()
@@ -1502,3 +1573,52 @@ class DDFDatabase(Database):
                      [df[fname].isin(fvals) for fname,fvals in pre_filters.items()],
                      pd.Series([True]*len(df)))]
         return {fn:list(df[fn].unique()) for fn in factor_names}
+
+
+def pickle_db_cached(namer: Union[Callable,str], namespace:Optional[str]=None, conn:Connection=None):
+    def wrapper(func):
+        cache_dir=USER_CACHE/namespace
+        if not cache_dir.exists(): cache_dir.mkdir()
+
+        @functools.wraps(func)
+        def wrapped(*args,force=False,**kwargs):
+            name=namer if type(namer) is str else namer(*args,**kwargs)
+            cfile=cache_dir/name
+            blob_name=f'{namespace}.{name}'
+            if not force:
+                with time_it(f"Get DB cache time for {name}",threshold_time=.005):
+                    try: db_cached_time:float= get_blob_store().get_obj_date(blob_name,conn=conn).timestamp()
+                    except: db_cached_time:float= -np.inf
+                with time_it(f"Get local cache time for {name}",threshold_time=.005):
+                    try: lc_cached_time=cfile.stat().st_mtime
+                    except: lc_cached_time:float= -np.inf
+                if (not np.isfinite(db_cached_time)) and (not np.isfinite(lc_cached_time)):
+                    logger.debug(f"Couldn't get local or DB cache for {name}")
+                    force=True
+            if not force:
+                if db_cached_time<lc_cached_time:
+                    try:
+                        with time_it(f"Reading local cache for {name}",threshold_time=.005):
+                            with open(cfile,'rb') as f: return pickle.load(f),lc_cached_time
+                    except Exception as e:
+                        logger.debug(f"Couldn't read local cache for {name}: {str(e)}")
+                try:
+                    with time_it(f"Reading DB cache for {name}",threshold_time=.025):
+                        res,cached_time=get_blob_store().get_obj(f'{namespace}.{name}',conn=conn),db_cached_time
+                except Exception as e:
+                    logger.debug(f"Couldn't read DB cache for {name}: {str(e)}")
+                    force=True
+                else:
+                    with time_it(f"Storing local cache for {name}",threshold_time=.005):
+                        with open(cfile,'wb') as f: pickle.dump(res,f)
+                    return res
+            with time_it(f"Generating {name}"):
+                res=func(*args,**kwargs)
+
+            with time_it(f"Storing DB cache for {name}",threshold_time=.025):
+                get_blob_store().store_obj(blob_name,res,conn=conn)
+            with time_it(f"Storing local cache for {name}",threshold_time=.005):
+                with open(cfile,'wb') as f: pickle.dump(res,f)
+            return res,datetime.now().timestamp()
+        return wrapped
+    return wrapper

@@ -28,6 +28,7 @@ def cli_helper(cli_funcs) -> Callable[[Optional[List[str]]],None]:
 
 
 datavac_cli_funcs={
+    'check_layout_params_valid': 'datavac.io.layout_params:cli_layout_params_valid',
     'update_layout_params': 'datavac.io.database:cli_update_layout_params',
     'clear_database': 'datavac.io.database:cli_clear_database',
     'upload_data': 'datavac.io.database:cli_upload_data',

@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 
@@ -10,125 +11,48 @@ import pickle
 import traceback
 import yaml
 
+LAYOUT_PARAMS_DIR=Path(os.environ.get("DATAVACUUM_LAYOUT_PARAMS_DIR"))
 
-class LayoutParameters:
-    _instance=None
-    _db=None
+# TODO: remove the LayoutParameters gotcha below and change this _LayoutParameters back to LayoutParameters
+class _LayoutParameters:
 
-    LAYOUT_PARAMS_DIR=Path(os.environ.get("DATAVACUUM_LAYOUT_PARAMS_DIR",Path.cwd()))
+    def __init__(self):
+        self.regenerate_from_excel()
 
-    # This singleton pattern gets really unwieldy, consider a factory_function instead...
-    def __new__(cls,force_regenerate=False,database=None) -> "LayoutParameters":
-        """ Database option is so Database can supply itself (partially built but with the Blob Store existing),
-        since it needs LayoutParameters to exist too. """
-
-        with time_it("DB setup for layout_params took",threshold_time=.1):
-            if database is not None:
-                cls._db=database
-            if cls._db is None:
-                from datavac.io.database import get_database;
-                db=get_database(skip_establish=True);
-                cls._db=db
-
-        #import pdb; pdb.set_trace()
-
-        # See if there's no singleton yet
-        if cls._instance is None:
-
-            # If there's no singleton, see if you need to regenerate (forced or cache-out-of-date)
-            with time_it("Checking for need to regenerate layout_params took",threshold_time=.1):
-                ytr=cls.yaml_to_regenerate(force_regenerate=force_regenerate)
-
-            # If no need to regenerate, try unpickling and return the result
-            if not ytr:
-                try:
-                    cls._instance=super().__new__(cls)
-                    cls._instance=cls._db.get_obj('LayoutParams')
-                except Exception as e:
-                    logger.warning(''.join(traceback.format_exception(e)))
-                    logger.warning("Trouble reading cache, will regenerate")
-                    force_regenerate=True
-            # If there is a need to regenerate (including failure of the above try)
-            if force_regenerate or ytr:
-                logger.info("Regenerating layout params")
-
-                # We'll make a new instance and regenerate
-                cls._instance=super().__new__(cls)
-                if ytr is None:
-                    ytr=cls.yaml_to_regenerate(force_regenerate=True)
-                cls._instance.regenerate_from_excel(*ytr)
-        # If there is a singleton
-        else:
-            # Regenerate if required
-            if force_regenerate:
-                ytr=cls.yaml_to_regenerate(force_regenerate=force_regenerate)
-                cls._instance.regenerate_from_excel(*ytr)
-
-        # Return singleton
-        return cls._instance
-
-    @classmethod
-    def yaml_to_regenerate(cls,force_regenerate=False):
-
-        #yaml_path= Path(os.environ["DATAVACUUM_LAYOUT_PARAMS_YAML"])
+    def timestamp_still_valid(self):
         yaml_path = Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"layout_params.yaml"
-        try: cached_time:float= cls._db.get_obj_date('LayoutParams').timestamp()
-        except: cached_time:float= -np.inf
-
-        need_to_regenerate=force_regenerate
         with open(yaml_path,'r') as f:
-            loaded_yaml_str=f.read()
-            loaded_yaml=yaml.safe_load(loaded_yaml_str)
-        if yaml_path.stat().st_mtime>cached_time:
-            logger.info("layout_params.yaml has more recent timestamp than cache...")
-            try:
-                last_used_yaml_str=cls._db.get_obj('layout_params.yaml')
-                if last_used_yaml_str==loaded_yaml_str:
-                    logger.info("...but is equivalent to the last-used one.")
-                    need_to_regenerate=False
-                else:
-                    logger.info("...and is different from the last-used one.")
-                    need_to_regenerate=True
-            except:
-                logger.info("...and previous one is unavailable.")
-                need_to_regenerate=True
+            current_yaml_str=f.read()
+
+        if (yaml_path.stat().st_mtime>self._generated_timestamp) and self._yaml_str!=self._yaml:
+            logger.info("layout_params.yaml has more recent timestamp than cache and doesn't match")
+            return False
         else:
-            try:
-                last_used_yaml_str=cls._db.get_obj('layout_params.yaml')
-            except:
-                logger.info("layout_params.yaml has older timestamp than cache but can't get cached layout_params.yaml")
-                need_to_regenerate=True
-            else:
-                if not (last_used_yaml_str==loaded_yaml_str):
-                    raise Exception("layout_params.yaml is older than cached one and different.")
-                else:
-                    need_to_regenerate=False
+            layout_param_paths=self._yaml['layout_param_paths']
+            outofdate_found=False
+            for mask,paths_by_mask in layout_param_paths.items():
+                for path in paths_by_mask:
+                    if (LAYOUT_PARAMS_DIR/path).stat().st_mtime>self._generated_timestamp:
+                        logger.info(f"LayoutParam cache is missing or out-of-date for {path}")
+                        outofdate_found=True
+            return not outofdate_found
 
-
-        layout_param_paths=loaded_yaml['layout_param_paths']
-        for mask,paths_by_mask in layout_param_paths.items():
-            if need_to_regenerate: break
-            for path in paths_by_mask:
-                if not need_to_regenerate:
-                    if (cls.LAYOUT_PARAMS_DIR/path).stat().st_mtime>cached_time:
-                        logger.info(f"LayoutParam cache is missing or out-of-date for {path}, regenerating.")
-                        need_to_regenerate=True; break
-
-        if need_to_regenerate:
-            return loaded_yaml,loaded_yaml_str
-
-    def regenerate_from_excel(self,yaml,yaml_str):
-        self._yaml=yaml
+    def regenerate_from_excel(self):
+        yaml_path = Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"layout_params.yaml"
+        with open(yaml_path,'r') as f:
+            self._yaml_str=f.read()
+            self._yaml=yaml.safe_load(self._yaml_str)
         self._cat_tables: dict[(str,str),pd.DataFrame] ={}
         self._dut_to_catkey: dict[(str,str),(str,str)] ={}
         self._tables_by_meas: dict[str,pd.DataFrame] ={}
         self._rows_by_mask: dict[str,list[str]] ={}
+        self._generated_timestamp=datetime.now().timestamp()
 
-        for mask,paths_by_mask in yaml['layout_param_paths'].items():
+        for mask,paths_by_mask in self._yaml['layout_param_paths'].items():
             self._rows_by_mask[mask]=[]
             for path in paths_by_mask:
-                logger.info(f"Reading {str(self.LAYOUT_PARAMS_DIR/path)}")
-                with open(self.LAYOUT_PARAMS_DIR/path,'rb') as f:
+                logger.info(f"Reading {str(LAYOUT_PARAMS_DIR/path)}")
+                with open(LAYOUT_PARAMS_DIR/path,'rb') as f:
                     xls=pd.ExcelFile(f,engine='openpyxl')
                     for sh in xls.book.sheetnames:
                         if 'IGNORE' in sh:
@@ -142,7 +66,7 @@ class LayoutParameters:
                         self._rows_by_mask[mask]+=list(table['rowname'].unique())
                         table=table.rename(columns={c:c.replace("\n"," ").strip() for c in table.columns})
                         table.drop(columns=[c for c in ['StructureName','origrowname'] if c in table],inplace=True)
-                        table=table.rename(columns={k:v for k,v in yaml['replace_param_names'].items() if k in table.columns})
+                        table=table.rename(columns={k:v for k,v in self._yaml['replace_param_names'].items() if k in table.columns})
                         table['Structure']=(table['RowName']+"-DUT"+table['DUT'].astype(str).str.zfill(2)).astype('string')
                         table.set_index('Structure',inplace=True)
                         pad_cols=[col for col in table.columns if col[:4]=="PAD:"]
@@ -160,11 +84,11 @@ class LayoutParameters:
                             self._dut_to_catkey[(structure,mask)]=(mask,sh)
 
         logger.info("Collating by measurement group")
-        by_meas_group=yaml['by_meas_group']
+        by_meas_group=self._yaml['by_meas_group']
         for meas_key in by_meas_group:
             self._tables_by_meas[meas_key]=pd.DataFrame({})
             sensible_column_order=[]
-            for mask in yaml['layout_param_paths']:
+            for mask in self._yaml['layout_param_paths']:
                 if mask in by_meas_group[meas_key]:
                     for catregex in by_meas_group[meas_key][mask]:
                         for _mask,cat in self._cat_tables:
@@ -192,11 +116,6 @@ class LayoutParameters:
                 del self._tables_by_meas[meas_key]
                 for altname in by_meas_group[meas_key]['names']:
                     self._tables_by_meas[altname]=tab_to_rename
-
-        logger.info("Saving cache")
-        with self._db.engine.begin() as conn:
-            self._db.store_obj('LayoutParams',self)
-            self._db.store_obj('layout_params.yaml',yaml_str)
 
     def __getitem__(self,item):
         raise Exception("Didn't update this when I changed get_params to require mask")
@@ -313,3 +232,24 @@ class LayoutParameters:
                         suffixes=(None,'_param'))
         #import pdb; pdb.set_trace()
         return merged
+
+class LayoutParameters(_LayoutParameters):
+    def __init__(self,*args,**kwargs):
+        raise Exception("USE get_layout_parameters()")
+
+_layout_params:'LayoutParameters'=None
+_layout_params_timestamp:float=None
+def get_layout_params(force_regenerate=False, conn=None):
+    global _layout_params
+    if force_regenerate or (_layout_params is None):
+        from datavac.io.database import pickle_db_cached
+        _layout_params,_layout_params_timestamp=pickle_db_cached('LayoutParams',namespace='vac',conn=conn)(_LayoutParameters)(force=force_regenerate)
+    return _layout_params
+
+def cli_layout_params_valid():
+    from datavac.io.database import get_database
+    db=get_database(populate_metadata=False)
+    if get_layout_params().timestamp_still_valid():
+        print("Layout params are valid")
+    else:
+        print("Layout params need to be regenerated (use 'datavac update_layout_params').")
