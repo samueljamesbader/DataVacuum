@@ -13,7 +13,7 @@ import numpy as np
 
 def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 0, yoffset:float = 0,
                           radius:float=150, notchsize:float=5, discard_ratio:float = .3, plot:bool = False,
-                          save_csv:bool = True, save_pkl:bool = True, save_dir:Path=None,
+                          save_csv:bool = True, save_dir:Path=None,
                           labeller:Callable[[float,float],str] = (lambda x,y: f"{x:+d},{y:+d}")):
     """Produces a wafermap (ie set of points for each die) in the formats used by JMP or DataVacuum.
 
@@ -29,8 +29,7 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
     If save_csv is True, csv files will be produced corresponding to the format used by JMP, one
     called "...-Name.csv" and one called "...-XY.csv".  However, to use these as JMP wafermaps,
     it is still necessary to open these in JMP, and save them as .jmp tables, and set a Map Role
-    on the DieXY column in "...-Name.jmp" indicating "Shape Name Definition".  Actually, four .csv
-    files will be produced, since this code will emit a NotchLeft and a NotchDown version.
+    on the DieXY column in "...-Name.jmp" indicating "Shape Name Definition".
 
     For more information on JMP mapfiles, see here (JMP 16):
     https://www.jmp.com/support/help/en/16.2/?os=win&source=application#page/jmp/custom-map-files.shtml
@@ -46,13 +45,12 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
         discard_ratio: dies which fit into a rectangle with area less than discard_ratio*xindex*yindex are deleted
         plot: whether to draw a matplotlib figure representing the wafer
         save_csv: produce the JMP-friendly .csv outputs
-        save_pkl: produce the DataVacuum required python pickle file.
         save_dir: path where to save the csv or pickle files (defaults to current directory)
         labeller: label-making function which takes the x,y of a die and returns a die name
 
     Returns:
-        A Pandas table intended to become the DataVacuum Dies table,
-        and a dictionary of the values pickled for DataVacuum-wafermaps.
+        (1) A Pandas table of die coordinates for simple mapping and (2) a dictionary of more complete geometric
+        information about each die for graphical rendering
     """
     # Default to current directory if not supplied
     save_dir=save_dir or Path.cwd()
@@ -179,24 +177,20 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
         x_lefts[label]=x
         y_bottoms[label]=y
 
-    # Dump the mapping info
-    die_info_to_pickle={'xindex':xindex,'yindex':yindex,
-                        'diameter': 2*radius, 'valid_dies': set(allmappoints.keys()),
-                        'complete_dies': complete_dies,
-                        'left_x':x_lefts,
-                        'bottom_y':y_bottoms,
-                        'patch_table': pd.DataFrame({
-                            'DieXY': list(allmappoints.keys()),
-                            'x': [[v[0] for v in lst] for lst in allmappoints.values()],
-                            'y': [[v[1] for v in lst] for lst in allmappoints.values()],
-                        }).set_index('DieXY').sort_index()
-                        }
-    if save_pkl:
-        with open(save_dir/f"{name}_Diemap-info.pkl",'wb') as f:
-            pickle.dump(die_info_to_pickle,f)
+    # Full geometric info for each die, useful for rendering graphical die-maps
+    die_geometries={'xindex':xindex,'yindex':yindex,
+                    'diameter': 2*radius, 'valid_dies': set(allmappoints.keys()),
+                    'complete_dies': complete_dies,
+                    'left_x':x_lefts,
+                    'bottom_y':y_bottoms,
+                    'patch_table': pd.DataFrame({
+                        'DieXY': list(allmappoints.keys()),
+                        'x': [[v[0] for v in lst] for lst in allmappoints.values()],
+                        'y': [[v[1] for v in lst] for lst in allmappoints.values()],
+                    }).set_index('DieXY').sort_index()}
 
-    # To put in the database
-    dbdf=pd.DataFrame({
+    # Table of die coordinates
+    die_coords=pd.DataFrame({
         'DieXY':list(allmappoints.keys()),
         'DieCenterX [mm]':np.array(list(x_lefts.values()))+.5*xindex,
         'DieCenterY [mm]':np.array(list(y_bottoms.values()))+.5*yindex,
@@ -210,40 +204,15 @@ def make_fullwafer_diemap(name:str, xindex:float, yindex:float, xoffset:float = 
 
     # Output in CSVs in the form that JMP will like
     if save_csv:
-        pd.DataFrame(dict(
-            zip(["Shape ID","DieXY"], \
-                zip(*enumerate(allmappoints.keys(),start=1))))) \
-            .to_csv(save_dir/f"{name}_NotchLeftDiemap-Name.csv",index=False)
-        pd.DataFrame(dict(
-            zip(["Shape ID","Part ID","X","Y"], \
-                zip(*[(i,i,mp[0],mp[1]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
-            .to_csv(save_dir/f"{name}_NotchLeftDiemap-XY.csv",index=False)
+        for notch,sgn1,ind1,sgn2,ind2 in [('Left',1,0,1,1),('Down',-1,1,1,0),('Right',-1,0,-1,1),('Up',1,1,-1,0)]:
+            pd.DataFrame(dict(
+                zip(["Shape ID","DieXY"], \
+                    zip(*enumerate(allmappoints.keys(),start=1))))) \
+                .to_csv(save_dir/f"{name}_Notch{notch}Diemap-Name.csv",index=False)
+            pd.DataFrame(dict(
+                zip(["Shape ID","Part ID","X","Y"], \
+                    zip(*[(i,i,sgn1*mp[ind1],sgn2*mp[ind2])
+                          for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
+                .to_csv(save_dir/f"{name}_Notch{notch}Diemap-XY.csv",index=False)
 
-        pd.DataFrame(dict(
-            zip(["Shape ID","DieXY"], \
-                zip(*enumerate(allmappoints.keys(),start=1))))) \
-            .to_csv(save_dir/f"{name}_NotchDownDiemap-Name.csv",index=False)
-        pd.DataFrame(dict(
-            zip(["Shape ID","Part ID","X","Y"], \
-                zip(*[(i,i,-mp[1],mp[0]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
-            .to_csv(save_dir/f"{name}_NotchDownDiemap-XY.csv",index=False)
-
-        pd.DataFrame(dict(
-            zip(["Shape ID","DieXY"], \
-                zip(*enumerate(allmappoints.keys(),start=1))))) \
-            .to_csv(save_dir/f"{name}_NotchRightDiemap-Name.csv",index=False)
-        pd.DataFrame(dict(
-            zip(["Shape ID","Part ID","X","Y"], \
-                zip(*[(i,i,-mp[0],-mp[1]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
-            .to_csv(save_dir/f"{name}_NotchRightDiemap-XY.csv",index=False)
-
-        pd.DataFrame(dict(
-            zip(["Shape ID","DieXY"], \
-                zip(*enumerate(allmappoints.keys(),start=1))))) \
-            .to_csv(save_dir/f"{name}_NotchUpDiemap-Name.csv",index=False)
-        pd.DataFrame(dict(
-            zip(["Shape ID","Part ID","X","Y"], \
-                zip(*[(i,i,mp[1],-mp[0]) for i,mps in enumerate(allmappoints.values(),start=1) for mp in mps])))) \
-            .to_csv(save_dir/f"{name}_NotchUpDiemap-XY.csv",index=False)
-
-    return dbdf,die_info_to_pickle
+    return die_coords,die_geometries

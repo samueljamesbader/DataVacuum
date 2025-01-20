@@ -65,7 +65,7 @@ class _LayoutParameters:
                             continue
                         self._rows_by_mask[mask]+=list(table['rowname'].unique())
                         table=table.rename(columns={c:c.replace("\n"," ").strip() for c in table.columns})
-                        table.drop(columns=[c for c in ['StructureName','origrowname'] if c in table],inplace=True)
+                        table.drop(columns=[c for c in self._yaml.get("drop_param_names",[]) if c in table],inplace=True)
                         table=table.rename(columns={k:v for k,v in self._yaml['replace_param_names'].items() if k in table.columns})
                         table['Structure']=(table['RowName']+"-DUT"+table['DUT'].astype(str).str.zfill(2)).astype('string')
                         table.set_index('Structure',inplace=True)
