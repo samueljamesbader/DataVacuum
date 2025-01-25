@@ -29,11 +29,14 @@ class Waferplot(ReloadableDataModel):
     source=NotSerialized(bokeh.core.properties.Any(default=None))
 
 
-    def __init__(self, color: str, die_lb: dict, cmap: Union[str,dict], fig_kwargs:dict={}, allow_tap:bool=True,
-                 cmap_kwargs:dict = {}, pre_transform:Optional[Transform] = None, fig:Optional[figure]=None,
-                 pre_source: Optional[DataFrame] = None, source: Optional[ColumnDataSource] = None, colorbar:bool=False):
+    def __init__(self, color: str, die_lb: dict, cmap: Union[str,dict], fig_kwargs=None, allow_tap:bool=True,
+                 cmap_kwargs=None, pre_transform:Optional[Transform] = None, fig:Optional[figure]=None,
+                 pre_source: Optional[DataFrame] = None, source: Optional[ColumnDataSource] = None,
+                 colorbar:bool=False, text:Optional[str]=None):
         super().__init__()
 
+        if fig_kwargs is None: fig_kwargs = {}
+        if cmap_kwargs is None: cmap_kwargs = {}
         self._diemap=die_lb
         self._color=color
 
@@ -68,16 +71,25 @@ class Waferplot(ReloadableDataModel):
             ("", "@DieXY"),
         ]
         self.fig:figure = fig
+        diam=self._diemap['diameter']
+        notchsize=self._diemap.get('notchsize',5)
         if self.fig is None:
             default_fig_kwargs=dict(width=100,height=100,toolbar_location=None,
                                     tooltips=TOOLTIPS,tools=("hover,tap" if allow_tap else 'hover'))
             default_fig_kwargs.update(fig_kwargs)
             self.fig=figure(**default_fig_kwargs,
-                            x_range=[-self._diemap['diameter'] / 2, self._diemap['diameter'] / 2],
-                            y_range=[-self._diemap['diameter'] / 2, self._diemap['diameter'] / 2])
+                            x_range=[-diam / 2, diam / 2],
+                            y_range=[-diam / 2, diam / 2])
         #self.fig.circle(x=0, y=0, radius=self._diemap['diameter'] / 2, line_color='black', fill_color=None, line_width=.25, hit_dilation=0)
+        self.fig.ellipse(x=0,y=0,width=diam,height=diam,line_color='black',fill_color=None,line_width=.25)
         patches=self.fig.patches("x","y",source=self.source,line_color='black',line_width=.25,
                     fill_color=cmapped_field)
+        self.fig.patches(xs=[[-diam/2,-diam/2,-diam/2+notchsize]],ys=[[notchsize,-notchsize,0]],fill_color='black')
+        #import pdb; pdb.set_trace()
+        if text is not None:
+            #import pdb; pdb.set_trace()
+            texts=self.fig.text(x='DieCenterA [mm]',y='DieCenterB [mm]',
+                                text=text,text_align='center',text_baseline='middle',source=self.source)
         self.fig.js_on_event('tap',CustomJS(args={'self':self},code="""
         console.log("In tap");
         console.log(self);

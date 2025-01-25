@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import shutil
 import xml.etree.ElementTree as gfg
+from textwrap import dedent
+
 import dotenv
 import requests
 import warnings
@@ -14,7 +16,7 @@ import yaml
 from urllib3.exceptions import InsecureRequestWarning
 
 from datavac import logger
-from datavac.appserve.secrets import get_ssl_rootcert_for_db, get_db_connection_info
+from datavac.appserve.dvsecrets import get_ssl_rootcert_for_db, get_db_connection_info
 from datavac.util.conf import CONFIG
 from datavac.util.util import get_resource_path, only, import_modfunc
 
@@ -73,9 +75,11 @@ def cli_compile_jmp_addin(*args):
             print(sys.path)
             potential_dlls=sum((list(Path(p).glob("Python31*.dll")) for p in sys.path),[])
             # TODO: Remove SSLROOTCERT info here, rely on rootcertfile existing or not
-            built_in_capture_vars={'DATAVACUUM_SSLROOTCERT':(str(get_ssl_rootcert_for_db()) or ''),
+            built_in_capture_vars={#'DATAVACUUM_SSLROOTCERT':(str(get_ssl_rootcert_for_db()) or ''),
                                    'PYTHON_SYS_PATHS': ";".join(sys.path),
-                                   'PYTHON_DLL':str(potential_dlls[0])}
+                                   'PYTHON_DLL':str(potential_dlls[0]),
+                                   'DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),
+                                  }
             # TODO: Remove DB connection info from JMP add-in, rely on shareable secrets
             connection_info=get_db_connection_info()
 
@@ -86,9 +90,9 @@ def cli_compile_jmp_addin(*args):
                     varvalue=env_values[varvalue[1:-1]]
                 f.write(f"dv:{varname}=\"{varvalue}\";\n")
 
-            for varname, connstrname in [('DATABASE','Database'),('SERVER','Server'),('PORT','Port'),
-                                         ('UID','Uid'),('PWD','Password')]:
-                f.write(f"dv:DATAVACUUM_DB_{varname}=\"{connection_info[connstrname]}\";\n")
+            #for varname, connstrname in [('DATABASE','Database'),('SERVER','Server'),('PORT','Port'),
+            #                             ('UID','Uid'),('PWD','Password')]:
+            #    f.write(f"dv:DATAVACUUM_DB_{varname}=\"{connection_info[connstrname]}\";\n")
 
         with open(addin_folder/"jmp16_pyinit.py",'w') as f:
 
@@ -101,22 +105,35 @@ def cli_compile_jmp_addin(*args):
             #f.write("paths=[r'"+"',r'".join(sys.path)+"']\n")
             #f.write("print(paths);")
             #f.write("[sys.path.append(path) for path in paths if path not in sys.path]\n")
-            for x in ['DATAVACUUM_CONFIG_DIR','DATAVACUUM_DB_DRIVERNAME',
-                      'DATAVACUUM_DBSTRING','DATAVACUUM_CACHE_DIR','DATAVACUUM_LAYOUT_PARAMS_DIR']:
+            #for x in ['DATAVACUUM_CONFIG_DIR','DATAVACUUM_DB_DRIVERNAME',
+            #          'DATAVACUUM_DBSTRING','DATAVACUUM_CACHE_DIR','DATAVACUUM_LAYOUT_PARAMS_DIR']:
+            for x in ['DATAVACUUM_CONTEXT','DATAVACUUM_CONTEXT_DIR','DATAVACUUM_DB_DRIVERNAME']:
                 f.write(f"os.environ['{x}']=r'{env_values.get(x,None)}'\n" if env_values.get(x,None) else "")
-            f.write("import numpy as np\n")
-            f.write("import pandas as pd\n")
-            f.write("from datavac.io.database import get_database; db = get_database()")
+            f.write(dedent("""
+                os.environ['DATAVACUUM_FROM_JMP']='YES'
+                import numpy as np
+                import pandas as pd
+                from datavac.appserve.user_side import validate_access_key as vak
+                try: vak()
+                except: print("No valid access key")
+                else:
+                    from datavac.io.database import get_database; db = get_database(populate_metadata=False);
+                    print("DataVacuum Python-side DB setup")
+            """))
             #f.write("print(np.r_[1,2])\n")
             #f.write("import datavac\n")
 
         with open(addin_folder/"addinLoad.jsl",'w') as f:
-            generated_jsl=[addin_folder/'env_vars.jsl']
-            dv_base_jsl=[get_resource_path(x) for x in ['datavac.jmp:ConnectToWaferMap.jsl',
-                                                        'datavac.jmp:DBConnect.jsl',
+            generated_jsl=[]#addin_folder/'env_vars.jsl']
+            dv_base_jsl=[get_resource_path(x) for x in [
                                                         'datavac.jmp:JMP16Python.jsl',
+                                                        'datavac.jmp:Secrets.jsl',
+                                                        'datavac.jmp:DBConnect.jsl',
                                                         'datavac.jmp:Util.jsl',
-                                                        *(['datavac.jmp:ReloadAddin.jsl'] if envname=='LOCAL' else [])]]
+                                                        'datavac.jmp:ConnectToWaferMap.jsl',
+                                                        'datavac.jmp:ReloadAddin.jsl',
+                                                        #*(['datavac.jmp:ReloadAddin.jsl'] if envname=='LOCAL' else [])
+                                                       ]]
             request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])]
             inc_files=[*generated_jsl,*dv_base_jsl,*request_jsl]
             inc_filenames=[Path(inc_file).name for inc_file in inc_files]
@@ -124,10 +141,15 @@ def cli_compile_jmp_addin(*args):
                 f"Repeated filename in {inc_files}"
             f.writelines([
                 f'Names Default To Here(1);\n',
+                f'dv=Namespace("{addin_id}"); If(Namespace Exists(dv)&(!IsEmpty(dv:force_init)),force_init=dv:force_init,force_init=0);\n'
                 f'dv=New Namespace("{addin_id}");\n',
-                *[f'Include( "$ADDIN_HOME({addin_id})/{Path(filename).name}" );\n'
+                f'dv:addin_home=Get Path Variable("ADDIN_HOME({addin_id})");\n',
+                f'Include( "$ADDIN_HOME({addin_id})/env_vars.jsl" );\n',
+                f'If((dv:DEFER_INIT!="YES")|force_init,\n',
+                *[f'  Include( "$ADDIN_HOME({addin_id})/{Path(filename).name}" );\n'
                     for filename in inc_files],
-                f'dv:addin_home=Get Path Variable("ADDIN_HOME({addin_id})")'
+                f'  dv:force_init=0;\n',
+                f',//Else\n  Write("Deferred initialization because of DEFER_INIT\\!N"));'
             ])
             for add_file in [*dv_base_jsl,*request_jsl]:
                 copy_in_file(add_file,addin_folder=addin_folder,addin_id=addin_id)
@@ -144,7 +166,7 @@ def cli_compile_jmp_addin(*args):
                 'tip':'Reload this add-in',
                 'text': f'dv=Namespace("{addin_id}");dv:ReloadAddin();',
                 'icon':None
-            }] if envname=="LOCAL" else []),
+            }] ),#if envname=="LOCAL" else []),
             {
                 'name':'Pull Sweeps',
                 'tip':'Pull raw curves corresponding to open table',
@@ -157,6 +179,12 @@ def cli_compile_jmp_addin(*args):
                 'text': f'dv=Namespace("{addin_id}");dv:AbsCurrents();',
                 'icon':None
             },
+            *([{
+                'name':'Init',
+                'tip':'Initialize the add-in',
+                'text': f'dv=Namespace("{addin_id}");dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
+                'icon':None
+            }] if env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO")=='YES' else []),
         ]
         with (open(addin_folder/"addin.jmpcust",'wb') as f):
             root=gfg.Element("jm:menu_and_toolbar_customizations")

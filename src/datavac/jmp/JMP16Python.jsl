@@ -33,13 +33,13 @@ dv:PyConn=Function({},
 dv:PyRefresh = Function( {pc=0}, {Default Local},
 	Write("Refreshing Python\!N");
 	pc=If(pc==0, dv:PyConn(), pc);
-	dv:PySub("from datavac import unload_my_imports; unload_my_imports();", pc);
+	dv:PySub("import sys;\!Nif 'datavac' in sys.modules:\!N  from datavac import unload_my_imports; unload_my_imports();", 0, pc);
 	pyinit = dv:addin_home || "/jmp16_pyinit.py";
 	pyinit = Load Text File(pyinit);
 	lines = Words(pyinit,"\!N");
     indented_code="";
     For Each({line,_},lines, indented_code=indented_code||"\!N    "||line;);
-	dv:PySub( indented_code, pc );
+	dv:PySub( indented_code, 0, pc );
 );
 
 // dv:PySub()
@@ -47,23 +47,27 @@ dv:PyRefresh = Function( {pc=0}, {Default Local},
 // Purely a convenience, but handy since generally there's no helpful output for failed Python code.
 // Args:
 //   code - the python code (as a string) to use
+//   ret - the variable to return from Python (or 0 to return nothing)
 //   pc - the Python Connection to use. Generally, this argument should NOT be supplied.
 //        When not supplied, dv:PyConn() will be used by default.
 //        This argument only exists for use by dv:PyRefresh() to avoid infinite loop.
-dv:PySub = Function( {code, pc=0}, {Default Local},
+dv:PySub = Function( {code, ret=0, pc=0}, {Default Local},
 	pc=If(pc==0, dv:PyConn(), pc);
-	indented_code=
-	wrapped_code = "import traceback\!Npython_error=None;\!Ntry:\!N" || "    " || code ||
+	lines = Words(code,"\!N");
+    indented_code="";
+    For Each({line,_},lines, indented_code=indented_code||"\!N    "||line;);
+	wrapped_code = "import traceback\!Npython_error=None;\!Ntry:\!N" || "    " || indented_code ||
 	"\!Nexcept Exception: print((python_error:=traceback.format_exc()))";
 	pc << Submit( wrapped_code );
-	//pc << Term();
-	pc << Get("python_error");
+	python_error = pc << Get("python_error");
+	If( ! Is Empty( python_error ), Throw( python_error ) );
+	If ( ret!=0, Eval(Eval Expr(pc << Get( Expr(ret) ))), python_error );
 );
 
 // dv:PullSweeps()
 // Pulls the corresponding sweep data for a main table and virtually joins it to the main
 // Args:
-//   dt - the JMP table for which to pull the corresponding sweeeps.  If not supplied,
+//   dt - the JMP table for which to pull the corresponding sweeps.  If not supplied,
 //        defaults to the current data table.
 //   db_table_name -  the view table from DataVacuum from which the JMP table was queried.
 //        If not supplied, will be extracted from the Modify Query script of the JMP table.
@@ -97,7 +101,7 @@ dv:PullSweeps=Function({dt=0, db_table_name=0},
 	
 	// Run the query in Python
 	dv:PyConn() << Send(dt,Python Name("viewdf"));
-	error=dv:PySub("sweepdf=db.get_meas_data_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'])");
+	error=dv:PySub("db=get_database();sweepdf=db.get_meas_data_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'])");
 	//Show(error);
 	//Show(error!=0);
 	If(!IsEmpty(error),

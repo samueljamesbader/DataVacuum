@@ -11,6 +11,8 @@ import panel
 from nacl.encoding import Base64Encoder
 from nacl.exceptions import BadSignatureError
 from panel.auth import AzureAdLoginHandler, OAuthProvider
+
+from datavac.appserve.dvsecrets import get_access_key_sign_seed, get_auth_info
 from datavac.util.logging import logger
 
 # TODO: Check if any recent Panel updates provide a way to not require this anymore
@@ -40,7 +42,7 @@ from panel.config import config
 class AuthedStaticFileHandler(StaticFileHandler):
 
     def initialize(self,path:str,role:str,*args,**kwargs):
-        self.require_auth=(os.environ['DATAVACUUM_OAUTH_PROVIDER']!="none")
+        self.require_auth=(get_auth_info()['oauth_provider']!="none")
         assert role is not None
         self.required_role:str=role
         super().initialize(path,*args,**kwargs)
@@ -55,7 +57,8 @@ class AuthedStaticFileHandler(StaticFileHandler):
             self.current_user = await self.application.auth_provider.get_user_async(self)
         else:
             # For BasicAuth (ie password), it's synchronous
-            self.current_user = self.application.auth_provider.get_user(self)
+            if self.application.auth_provider.get_user:
+                self.current_user = self.application.auth_provider.get_user(self)
         return super().prepare()
 
     @authenticated
@@ -123,8 +126,10 @@ def authed_get_static_routes(static_dirs):
         path = fullpath(path)
         if not os.path.isdir(path):
             raise ValueError("Cannot serve non-existent path %s" % path)
+        need_auth=(get_auth_info()['oauth_provider']!='none')
+        WhichStaticFileHandler=AuthedStaticFileHandler if need_auth else StaticFileHandler
         patterns.append(
-            (r"%s/(.*)" % slug, AuthedStaticFileHandler, {"path": path, "role": role})
+            (r"%s/(.*)" % slug, WhichStaticFileHandler, {"path": path, "role": role} if need_auth else {"path": path})
         )
     patterns.append((
         f'/{COMPONENT_PATH}(.*)', ComponentResourceHandler, {}
@@ -132,7 +137,7 @@ def authed_get_static_routes(static_dirs):
     return patterns
 def monkeypatch_authstaticroutes():
     panel.io.server.get_static_routes=authed_get_static_routes
-    logger.debug("Extra static routes monkey-patched to support authentication")
+    logger.debug("Extra static routes monkey-patched")
 
 from tornado.web import RequestHandler
 class SimpleSecretShare(RequestHandler):
@@ -152,6 +157,8 @@ class SimpleSecretShare(RequestHandler):
             self.set_status(403)
             self.write("Access key failed signature check!")
             return
+        except: validated=False
+
         if not validated:
             self.set_status(403)
             self.write("Access key not valid")
@@ -171,7 +178,7 @@ class SimpleSecretShare(RequestHandler):
             self.write(f"Secret '{secretname}' not recognized, options include {list(self._callers)}")
             return
         self.set_status(200)
-        self.write(f"You are {validated}.\n")
+        #self.write(f"You are {validated}.\n")
         self.write(self._callers[secretname]())
 
 from datavac.appserve.app import PanelApp
@@ -202,7 +209,7 @@ class AccessKeyDownload(PanelApp):
         gentime=str(datetime.now())
         bitstoverify=(gentime+user).encode()
 
-        sign_seed=os.environ['DATAVACUUM_SIGN_SEED_B64'].encode()
+        sign_seed=get_access_key_sign_seed()
         signing_key=nacl.signing.SigningKey(seed=sign_seed,encoder=Base64Encoder)
 
         sig=signing_key.sign(bitstoverify).signature
@@ -227,7 +234,7 @@ class AccessKeyDownload(PanelApp):
         sig=base64.b64decode(key['Signature'].encode())
         bitstoverify=(gentime+user).encode()
 
-        sign_seed=os.environ['DATAVACUUM_SIGN_SEED_B64'].encode()
+        sign_seed=get_access_key_sign_seed()
         verify_key=nacl.signing.SigningKey(seed=sign_seed,encoder=Base64Encoder).verify_key
 
         verify_key.verify(bitstoverify,sig)

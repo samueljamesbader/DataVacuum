@@ -117,13 +117,13 @@ class _LayoutParameters:
                 for altname in by_meas_group[meas_key]['names']:
                     self._tables_by_meas[altname]=tab_to_rename
 
-    def __getitem__(self,item):
-        raise Exception("Didn't update this when I changed get_params to require mask")
-        if type(item) is str:
-            res=self.get_params([item])
-            return res.iloc[0]
-        else:
-            return self.get_params(item)
+    #def __getitem__(self,item):
+    #    raise Exception("Didn't update this when I changed get_params to require mask")
+    #    if type(item) is str:
+    #        res=self.get_params([item])
+    #        return res.iloc[0]
+    #    else:
+    #        return self.get_params(item)
 
     def _get_correction_map(self,structures,mask):
         correction_map={}

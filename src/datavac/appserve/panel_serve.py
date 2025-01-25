@@ -19,6 +19,7 @@ from datavac.util.util import import_modfunc
 
 def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultTheme):
 
+    # TODO: Make this use CONFIG
     index_yaml_file=index_yaml_file or\
                     Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"server_index.yaml"
     with open(index_yaml_file, 'r') as f:
@@ -41,11 +42,12 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
         pn.state.schedule_task(sf, import_modfunc(sfi['func']),
                                period=sfi['period'],
                                at=datetime.datetime.now()+delay)
-        logger.debug("Thing that needs KRB5")
+        #logger.debug("Thing that needs KRB5")
 
 
     kwargs={}
     possible_oauth_providers=['none','azure']
+    # TODO: make this use dvsecrets get_auth_info
     auth_info=import_modfunc(theyaml['authentication']['get_auth_info'])()
     try:
         oauth_provider=auth_info['oauth_provider']
@@ -101,9 +103,11 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     pn.config.authorize_callback = authorize
 
     if 'shareable_secrets' in theyaml:
-        from datavac.appserve.ad_auth import SimpleKerberosSecretShare
+        #from datavac.appserve.ad_auth import SimpleKerberosSecretShare
+        from datavac.appserve.ad_auth import SimpleSecretShare
         extra_patterns={'extra_patterns':[
-            ('/secretshare',SimpleKerberosSecretShare,
+            #('/secretshare',SimpleKerberosSecretShare,
+            ('/secretshare',SimpleSecretShare,
              {'callers':{k:import_modfunc(v)
                              for k,v in theyaml['shareable_secrets']['callers'].items()}})]}
         index.slug_to_app['accesskey']=lambda: AccessKeyDownload().get_page()
@@ -111,26 +115,25 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     else: extra_patterns={}
 
     db=get_database()
-    db.establish_database(on_mismatch='raise')
 
-    def alter_logs():
-        print("altering logs")
-        #blog=logging.getLogger(name="bokeh")
-        #blog.setLevel("INFO")
-        #blog=logging.getLogger(name="panel")
-        #blog.setLevel("DEBUG")
-        for bname in ['tornado.access','auth']:
-            blog=logging.getLogger(name=bname)
-            blog.setLevel(logging.DEBUG)
-            import sys
-            ch=logging.StreamHandler(sys.stdout)
-            ch.setLevel(logging.DEBUG)
-            blog.addHandler(ch)
+    #def alter_logs():
+    #    print("altering logs")
+    #    #blog=logging.getLogger(name="bokeh")
+    #    #blog.setLevel("INFO")
+    #    #blog=logging.getLogger(name="panel")
+    #    #blog.setLevel("DEBUG")
+    #    for bname in ['tornado.access','auth']:
+    #        blog=logging.getLogger(name=bname)
+    #        blog.setLevel(logging.DEBUG)
+    #        import sys
+    #        ch=logging.StreamHandler(sys.stdout)
+    #        ch.setLevel(logging.DEBUG)
+    #        blog.addHandler(ch)
 
-    alter_logs()
-    pn.state.schedule_task('altlogs',alter_logs,
-                           period='10m')
-    print("USING XHEADERS")
+    #alter_logs()
+    #pn.state.schedule_task('altlogs',alter_logs,
+    #                       period='10m')
+    # use_xheaders=True: https://docs.bokeh.org/en/2.4.2/docs/user_guide/server.html#reverse-proxying-with-nginx-and-ssl
     pn.serve(
         index.slug_to_app,
         port=port,websocket_origin='*',show=False,

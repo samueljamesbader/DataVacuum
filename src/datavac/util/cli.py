@@ -32,6 +32,7 @@ datavac_cli_funcs={
     'update_layout_params': 'datavac.io.database:cli_update_layout_params',
     'clear_database': 'datavac.io.database:cli_clear_database',
     'upload_data': 'datavac.io.database:cli_upload_data',
+    'upload_all_data': 'datavac.io.database:cli_upload_all_data',
     'dump_extraction': 'datavac.io.database:cli_dump_extraction',
     'dump_measurement': 'datavac.io.database:cli_dump_measurement',
     'dump_analysis': 'datavac.io.database:cli_dump_analysis',

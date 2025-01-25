@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from datavac.io.layout_params import LayoutParameters
+from datavac.io.layout_params import get_layout_params
 from datavac.util.tables import check_dtypes
 from datavac.util.logging import logger
 from datavac.measurements.measurement_type import MeasurementType
@@ -48,14 +48,14 @@ class MeasurementTable:
 
     def scalar_table_with_layout_params(self, params=None, on_missing='error') -> pd.DataFrame:
         if self.meas_group:
-            return LayoutParameters().merge_with_layout_params(
+            return get_layout_params().merge_with_layout_params(
                 self.scalar_table,self.meas_group,param_names=params,on_missing=on_missing)
         else:
             return self.scalar_table
 
     def full_table_with_layout_params(self, params=None, on_missing='error'):
         if self.meas_group:
-            return LayoutParameters().merge_with_layout_params(
+            return get_layout_params().merge_with_layout_params(
                 self._dataframe,self.meas_group,param_names=params,on_missing=on_missing)
         else:
             return self._dataframe

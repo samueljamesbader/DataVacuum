@@ -86,7 +86,8 @@ def read_folder_nonrecursive(folder: str,
                 for reader in mg_info['readers']:
                     if True:
                     #for pattern, reader_pointer in reader[''].items():
-                        pattern=reader['template']['glob'];reader_func_dotpath=reader['template']['function']
+                        pattern=reader.get('glob',reader['template']['glob'])
+                        reader_func_dotpath=reader['template']['function']
                         #print(pattern, reader_func_dotpath, list(cached_glob(pattern))
                         if f in cached_glob(folder,pattern):
                             #logger.info(f"Looking for measurement group {meas_group} in {f.relative_to(folder)}")

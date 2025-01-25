@@ -1,4 +1,5 @@
 import os
+from functools import cache
 from pathlib import Path
 from typing import Optional
 
@@ -32,11 +33,11 @@ def get_db_connection_info() -> dict:
         connection_info=import_modfunc(dotpath)()
     return connection_info
 
-def get_db_connection_info_from_environment() -> dict:
+def get_db_connection_info_from_environment(dbstring:Optional[str]=None) -> dict:
     """ See get_db_connection_info, this is just the fallback-to-environment case. """
-    dbstring=os.environ['DATAVACUUM_DBSTRING']
+    dbstring=dbstring or os.environ['DATAVACUUM_DBSTRING']
     connection_info=dict([[s.strip() for s in x.split("=")] for x in dbstring.split(";")])
-    connection_info['Driver']=os.environ['DATAVACUUM_DB_DRIVERNAME']
+    connection_info['Driver']=os.environ.get('DATAVACUUM_DB_DRIVERNAME','postgresql')
     connection_info['sslargs']={'sslrootcert':sslrootcert,'sslmode':'verify-full'} \
         if (sslrootcert:=get_ssl_rootcert_for_db()) is not None else {}
     return connection_info
@@ -59,3 +60,32 @@ def get_ssl_rootcert_for_db() -> Optional[None]:
         pth=import_modfunc(dotpath)()
     if pth is not None: assert Path(pth).exists(), f"SSL root certificate not found at {pth}"
     return pth
+
+def get_access_key_sign_seed() -> bytes:
+    """Returns the seed for signing access keys
+
+    If a replacement function is designated in the configuration (database.credentials.get_access_key_sign_seed),
+    it will be called.  Otherwise, the environment variable DATAVACUUM_SIGN_SEED will be used.
+
+    Returns:
+        bytes: The seed for signing access keys
+    """
+    try:
+        dotpath=CONFIG['database']['credentials']['get_access_key_sign_seed']
+    except KeyError:
+        logger.debug("No database.credentials.get_access_key_sign_seed configured, falling back on environment")
+        seed=os.environ['DATAVACUUM_SIGN_SEED'].encode()
+    else:
+        seed=import_modfunc(dotpath)()
+    return seed
+
+@cache
+def get_auth_info() -> dict:
+    from yaml import safe_load
+    index_yaml_file=Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"server_index.yaml"
+    with open(index_yaml_file, 'r') as f:
+        f=f.read()
+        for k,v in os.environ.items():
+            if 'DATAVAC' in k: f=f.replace(f"%{k}%",v)
+        theyaml=safe_load(f)
+    return import_modfunc(theyaml['authentication']['get_auth_info'])()
