@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Union, Callable, Optional
 
 import requests
+from sqlalchemy.dialects import postgresql
 
 from datavac.appserve.dvsecrets import get_db_connection_info
 from datavac.io.layout_params import get_layout_params
@@ -17,7 +18,7 @@ from datavac.io.meta_reader import ensure_meas_group_sufficiency, ALL_MATERIAL_C
     ALL_MATLOAD_COLUMNS
 from datavac.io.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
 from sqlalchemy import text, Engine, create_engine, ForeignKey, UniqueConstraint, PrimaryKeyConstraint, \
-    ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert, Connection
+    ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert, Connection, label, join
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
 from sqlalchemy import INTEGER, VARCHAR, BOOLEAN, Column, Table, MetaData
 import numpy as np
@@ -92,14 +93,14 @@ class AlchemyDatabase:
 
     @contextmanager
     def engine_connect(self,*args,**kwargs):
-        tc=time_it('Engine connect')#,threshold_time=.05)
+        tc=time_it('Engine connect',threshold_time=.02)
         tc.__enter__()
         with self.engine.connect() as conn:
             tc.__exit__(None,None,None)
             yield conn
     @contextmanager
     def engine_begin(self,*args,**kwargs):
-        tc=time_it('Engine begin')#,threshold_time=.05)
+        tc=time_it('Engine begin',threshold_time=.02)
         tc.__enter__()
         with self.engine.begin() as conn:
             tc.__exit__(None,None,None)
@@ -1117,17 +1118,19 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 data=pd.read_sql(sel,conn,dtype={c.name:self.sql_to_pd_types[c.type.__class__] for c in selcols
                                                 if c.type.__class__ in self.sql_to_pd_types})
         if 'sweep' in data:
-            meas_type=CONFIG.get_meas_type(meas_group)
-            if not (hasattr(meas_type,'ONESTRING') and meas_type.ONESTRING):
-                for h in list(data['header'].unique()):
-                    assert meas_type.get_preferred_dtype(h) in [np.float32,'onestring'],\
-                        "Haven't dealt with sweeps that aren't float32 or 'onestring'"
-                data['sweep']=data['sweep'].map(functools.partial(np.frombuffer, dtype=np.float32))
-            else:
-                data['sweep']=data['sweep'].map(lambda x: x.decode('utf-8'))
-        if include_sweeps and unstack_headers:
-            unstacking_indices= ['loadid','measid'] if unstack_headers is True else unstack_headers
-            data=self._unstack_header_helper(data,unstacking_indices, drop_index=(not raw_only))
+            with time_it("Sweep decoding",threshold_time=.03):
+                meas_type=CONFIG.get_meas_type(meas_group)
+                if not (hasattr(meas_type,'ONESTRING') and meas_type.ONESTRING):
+                    for h in list(data['header'].unique()):
+                        assert meas_type.get_preferred_dtype(h) in [np.float32,'onestring'],\
+                            "Haven't dealt with sweeps that aren't float32 or 'onestring'"
+                    data['sweep']=data['sweep'].map(functools.partial(np.frombuffer, dtype=np.float32))
+                else:
+                    data['sweep']=data['sweep'].map(lambda x: x.decode('utf-8'))
+            if include_sweeps and unstack_headers:
+                with time_it("Sweep unstacking",threshold_time=.03):
+                    unstacking_indices= ['loadid','measid'] if unstack_headers is True else unstack_headers
+                    data=self._unstack_header_helper(data,unstacking_indices, drop_index=(not raw_only))
         return data
 
     def get_meas_data_for_jmp(self,meas_group,loadids,measids):
@@ -1177,80 +1180,96 @@ class PostgreSQLDatabase(AlchemyDatabase):
         return pd.merge(sweep_part,other_part,how='inner',
                         left_index=True,right_index=True,validate='1:1').reset_index(drop=drop_index)
 
+    @staticmethod
+    def joined_table(factor_names:list[str],absolute_needs:list[Table],
+                     table_depends:dict[Table,list[Table]], pre_filters:dict[str,list]):
+        """ Creates an SQL Alchemy Select joining the tables needed to get the desired factors
+
+        Args:
+            factor_names: list of column names to be selected
+            absolute_needs: list of tables which must be included in the join
+            table_depends: mapping of dependencies which tables have on other tables to be joined
+            pre_filters: filters (column name to list of allowed values) to apply to the data before joining
+
+        Returns:
+            An SQLAlchemy Select
+        """
+        all_cols=[c for tab in table_depends for c in tab.columns]
+        def get_col(cname) -> Column:
+            try: return next(c for c in all_cols if c.name==cname)
+            except StopIteration:
+                raise Exception(f"Couldn't find column {cname} among {[c.name for c in all_cols]}")
+        def apply_wheres(s):
+            for pf,values in pre_filters.items():
+                s=s.where(get_col(pf).in_(values))
+            return s
+        factor_cols:list[Column]=[get_col(f) for f in factor_names]
+        def apply_joins():
+            ordered_needed_tables=[]
+            need_queue=set(absolute_needs+[f.table for f in factor_cols])
+            while len(need_queue):
+                for n in need_queue.copy():
+                    further_needs=table_depends[n]
+                    if n in ordered_needed_tables:
+                        need_queue.remove(n)
+                    elif all(pn in ordered_needed_tables for pn in further_needs):
+                        ordered_needed_tables.append(n)
+                        need_queue.remove(n)
+                    else: need_queue|=set(further_needs)
+            return functools.reduce((lambda x,y: x.join(y)),ordered_needed_tables)
+        return apply_wheres(select(*factor_cols).select_from(apply_joins()))
+
     def get_factors(self,meas_group_or_analysis,factor_names,pre_filters={}):
-        if meas_group_or_analysis in CONFIG['measurement_groups']:
-            return self.get_factors_for_meas_group(meas_group_or_analysis,factor_names,pre_filters=pre_filters)
-        elif meas_group_or_analysis in CONFIG['higher_analyses']:
-            return self.get_factors_for_analysis(meas_group_or_analysis,factor_names,pre_filters=pre_filters)
-        else:
-            raise Exception(f"Couldn't identify '{meas_group_or_analysis}' as a meas_group or analysis")
 
-    def get_factors_for_meas_group(self,meas_group,factor_names,pre_filters={}):
-        #import pdb; pdb.set_trace()
-        assert meas_group in CONFIG['measurement_groups'], f"'{meas_group}' not in project measurement group listing"
-        meastab=self._mgt(meas_group,'meas')
-        sweptab=self._mgt(meas_group,'sweep')
-        extrtab=self._mgt(meas_group,'extr')
-        layotab=self._mgt(meas_group,'layout')
+        # Assess inputs
+        if (mgoa:=meas_group_or_analysis) in CONFIG['measurement_groups']: which='measurement_groups'
+        elif mgoa in CONFIG['higher_analyses']: which='higher_analysis'
+        else: raise Exception(f"Couldn't identify '{meas_group_or_analysis}' as a meas_group or analysis")
 
-        involved_tables=[meastab,extrtab,layotab,self._loadtab,self._mattab,self._diemtab]#+([sweptab] if 'header' in pre_filters else [])
-        if any(t is None for t in involved_tables):
-            raise Exception(f"WHAT {str(involved_tables)}")
-        all_cols=[c for tab in involved_tables for c in tab.columns]
-        def get_col(cname):
-            try:
-                return next(c for c in all_cols if c.name==cname)
-            except StopIteration:
-                raise Exception(f"Couldn't find column {cname} among {[c.name for c in all_cols]}")
-        def apply_wheres(s):
-            for pf,values in pre_filters.items():
-                s=s.where(get_col(pf).in_(values))
-            return s
-        factor_cols=[get_col(f) for f in factor_names]
-        # TODO: Be more selective in thejoin
-        thejoin=extrtab.join(meastab).join(layotab).join(self._loadtab).join(self._mattab).join(self._diemtab)
-        sel=union_all(*[apply_wheres(select(*factor_cols).select_from(thejoin)).distinct(f) for f in factor_cols])
+        condie=CONFIG[which][mgoa].get('connect_to_die_table',True)
+        conlay=CONFIG[which][mgoa].get('connect_to_layout_table',(False if which=='higher_analysis' else True))
 
-        with self.engine_connect() as conn:
-            records=conn.execute(sel).all()
+        # Tables we may need
+        table_depends={}
+        if which == 'measurement_groups':
+            table_depends[coretab:=(meastab:=self._mgt(mgoa,'meas'))]=[]
+            table_depends[extrtab:=self._mgt(mgoa,'extr')]=[meastab]
+            #sweptab=self._mgt(mgoa,'sweep'); table_depends
+        if which == 'higher_analysis':
+            table_depends[coretab:=(anlstab:=self._hat(mgoa))]=[]
+        table_depends[self._loadtab]=[]
+        table_depends[self._mattab]=[self._loadtab]
+        if condie: table_depends[self._diemtab]=[self._mattab]
+        if conlay: table_depends[layotab:=self._mgt(mgoa,'layout')]=[coretab]
+        assert not any(t is None for t in table_depends)
 
-        if not len(records): return {f:[] for f in factor_names}
-        return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
+        # Define a select with the pre_filtered data and set it up as a CTE named tmp
+        bigtable=self.joined_table(factor_names=factor_names,absolute_needs=[coretab],
+                                   table_depends=table_depends,pre_filters=pre_filters)\
+            .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        query="WITH tmp AS ("+str(bigtable)+")\n"
 
-    def get_factors_for_analysis(self,analysis,factor_names,pre_filters={}):
-        #import pdb; pdb.set_trace()
-        assert analysis in CONFIG['higher_analyses'], f"'{analysis}' not in project analysis listing"
-        condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
-        conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
-        anlstab=self._hat(analysis)
-        if conlay:
-            layotab=self._mgt(analysis,'layout')
-
-        involved_tables=[anlstab,*([layotab] if conlay else []),self._loadtab,self._mattab,*([self._diemtab] if condie else [])]#+([sweptab] if 'header' in pre_filters else [])
-        if any(t is None for t in involved_tables):
-            raise Exception(f"WHAT {str(involved_tables)}")
-        all_cols=[c for tab in involved_tables for c in tab.columns]
-        def get_col(cname):
-            try:
-                return next(c for c in all_cols if c.name==cname)
-            except StopIteration:
-                raise Exception(f"Couldn't find column {cname} among {[c.name for c in all_cols]}")
-        def apply_wheres(s):
-            for pf,values in pre_filters.items():
-                s=s.where(get_col(pf).in_(values))
-            return s
-        factor_cols=[get_col(f) for f in factor_names]
-        # TODO: Be more selective in thejoin
-        thejoin=anlstab.join(self._loadtab).join(self._mattab)
-        if condie: thejoin=thejoin.join(self._diemtab)
-        if conlay: thejoin=thejoin.join(layotab)
-        sel=union_all(*[apply_wheres(select(*factor_cols).select_from(thejoin)).distinct(f) for f in factor_cols])
+        # Now we're going to build a series of select statements that query the distinct values of each factor
+        # (but we use GROUP BY instead of DISTINCT ON because it's wayyy faster)
+        # and each of those selects also defines a row number within its selection (ie 0,1,2,3 for each unique value)
+        # and that row number will be called "ind___{factor_name}"
+        # Then we do a full outer join on those indices, so the resulting table will have two columns for each factor,
+        # one column that's just indices and one column that's the unique factor values.  Because it's a full outer
+        # join, it will be as long as the factor with the most unique values.  But the other factors will have NULLs,
+        # and will also have NULL indices, so in post, we can easily grab all the unique values for each factor,
+        # ignoring rows where the index for that factor is NULL
+        query+="SELECT * FROM \n"
+        for i,f in enumerate(factor_names):
+            query+=f"""(SELECT ROW_NUMBER() over (order by  null) as "ind___{f}", tmp."{f}" """\
+                                                            f""" FROM tmp GROUP BY tmp."{f}") t{i}\n"""
+            if i!=0: query+=f""" ON t0."ind___{factor_names[0]}"=t{i}."ind___{f}" """
+            if i!=len(factor_names)-1: query+=" FULL OUTER JOIN "
 
         with self.engine_connect() as conn:
-            records=conn.execute(sel).all()
-
+            with time_it("Executing SQL in get_factors",threshold_time=.01):
+                records=pd.read_sql(query,conn)
         if not len(records): return {f:[] for f in factor_names}
-        return {f:list(set(vals)) for f,vals in zip(factor_names,zip(*records))}
+        else: return {f:list(records.loc[records[f'ind___{f}'].notna(),f]) for f in factor_names}
 
 
     def establish_blob_store(self,conn,on_mismatch='raise',just_metadata=False):
