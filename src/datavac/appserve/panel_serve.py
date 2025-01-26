@@ -103,10 +103,8 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     pn.config.authorize_callback = authorize
 
     if 'shareable_secrets' in theyaml:
-        #from datavac.appserve.ad_auth import SimpleKerberosSecretShare
         from datavac.appserve.ad_auth import SimpleSecretShare
         extra_patterns={'extra_patterns':[
-            #('/secretshare',SimpleKerberosSecretShare,
             ('/secretshare',SimpleSecretShare,
              {'callers':{k:import_modfunc(v)
                              for k,v in theyaml['shareable_secrets']['callers'].items()}})]}
