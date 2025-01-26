@@ -17,7 +17,8 @@ class VerticalCrossSelector(CrossSelector):
         buttons = Row(self._buttons[False], self._buttons[True], margin=(0, 5))
 
         # Update the placeholder instructions
-        layout = dict(sizing_mode='stretch_both', background=self.background, margin=0)
+        #layout = dict(sizing_mode='stretch_both', background=self.background, margin=0)
+        layout = dict(sizing_mode='stretch_both', margin=0)
         self._placeholder = TextAreaInput(
             placeholder=("To select an item highlight it above "
                          "and use the arrow button to move down."),

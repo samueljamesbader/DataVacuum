@@ -2,6 +2,7 @@ from functools import reduce
 from typing import Union
 
 import panel as pn
+from panel.io import hold
 from panel.template.base import BasicTemplate
 import param as hvparam
 
@@ -34,7 +35,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         #self.lots_preselector.options=self.hose.get_lots(self.lot_prefetch_measgroup)
         lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters) \
             if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
-        self.lots_preselector.options=self.database.get_factors(lot_prefetch_measgroup[0],factor_names=['Lot'])['Lot']
+        self.lots_preselector.options=sorted(self.database.get_factors(lot_prefetch_measgroup[0],factor_names=['Lot'])['Lot'])
 
     def get_page(self) -> BasicTemplate:
         self.page.sidebar.append(pn.panel("## Lot pre-filter"))
@@ -43,13 +44,27 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         self.page.sidebar.append(pn.widgets.FileDownload(callback=self._download_callback,filename=self._get_download_filename(),label='Download shown'))
         self.page.sidebar_width=220
 
-        tabs=[]
-        for name, pltr in self._plotters.items():
-            tabs.append((name, pltr))
-        self._tabs=pn.Tabs(*tabs)
-        self.page.main.append(self._tabs)
+        def make_tabs():
+            tabs=[]
+            for name, pltr in self._plotters.items():
+                tabs.append((name, pltr))
+            self._tabs=pn.Tabs(*tabs)
+            self._tabs.param.watch(self._inform_plotters_of_tab_change,'active')
+            self._inform_plotters_of_tab_change()
+            return self._tabs
+        self.page.main.append(pn.panel(make_tabs,defer_load=True))
         self.page.main.sizing_mode='fixed'
         return self.page
+
+    def _inform_plotters_of_tab_change(self,*args,**kwargs):
+        # Inform the newly visible plotter first since that's what the user will see
+        logger.debug(f"Tab changed to {self._tabs.active}, which is {list(self._plotters.keys())[self._tabs.active]}")
+        list(self._plotters.values())[self._tabs.active].visibility_changed(is_visible_now=True)
+
+        # Then inform the others
+        for i,p in enumerate(self._plotters.values()):
+            if i!=self._tabs.active:
+                p.visibility_changed(is_visible_now=False)
 
     def link_shared_widgets(self, except_params=[]):
         attrs=['_filter_param_widgets','_view_param_widgets']

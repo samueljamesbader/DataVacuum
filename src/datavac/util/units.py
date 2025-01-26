@@ -44,7 +44,7 @@ class Normalizer():
     def get_scaled(self, df, column, normalizer):
         if normalizer is False: return df[column]
         if column not in self._udeets[normalizer]:
-            logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
+            #logger.debug(f"Normalizer: {normalizer} does not interact with {column}")
             return df[column]
         ntype=self._udeets[normalizer][column]['type']
         scale=self._udeets[normalizer][column]['units_scale_factor']

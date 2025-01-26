@@ -8,6 +8,7 @@ from bokeh.plotting import figure
 from bokeh.transform import jitter
 from pandas import DataFrame
 from panel import GridBox
+from panel.io import hold
 from panel.widgets import Widget, MultiSelect, Select, CompositeWidget, StaticText
 import panel as pn
 import param as hvparam
@@ -21,7 +22,7 @@ from datavac.gui.bokeh_util.util import make_serializable, make_color_col, small
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
 from datavac.io.database import get_database, Database
-from datavac.util.logging import logger
+from datavac.util.logging import logger, time_it
 from datavac.util.units import Normalizer
 
 
@@ -64,7 +65,11 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _built_in_view_settings=['color_by','norm_by']
     _prefilter_updated_count=hvparam.Event()
     _filter_param_updated_count=hvparam.Boolean(False)
+    _need_to_update_data=hvparam.Boolean(False)
+    _need_to_update_saf=hvparam.Boolean(True)
     _need_to_recreate_figure=hvparam.Event()
+    _is_visible=hvparam.Boolean(False)
+    only_update_when_visible=hvparam.Boolean(False)
 
     filter_settings=hvparam.Parameter()
     _widget_hints={}
@@ -86,8 +91,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
 
         self._filter_param_widgets = self._make_filter_params(self.filter_settings)
         self._view_param_widgets = self._make_view_params({k:None for k in self._built_in_view_settings})
-        self.update_sources(pre_sources=None)
+        self._update_sources()
 
+        #self._fig=pn.panel(self._recreate_figures,defer_load=True)
         self._fig=self._recreate_figures
         self._composite[:]=[self.layout_function(
                                     filter_widgets=self._filter_param_widgets,
@@ -98,7 +104,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.param.watch(self._filter_param_updated,'_filter_param_updated_count')
         self.param.watch((lambda *args,**kwargs:setattr(self,'_filter_param_updated_count',True)),
                          list(self._filter_param_widgets.keys()))
-        self.param.watch(self.update_sources_and_figures,list(self._view_param_widgets.keys()))
+        self.param.watch(self._view_param_updated, list(self._view_param_widgets.keys()))
+        self.param.watch(self._on_need_to_update_saf_change, '_need_to_update_saf')
+        self.param.watch(self._on_visibility_change,'_is_visible')
 
         self._normalizer=Normalizer(self.normalization_details if self.normalization_details else {})
         if 'norm_by' in self._built_in_view_settings:
@@ -176,44 +184,53 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             else:
                 pre_filter_params[k]=item.value if item.value != [] else ['None']
 
-        logger.debug(f"Pre-filter params: {pre_filter_params} for {(self._prefilter_measgroup or self.meas_groups[0])}, in {self.__class__}")
-        try:
+        logger.debug(f"Pre-filter params: {pre_filter_params} for {(self._prefilter_measgroup or self.meas_groups[0])}, in {self.__class__.name}")
+        with time_it("Getting factors"):
             all_factors=self.database.get_factors((self._prefilter_measgroup or self.meas_groups[0]),
                   list(self.filter_settings),pre_filters=pre_filter_params)
-        except Exception as e:
-            raise e
         # Get the factors of pre_filtered data
-        with hvparam.parameterized.batch_call_watchers(self):
-            for param in self.filter_settings:
-                logger.debug(f"Update factors for {param}")
-                try:
-                    factors=sorted([f for f in all_factors[param] if f==f])
-                except:
-                    raise Exception(f"Failed at sorting {param}: {all_factors[param]}")
-                if len(factors)!=len(all_factors[param]):
-                    logger.debug(f"Excluding {[f for f in factors if f!=f]} from factors for {param}")
-                getattr(self.param,param).objects=factors
-                #if not(len(factors)):
-                #    setattr(self,param,None)
-                logger.debug(f"Update factors for {param} from {getattr(self.param,param).objects} to {factors}")
-                acceptables=[v for v in (getattr(self,param) or []) if v in factors]
-                if acceptables==[] and len(factors):
-                    if self.filter_settings[param]==SelectionHint.FIRST:
-                        acceptables=[factors[0]]
-                    else:
-                        acceptables=[v for v in self.filter_settings[param] if v in factors]
-                if (getattr(self,param) or [])!=acceptables:
-                    setattr(self,param,acceptables)
-            setattr(self,'_filter_param_updated_count',True)
+        from panel.io import hold
+        with hold():
+            with hvparam.parameterized.batch_call_watchers(self):
+                with time_it(f"Updating factors"):
+                    for param in self.filter_settings:
+                        try:
+                            factors=sorted([f for f in all_factors[param] if f==f])
+                        except:
+                            raise Exception(f"Failed at sorting {param}: {all_factors[param]}")
+                        if len(factors)!=len(all_factors[param]):
+                            logger.debug(f"Excluding {[f for f in factors if f!=f]} from factors for {param}")
+                        getattr(self.param,param).objects=factors
+                        #if not(len(factors)):
+                        #    setattr(self,param,None)
+                        #logger.debug(f"Update factors for {param} from {getattr(self.param,param).objects} to {factors}")
+                        acceptables=[v for v in (getattr(self,param) or []) if v in factors]
+                        if acceptables==[] and len(factors):
+                            if self.filter_settings[param]==SelectionHint.FIRST:
+                                acceptables=[factors[0]]
+                            else:
+                                acceptables=[v for v in self.filter_settings[param] if v in factors]
+                        if (getattr(self,param) or [])!=acceptables:
+                            setattr(self,param,acceptables)
+                    setattr(self,'_filter_param_updated_count',True)
 
     def _filter_param_updated(self,event):
         if not self._filter_param_updated_count: return
         self._filter_param_updated_count=False
-        logger.info(f"Filter param updated {event.type} {event.new}")
+        logger.info(f"Filter param updated {event.type} {event.new} for {self.__class__.name}")
         #if event.type!="triggered":
         #    return
-        self._update_data()
-        self.update_sources_and_figures(event)
+        self._need_to_update_data=True
+        self._need_to_update_saf=True
+
+    def _view_param_updated(self,event):
+        self._need_to_update_saf=True
+
+    def _update_sources(self):
+        with time_it("Update sources"+(' (including data update)' if self._need_to_update_data else '')):
+            if self._need_to_update_data:
+                self._update_data()
+            self.update_sources(self._pre_sources)
 
     def update_sources(self,pre_sources):
         dicts=self.make_sources_dict(pre_sources)
@@ -222,18 +239,23 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         for k in dicts:
             self._sources[k].data=dicts[k]
 
+
     def make_sources_dict(self,pre_sources):
         raise NotImplementedError
 
     def _update_data(self):
-        logger.info(f"Update data for {type(self).__name__}")
-        factors={param:getattr(self,param) for param in self.filter_settings}
-        factors={k:v for k,v in factors.items() if ((v is not None) and len(v))}
-        factors.update({param:w.value for param,w in self._pre_filters.items()})
-        factors={k:v for k,v in factors.items() if v is not None}
-        #self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by='None'))
-        self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by=self.color_by))
-        self._dtypes=[d.dtypes.to_dict() for d in self._pre_sources]
+        with time_it(f"Update data for {type(self).__name__}"):
+            factors={param:getattr(self,param) for param in self.filter_settings}
+            factors={k:v for k,v in factors.items() if ((v is not None) and len(v))}
+            factors.update({param:w.value for param,w in self._pre_filters.items()})
+            factors={k:v for k,v in factors.items() if v is not None}
+            #self._pre_sources=self.preprocess_data(self.fetch_data(factors=factors,sort_by='None'))
+            with time_it("Fetch data"):
+                fetched=self.fetch_data(factors=factors,sort_by=self.color_by)
+            with time_it("Preprocess data"):
+                self._pre_sources=self.preprocess_data(fetched)
+            self._dtypes=[d.dtypes.to_dict() for d in self._pre_sources]
+            self._need_to_update_data=False
 
     def get_raw_column_names(self):
         raise NotImplementedError
@@ -268,7 +290,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         return data
 
     def preprocess_data(self,predata):
-        logger.debug(f"Default preprocess {self.__class__}")
+        #logger.debug(f"Default preprocess {self.__class__}")
         data=[]
         rcs=self.get_raw_column_names()
         for pred,rc in zip(predata,rcs):
@@ -289,10 +311,32 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def polish_figures(self):
         pass
 
-    def update_sources_and_figures(self,event):
-        logger.debug(f"Updating sources and figures for {self.__class__.name} because: {event.name}")
-        self.update_sources(self._pre_sources)
-        self.polish_figures()
+    def visibility_changed(self,is_visible_now):
+        self._is_visible=is_visible_now
+
+    def _on_visibility_change(self,event):
+        visible=event.new
+        if self.only_update_when_visible:
+            if visible:
+                if self._need_to_update_saf:
+                    logger.debug(f"Made {self.__class__.name} visible and update needed")
+                    self._update_sources_and_figures(event)
+                else: logger.debug(f"Made {self.__class__.name} visible but no update needed")
+            else: logger.debug(f"Made {self.__class__.name} invisible")
+    def _on_need_to_update_saf_change(self,event):
+        need_to=event.new
+        if need_to:
+            if (not self.only_update_when_visible) or self._is_visible:
+                logger.debug(f"Update needed for {self.__class__.name}, proceeding")
+                self._update_sources_and_figures(event)
+            else: logger.debug(f"Update needed for {self.__class__.name} but not visible")
+
+    def _update_sources_and_figures(self, event):
+        logger.debug(f"Updating sources and figures for {self.__class__.name} because: {event.name}.")
+        with hold():
+            self._update_sources()
+            self.polish_figures()
+            self._need_to_update_saf=False
 
     def download_shown(self):
         logger.debug(f"Downloading for {self.__class__.name}")
@@ -376,6 +420,7 @@ class ScalarFilterPlotter(FilterPlotter):
         return [False for m in self._meas_group_to_plot_vars]
 
     def update_sources(self,pre_sources):
+        logger.debug(f"In ScalarFilterPlotter.update_sources, with pre_sources {pre_sources is not None}")
         if len(self.get_meas_groups())!=1:
             # Haven't implemented merging multiple tables yet
             # Could still make use of current class if every plot pair is within a table, but haven't implemented that yet
@@ -451,9 +496,9 @@ class ScalarFilterPlotter(FilterPlotter):
                 use_px=str(px)
                 xrange_arg={}
             self._figs.append((fig := figure(**fig_kwargs,**xrange_arg)))
-            fig.circle(x=use_px,y=py,source=self._sources['data'],legend_field='legend',color='color')
+            fig.scatter(x=use_px,y=py,source=self._sources['data'],legend_field='legend',color='color')
             if px in self.stars and py in self.stars:
-                fig.star(x=px,y=py,source=self._sources['stars'],size=15,fill_color='gold',line_color='black')
+                fig.scatter(x=px,y=py,source=self._sources['stars'],size=15,fill_color='gold',line_color='black',marker='star')
         for fig in self._figs: smaller_legend(fig)
         if self.fig_arrangement=='row':
             return bokeh.layouts.gridplot([self._figs],toolbar_location='right')

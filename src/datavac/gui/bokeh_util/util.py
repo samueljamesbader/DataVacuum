@@ -9,6 +9,7 @@ from datavac.gui.bokeh_util.palettes import get_sam_palette
 
 @contextmanager
 def hold_bokeh():
+    raise Exception("Superseded by panel hold")
     curdoc().hold()
     try:
         yield
