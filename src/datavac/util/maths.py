@@ -29,7 +29,6 @@ def multiy_singlex_linregress(x,ys):
 
     return res[0,:],res[1,:],np.sqrt(r2)
 
-
 def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
     """ Finds the voltage where `I` crosses icc by log-linear interpolation.
 
@@ -51,38 +50,15 @@ def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
     """
     logI=np.log(np.abs(I)+itol)
     logicc=np.log(icc)
-
-    ind_aboves=np.argmax(logI>=logicc, axis=1)
-    ind_belows=logI.shape[1]-np.argmax(logI[:,::-1]<logicc, axis=1)-1
-    valid_crossing=(ind_aboves==(ind_belows+1))
-
-    allinds=np.arange(len(I))
-    lI1,lI2=logI[allinds,ind_belows],logI[allinds,ind_aboves]
-    V1,V2=V[allinds,ind_belows],V[allinds,ind_aboves]
-
-    slope=(lI2-lI1)/(V2-V1)
-    Vavg=(V1+V2)/2
-    lIavg=(lI1+lI2)/2
-
-    VTcc=np.empty_like(Vavg)
-    VTcc[valid_crossing]=Vavg[valid_crossing]+(logicc-lIavg[valid_crossing])/slope[valid_crossing]
-    VTcc[~valid_crossing]=np.NaN
-
-    return VTcc
-
-# TODO: Test this out and then use it to replace the above
-#def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
-#    logI=np.log(np.abs(I)+itol)
-#    logicc=np.log(icc)
-#    return YatX(X=logI, Y=V, x=logicc)
+    return YatX(X=logI, Y=V, x=logicc)
 
 def YatX(X: np.ndarray, Y: np.ndarray, x: float):
-    """ Finds the `Y` where `X` crosses x by linear interpolation.
+    """ Finds the `Y` where `X` crosses x (from below x to above x) by linear interpolation.
 
     This function is vectorized, so `X` and `Y` are 2-D arrays of multiple sweeps.
 
-    X does not have to be evenly spaced or monotonic, but, for any sweep, if it doesn't cross the point exactly once,
-    the resulting output for that sweep will be NaN.
+    X does not have to be evenly spaced or monotonic, but, for any sweep, if it doesn't cross the point
+    exactly once and in the correct direction, the resulting output for that sweep will be NaN.
 
     Args:
         X: an n x m numpy array of X's (n sweeps, m points)
@@ -98,15 +74,15 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float):
     valid_crossing=(ind_aboves==(ind_belows+1))
 
     allinds=np.arange(len(X))
-    X1,X2=X[allinds,ind_belows],X[allinds,ind_aboves]
-    Y1,Y2=Y[allinds,ind_belows],Y[allinds,ind_aboves]
+    X1,X2=X[allinds,ind_belows][valid_crossing],X[allinds,ind_aboves][valid_crossing]
+    Y1,Y2=Y[allinds,ind_belows][valid_crossing],Y[allinds,ind_aboves][valid_crossing]
 
     slope=(Y2-Y1)/(X2-X1)
     Yavg=(Y1+Y2)/2
     Xavg=(X1+X2)/2
 
-    Ycc=np.empty_like(Yavg)
-    Ycc[valid_crossing]=Yavg[valid_crossing]+(x-Xavg[valid_crossing])*slope[valid_crossing]
+    Ycc=np.empty(len(X))
+    Ycc[valid_crossing]=Yavg+(x-Xavg)*slope
     Ycc[~valid_crossing]=np.NaN
 
     return Ycc
