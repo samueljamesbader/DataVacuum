@@ -15,12 +15,13 @@ import sys
 import yaml
 from urllib3.exceptions import InsecureRequestWarning
 
-from datavac import logger
+from datavac.util.logging import logger
 from datavac.appserve.dvsecrets import get_ssl_rootcert_for_db, get_db_connection_info
 from datavac.util.conf import CONFIG
+from datavac.util.paths import USER_CACHE
 from datavac.util.util import get_resource_path, only, import_modfunc
 
-jmp_folder=Path(os.environ['DATAVACUUM_CACHE_DIR'])/"JMP"
+jmp_folder=USER_CACHE/"JMP"
 jmp_folder.mkdir(exist_ok=True)
 
 def copy_in_file(filename,addin_folder,addin_id):
@@ -58,7 +59,7 @@ def cli_compile_jmp_addin(*args):
                 jmp_conf=yaml.safe_load(f)
         else: jmp_conf={}
 
-        addin_folder=jmp_folder/envname
+        addin_folder=jmp_folder
         if addin_folder.exists():
             shutil.rmtree(addin_folder)
         addin_folder.mkdir(exist_ok=False)
@@ -74,8 +75,7 @@ def cli_compile_jmp_addin(*args):
         with open(addin_folder/"env_vars.jsl",'w') as f:
             print(sys.path)
             potential_dlls=sum((list(Path(p).glob("Python31*.dll")) for p in sys.path),[])
-            # TODO: Remove SSLROOTCERT info here, rely on rootcertfile existing or not
-            built_in_capture_vars={#'DATAVACUUM_SSLROOTCERT':(str(get_ssl_rootcert_for_db()) or ''),
+            built_in_capture_vars={'DATAVACUUM_DEPLOYMENT_URI':env_values.get("DATAVACUUM_DEPLOYMENT_URI",""),
                                    'PYTHON_SYS_PATHS': ";".join(sys.path),
                                    'PYTHON_DLL':str(potential_dlls[0]),
                                    'DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),
