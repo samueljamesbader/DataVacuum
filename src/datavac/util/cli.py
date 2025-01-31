@@ -36,6 +36,7 @@ datavac_cli_funcs={
     'dump_extraction': 'datavac.io.database:cli_dump_extraction',
     'dump_measurement': 'datavac.io.database:cli_dump_measurement',
     'dump_analysis': 'datavac.io.database:cli_dump_analysis',
+    'dump_material': 'datavac.io.database:cli_dump_material',
     'print_database': 'datavac.io.database:cli_print_database',
     'clear_reextract_list': 'datavac.io.database:cli_clear_reextract_list',
     'clear_reanalyze_list': 'datavac.io.database:cli_clear_reanalyze_list',
@@ -47,5 +48,6 @@ datavac_cli_funcs={
     'base64encode':  'datavac.util.util:cli_base64encode',
     'generate_secret':  'datavac.util.util:cli_b64rand',
     'context':'->datavac.util.conf:cli_context',
+    'test_db_connect':'datavac.io.database:cli_test_db_connection_speed',
 }
 datavac_cli_main=cli_helper(cli_funcs=datavac_cli_funcs)

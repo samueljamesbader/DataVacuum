@@ -176,8 +176,8 @@ class _LayoutParameters:
             return match
 
         else:
-            if "#" in partial_rowname:
-                partial_rowname=partial_rowname.replace('#','2' if mask in ['S31Cd2'] else '1')
+            for s in (reps:=self._yaml.get('common_replacements',{}).get(mask,{})):
+                partial_rowname=partial_rowname.replace(s,reps[s])
             matches=[row for row in self._rows_by_mask[mask] if partial_rowname==row or
                      '_' in row and partial_rowname==row.split('_')[1]]
             if len(matches)==0:

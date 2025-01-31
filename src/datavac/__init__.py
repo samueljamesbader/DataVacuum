@@ -3,7 +3,7 @@ import sys
 from dotenv import load_dotenv as _load_dotenv
 
 from datavac.util.conf import config_datavacuum
-from datavac.util.logging import logger
+import datavac.util.logging
 
 __version__='0.0.2'
 

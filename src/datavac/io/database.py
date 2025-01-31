@@ -3,6 +3,7 @@ import functools
 import os
 import pickle
 import sys
+import traceback
 from contextlib import contextmanager
 from datetime import datetime
 import time
@@ -11,6 +12,7 @@ from typing import Union, Callable, Optional
 
 import requests
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import SQLAlchemyError
 
 from datavac.appserve.dvsecrets import get_db_connection_info
 from datavac.io.layout_params import get_layout_params
@@ -125,7 +127,7 @@ class AlchemyDatabase:
         )
         self.engine=create_engine(url, connect_args=connection_info['sslargs'], pool_recycle=60)
 
-    def establish_blob_store(self,conn,on_mismatch='raise',just_metadata=False): raise NotImplementedError
+    def establish_schema_and_blob_store(self, conn, on_mismatch='raise', just_metadata=False): raise NotImplementedError
     def get_obj(self,name): raise NotImplementedError
     def store_obj(self,name,obj,conn=None): raise NotImplementedError
 
@@ -135,24 +137,28 @@ class AlchemyDatabase:
             with time_it("Reflecting",threshold_time=.1):
                 with self.engine_connect() as conn:
                     self._metadata.reflect(conn)
-        self.establish_blob_store(conn=None,just_metadata=(not reflect))
-        if reflect:
             self._populated_metadata=True
+        else:
+            self.establish_schema_and_blob_store(conn=None, just_metadata=True)
 
-    def clear_database(self, only_tables=None, conn=None):
+    def clear_database(self, only_tables=None, schema_also=False, conn=None):
         removed_tables=[]
         with (returner_context(conn) if conn else self.engine_begin()) as conn:
-            # MetaData has a drop_all, but I had issues with references and needed to explicitly DROP ... CASCADE
-            # So implementing here
-            for table in list(self._metadata.tables.values()):
-                if only_tables and table not in only_tables: continue
-                conn.execute(text(f'DROP TABLE {table.schema}."{table.name}" CASCADE;'))
-                removed_tables.append(table)
-                self._metadata.remove(table)
-        if only_tables:
-            assert list(sorted([(t.schema,t.name) for t in removed_tables]))==\
-                   list(sorted([(t.schema,t.name) for t in only_tables])),\
-                f"Trouble removing {[t.name for t in only_tables]}"
+            if schema_also:
+                for schema in CONFIG['database']['schema_names'].values():
+                    conn.execute(text(f'DROP SCHEMA IF EXISTS {schema} CASCADE;'))
+            else:
+                # MetaData has a drop_all, but I had issues with references and needed to explicitly DROP ... CASCADE
+                # So implementing here
+                for table in list(self._metadata.tables.values()):
+                    if only_tables and table not in only_tables: continue
+                    conn.execute(text(f'DROP TABLE {table.schema}."{table.name}" CASCADE;'))
+                    removed_tables.append(table)
+                    self._metadata.remove(table)
+                if only_tables:
+                    assert list(sorted([(t.schema,t.name) for t in removed_tables]))==\
+                           list(sorted([(t.schema,t.name) for t in only_tables])),\
+                        f"Trouble removing {[t.name for t in only_tables]}"
 
     @property
     def int_schema(self):
@@ -271,17 +277,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
         with (self.engine_connect() if not just_metadata else FakeConnect()) as conn:
             with time_it("Ensuring schema and blob store",threshold_time=.1):
-                if not just_metadata:
-                    make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema}; "\
-                                           f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO PUBLIC; "\
-                                           f"GRANT USAGE ON SCHEMA {schema} TO PUBLIC; "\
-                                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO PUBLIC; "
-                                           for schema in CONFIG['database']['schema_names'].values()])
-                    #conn.execute(text(make_schemas))
-                    conn.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
-                    #conn.execute(text(f"ALTER DATABASE {get_db_connection_info()['Database']} SET search_path TO {self.int_schema};"))
-
-                self.establish_blob_store(conn,on_mismatch=on_mismatch, just_metadata=just_metadata)
+                self.establish_schema_and_blob_store(conn, on_mismatch=on_mismatch, just_metadata=just_metadata)
                 conn.commit()
 
             layout_params=get_layout_params(conn=(conn if not just_metadata else None))
@@ -336,9 +332,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
             # TODO: when moving layout params into main config, this loop should go over CONFIG['measurement_groups']
             with time_it("Ensuring layout params tables",threshold_time=.1):
-                for mg in layout_params._tables_by_meas:
-                    if mg not in CONFIG['measurement_groups']: continue
-                    self.establish_layout_parameters(layout_params,mg,conn,on_mismatch=on_mismatch,just_metadata=just_metadata)
+                for mgoa in layout_params._tables_by_meas:
+                    if (mgoa not in CONFIG['measurement_groups']) and (mgoa not in CONFIG['higher_analyses']):
+                        # TODO: reinstate this warning
+                        #logger.warning(f"Ignoring request to make layout table {mgoa} because it's not connected to a meas group or analysis")
+                        continue
+                    self.establish_layout_parameters(layout_params,mgoa,conn,on_mismatch=on_mismatch,just_metadata=just_metadata)
                     if not just_metadata: conn.commit()
             with time_it("Ensuring measurement group tables",threshold_time=.1):
                 for mg in CONFIG['measurement_groups']:
@@ -381,7 +380,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                  " constraint_name='fk_dieid';"))
         constrained_tabs=[x[0] for x in res]
         unconstrained_tabs=[]
-        for mg in list(CONFIG['measurement_groups']):
+        for mg,mginfo in CONFIG['measurement_groups'].items():
             if (tab:=self._mgt(mg,'Meas')) is not None:
                 if tab.name not in constrained_tabs:
                     unconstrained_tabs.append(tab.name)
@@ -391,20 +390,22 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     unconstrained_tabs.append(tab.name)
         if add_or_remove=='add':
             for tab in unconstrained_tabs:
-                conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
-                                  f' ADD CONSTRAINT "fk_dieid" FOREIGN KEY ("dieid")' \
-                                  f' REFERENCES {self.int_schema}."Dies" ("dieid") ON DELETE CASCADE;'))
+                if 'dieid' in [c.name for c in self._metadata.tables[self.int_schema+'.'+tab].columns]:
+                    conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
+                                      f' ADD CONSTRAINT "fk_dieid" FOREIGN KEY ("dieid")' \
+                                      f' REFERENCES {self.int_schema}."Dies" ("dieid") ON DELETE CASCADE;'))
         elif add_or_remove=='remove':
             for tab in constrained_tabs:
-                conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
-                                  f' DROP CONSTRAINT "fk_dieid";'))
+                if 'dieid' in [c.name for c in self._metadata.tables[self.int_schema+'.'+tab].columns]:
+                    conn.execute(text(f'ALTER TABLE {self.int_schema}."{tab}"' \
+                                      f' DROP CONSTRAINT "fk_dieid";'))
         else: raise ValueError(f"What is '{add_or_remove}'? Was expecting 'add' or 'remove'.")
 
     def update_mask_info(self,conn):
         #previous_masktab=pd.read_sql(select(*self._masktab.columns),conn)
         #######Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
         diemdf=[]
-        for mask,info in CONFIG['diemaps'].items():
+        for mask,info in CONFIG['array_maps'].items():
             dbdf,to_pickle=import_modfunc(info['generator'])(**info['args'])
             diemdf.append(dbdf.assign(Mask=mask)[['Mask','DieXY','DieRadius [mm]','DieCenterA [mm]','DieCenterB [mm]','DieX','DieY']])
             update_info=dict(Mask=mask,info_pickle=pickle.dumps(to_pickle))
@@ -717,43 +718,44 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def _ensure_table_exists(self, conn, schema, table_name, *args,
                              on_mismatch:Union[str,Callable]='raise',
                              on_init: Callable= (lambda : None), just_metadata=False):
-        should_be_columns=[x for x in args if isinstance(x,Column)]
-        if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is not None:
-            try:
-                assert [c.name for c in tab.columns]==[c.name for c in should_be_columns]
-                assert [c.type.__class__ for c in tab.columns]==[c.type.__class__ for c in should_be_columns]
-            except AssertionError:
-                logger.warning(f"Column mismatch in {tab.name} (note, only name and type class are checked)")
-                logger.warning(f"Currently in DB: {[(c.name,c.type.__class__.__name__) for c in tab.columns]}")
-                logger.warning(f"Should be in DB: {[(c.name,c.type.__class__.__name__) for c in should_be_columns]}")
+        with (returner_context(conn) if (just_metadata or conn) else self.engine_connect()) as conn:
+            should_be_columns=[x for x in args if isinstance(x,Column)]
+            if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is not None:
+                try:
+                    assert [c.name for c in tab.columns]==[c.name for c in should_be_columns]
+                    assert [c.type.__class__ for c in tab.columns]==[c.type.__class__ for c in should_be_columns]
+                except AssertionError:
+                    logger.warning(f"Column mismatch in {tab.name} (note, only name and type class are checked)")
+                    logger.warning(f"Currently in DB: {[(c.name,c.type.__class__.__name__) for c in tab.columns]}")
+                    logger.warning(f"Should be in DB: {[(c.name,c.type.__class__.__name__) for c in should_be_columns]}")
+                    if on_mismatch=='warn':
+                        pass
+                    elif on_mismatch=='raise':
+                        raise
+                    elif on_mismatch=='replace':
+                        logger.warning(f"Replacing {tab.name}")
+                        self.clear_database(only_tables=[tab],conn=conn)
+                    elif callable(on_mismatch):
+                        on_mismatch(conn,schema,table_name,*args)
+                    else:
+                        raise Exception(f"Can't interpret on_mismatch={on_mismatch}")
+            if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is None:
                 if on_mismatch=='warn':
-                    pass
-                elif on_mismatch=='raise':
-                    raise
-                elif on_mismatch=='replace':
-                    logger.warning(f"Replacing {tab.name}")
-                    self.clear_database(only_tables=[tab],conn=conn)
-                elif callable(on_mismatch):
-                    on_mismatch(conn,schema,table_name,*args)
+                    logger.warning(f"Need to create {table_name}")
                 else:
-                    raise Exception(f"Can't interpret on_mismatch={on_mismatch}")
-        if (tab:=self._metadata.tables.get(f'{schema}.{table_name}',None)) is None:
-            if on_mismatch=='warn':
-                logger.warning(f"Need to create {table_name}")
-            else:
-                tab=Table(table_name,self._metadata,*args)
-                if not just_metadata:
-                    tab.create(conn)
-                    on_init()
-        return tab
+                    tab=Table(table_name,self._metadata,*args)
+                    if not just_metadata:
+                        tab.create(conn)
+                        on_init()
+            return tab
 
-    def drop_material(self, material_info, conn, only_meas_group=None):
+    def dump_material(self, material_info, conn, only_meas_group=None):
         """Does not commit, so transaction will continue to have lock on Materials table."""
         fullmatname_col=CONFIG['database']['materials']['full_name']
         if only_meas_group is None:
-            statement=delete(self._mattab)\
-                             .where(self._mattab.c[fullmatname_col]==material_info[fullmatname_col])\
-                             .returning(self._mattab.c.date_user_changed)
+            #statement=delete(self._mattab)\
+            #                 .where(self._mattab.c[fullmatname_col]==material_info[fullmatname_col])\
+            #                 .returning(self._mattab.c.date_user_changed)
             #print(conn.execute(text("EXPLAIN (ANALYZE,BUFFERS) "+str(statement.compile(compile_kwargs={'literal_binds':True})))).all())
             res=conn.execute(delete(self._mattab)\
                              .where(self._mattab.c[fullmatname_col]==material_info[fullmatname_col])\
@@ -810,7 +812,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             if clear_all_from_material:
                 assert not re_extraction, "Doesn't make sense to clear material when re-extracting"
                 with time_it("Dropping all from material"):
-                    date_user_changed=self.drop_material(material_info, conn)
+                    date_user_changed=self.dump_material(material_info, conn)
 
             # Now ensure this material is in the database
             matid=self.enter_material(conn,**material_info, user_called=user_called,
@@ -835,9 +837,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
                 if not re_extraction:
                     # Drop any previous loads from the Loads table
-                    # (if clear_material, this is already handled by drop_material above)
+                    # (if clear_material, this is already handled by dump_material above)
                     if not clear_all_from_material:
-                        self.drop_material(material_info, conn, only_meas_group=meas_group)
+                        self.dump_material(material_info, conn, only_meas_group=meas_group)
 
                     # Put an entry into the Loads table and get the loadid
                     loadid=conn.execute(pgsql_insert(self._loadtab)\
@@ -1223,11 +1225,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
         # Assess inputs
         if (mgoa:=meas_group_or_analysis) in CONFIG['measurement_groups']: which='measurement_groups'
-        elif mgoa in CONFIG['higher_analyses']: which='higher_analysis'
+        elif mgoa in CONFIG['higher_analyses']: which='higher_analyses'
         else: raise Exception(f"Couldn't identify '{meas_group_or_analysis}' as a meas_group or analysis")
 
         condie=CONFIG[which][mgoa].get('connect_to_die_table',True)
-        conlay=CONFIG[which][mgoa].get('connect_to_layout_table',(False if which=='higher_analysis' else True))
+        conlay=CONFIG[which][mgoa].get('connect_to_layout_table',(False if which=='higher_analyses' else True))
 
         # Tables we may need
         table_depends={}
@@ -1235,7 +1237,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             table_depends[coretab:=(meastab:=self._mgt(mgoa,'meas'))]=[]
             table_depends[extrtab:=self._mgt(mgoa,'extr')]=[meastab]
             #sweptab=self._mgt(mgoa,'sweep'); table_depends
-        if which == 'higher_analysis':
+        if which == 'higher_analyses':
             table_depends[coretab:=(anlstab:=self._hat(mgoa))]=[]
         table_depends[self._loadtab]=[]
         table_depends[self._mattab]=[self._loadtab]
@@ -1272,7 +1274,23 @@ class PostgreSQLDatabase(AlchemyDatabase):
         else: return {f:list(records.loc[records[f'ind___{f}'].notna(),f]) for f in factor_names}
 
 
-    def establish_blob_store(self,conn,on_mismatch='raise',just_metadata=False):
+    def establish_schema_and_blob_store(self, conn=None, on_mismatch='raise', just_metadata=False):
+        if not just_metadata:
+            with (returner_context(conn) if conn else self.engine_connect()) as conn1:
+                make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema}; " \
+                                       f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO PUBLIC; " \
+                                       f"GRANT USAGE ON SCHEMA {schema} TO PUBLIC; " \
+                                       f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO PUBLIC; "
+                                       for schema in CONFIG['database']['schema_names'].values()])
+                #conn1.execute(text(make_schemas))
+                conn1.execute(text(make_schemas+f"SET SEARCH_PATH={self.int_schema};"))
+                #conn1.execute(text(f"ALTER DATABASE {get_db_connection_info()['Database']} SET search_path TO {self.int_schema};"))
+                ## If we just made the schema for the first time, we need to re-reflect
+                #if self.int_schema not in self._metadata._schemas:
+                #    conn1.commit()
+                #    self._metadata.reflect(conn1)
+
+
         self._ensure_table_exists(conn,self.int_schema,'Blob Store',
                                   Column('name',VARCHAR,primary_key=True),
                                   Column('blob',BYTEA,nullable=False),
@@ -1317,6 +1335,7 @@ def cli_clear_database(*args):
     parser=argparse.ArgumentParser(description='Clears out the database [after confirming].')
     parser.add_argument('-y','--yes',action='store_true',help="Don't ask confirmation, just clear it.")
     parser.add_argument('-t','--table',action='append',help="Clear specific table(s), eg -t TAB1 -t TAB2")
+    parser.add_argument('-s','--schema_also',action='store_true',help="Drop schemas as well")
     parser.add_argument('--keep_rex',action='store_true',help="Keep the materials and re-ex tables (ie leave enough info to heal)")
     namespace=parser.parse_args(args)
 
@@ -1332,11 +1351,14 @@ def cli_clear_database(*args):
     if namespace.keep_rex:
         only_tables=[t for t in only_tables
                      if t.name not in ["Materials",f"ReExtract"]]
-    logger.info(f"Tables that will get cleared: {sorted([t.name for t in only_tables])}")
+    if namespace.schema_also:
+        logger.info(f"Will drop all DataVacuum schemas.")
+    else:
+        logger.info(f"Tables that will get cleared: {sorted([t.name for t in only_tables])}")
     if namespace.yes \
             or (input('Are you sure you want to clear the database? ').strip().lower()=='y'):
         logger.warning("Clearing database")
-        db.clear_database(only_tables=only_tables)
+        db.clear_database(only_tables=only_tables,schema_also=namespace.schema_also)
         logger.warning("Done clearing database")
 
 #def cli_update_diemaps(*args):
@@ -1412,6 +1434,8 @@ def cli_upload_data(*args):
                         help=f"Keep measurement data related measurement groups that are not present in this upload.  "
                              f"(Default is to drop all data related to a given material when uploading afresh).")
     parser.add_argument('-y','--yes',action='store_true',help='Don\'t ask for confirmation, just do it.')
+    parser.add_argument('-i','--isolate_errors',action='store_true',
+                        help='Split by top-level folder if one folder has an error, others will continue.')
 
     namespace=parser.parse_args(args)
 
@@ -1421,10 +1445,12 @@ def cli_upload_data(*args):
 
     db=get_database()
     read_and_upload_data(db, folders, only_material=only_material, only_meas_groups=namespace.group,
-        clear_all_from_material=(not namespace.keep_other_groups),user_called=True, yes=namespace.yes)
+        clear_all_from_material=(not namespace.keep_other_groups),user_called=True,
+                         yes=namespace.yes, isolate_errors=namespace.isolate_errors)
 
 def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
-                         clear_all_from_material=True, user_called=True, cached_glob=None, yes=False):
+                         clear_all_from_material=True, user_called=True, cached_glob=None,
+                         yes=False, isolate_errors=False):
     from datavac.io.meta_reader import read_and_analyze_folders
 
     if folders is None:
@@ -1432,17 +1458,45 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
             folders=only_material[connected]
         else:
             if not yes:
-                if not (input('No folder or lot restriction, continue to read EVERYTHING? [y/n] ').strip().lower()=='y'):
+                if not (input(f'No folder or {connected} restriction, continue to read EVERYTHING? [y/n] ').strip().lower()=='y'):
                     return
-            folders=list(Path(os.environ['DATAVACUUM_READ_DIR']).glob('*'))
+            folders=[f.name for f in Path(os.environ['DATAVACUUM_READ_DIR']).glob('*') if 'IGNORE' not in f.name]
 
-    logger.info(f"Will read folder(s) {' and '.join(folders)}")
-    matname_to_data,matname_to_inf=read_and_analyze_folders(folders,
-                only_matload_info=only_material, only_meas_groups=only_meas_groups,cached_glob=cached_glob)
-    for matname in matname_to_data:
-        logger.info(f"Uploading {matname}")
-        db.push_data(matname_to_inf[matname],matname_to_data[matname],
-                     clear_all_from_material=clear_all_from_material, user_called=user_called)
+    if isolate_errors:
+        timings={}
+        failures={}
+        all_start_time=time.time()
+        for folder in folders:
+            start_time=time.time()
+            try:
+                read_and_upload_data(db,[folder],only_material=only_material,only_meas_groups=only_meas_groups,
+                                     clear_all_from_material=clear_all_from_material,user_called=user_called,
+                                     cached_glob=cached_glob,yes=yes,isolate_errors=False)
+            except Exception as e:
+                logger.critical(f"Failed on {folder}")
+                logger.critical(traceback.format_exc())
+                failures[folder]=str(e)
+            end_time=time.time()
+            timings[folder]=end_time-start_time
+        all_end_time=time.time()
+        print("##############################################")
+        print(f"Complete in {(all_end_time-all_start_time)/60/60:.2f} hours")
+        print("##### Timings")
+        for f,t in timings.items():
+            print(f"{f}: {t:.1f} seconds")
+        print("##### Failures")
+        for f,fail in failures.items():
+            print(f"{f}: {fail}")
+        with open("upload_all.pkl",'wb') as f:
+            pickle.dump({'timings':timings,'failures':failures},f)
+    else:
+        logger.info(f"Will read folder(s) {' and '.join((str(f) for f in folders))}")
+        matname_to_data,matname_to_inf=read_and_analyze_folders(folders,
+                    only_matload_info=only_material, only_meas_groups=only_meas_groups,cached_glob=cached_glob)
+        for matname in matname_to_data:
+            logger.info(f"Uploading {matname}")
+            db.push_data(matname_to_inf[matname],matname_to_data[matname],
+                         clear_all_from_material=clear_all_from_material, user_called=user_called)
 def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
     """ Goes in order of most recent material first, and within that, reloads first than re-extractions."""
     from datavac.io.meta_reader import perform_extraction, get_cached_glob
@@ -1596,7 +1650,7 @@ def cli_update_mask_info(*args):
         conn.commit()
 def cli_upload_all_data(*args):
     parser=argparse.ArgumentParser(description='Reads EVERYTHING, folder by folder, and outputs timing and successes')
-    folders=[f.stem for f in Path(os.environ['DATAVACUUM_READ_DIR']).glob('*')]
+    folders=sorted([f.stem for f in Path(os.environ['DATAVACUUM_READ_DIR']).glob('*')])
     timings={}
     failures={}
     all_start_time=time.time()
@@ -1664,10 +1718,18 @@ def pickle_db_cached(namer: Union[Callable,str], namespace:Optional[str]=None, c
             if not force:
                 with time_it(f"Get DB cache time for {name}",threshold_time=.005):
                     try: db_cached_time:float= get_blob_store().get_obj_date(blob_name,conn=conn).timestamp()
-                    except: db_cached_time:float= -np.inf
+                    # If it's an SQLAlchemyError, the transaction might be aborted so have to raise this
+                    # Silently aborted transations could cause some downstream use of this connection to fail
+                    except SQLAlchemyError as e: raise e
+                    # Otherwise, we'll just try to fix it
+                    except Exception as e:
+                        logger.debug("Couldn't get DB cache time: "+str(e));
+                        db_cached_time:float= -np.inf
                 with time_it(f"Get local cache time for {name}",threshold_time=.005):
                     try: lc_cached_time=cfile.stat().st_mtime
-                    except: lc_cached_time:float= -np.inf
+                    except Exception as e:
+                        logger.debug("Couldn't get local cache time: "+str(e));
+                        lc_cached_time:float= -np.inf
                 if (not np.isfinite(db_cached_time)) and (not np.isfinite(lc_cached_time)):
                     logger.debug(f"Couldn't get local or DB cache time for {name}")
                     force=True
@@ -1698,3 +1760,48 @@ def pickle_db_cached(namer: Union[Callable,str], namespace:Optional[str]=None, c
             return res,datetime.now().timestamp()
         return wrapped
     return wrapper
+
+
+def cli_test_db_connection_speed(*args):
+    parser=argparse.ArgumentParser(description='Tests the speed of the database connection')
+    parser.add_argument('-n','--num',type=int,default=1000,help='Number of times to test')
+    namespace=parser.parse_args(args)
+    db=get_database()
+    times=[]
+    with db.engine_connect() as conn:
+        with time_it(f"Testing DB connection speed {namespace.num} times",threshold_time=.1):
+            for i in range(namespace.num):
+                start_time=time.time()
+                conn.execute(select(1))
+                end_time=time.time()
+                times.append(end_time-start_time)
+    print(f"Mean time: {np.mean(times)}")
+    print(f"Med  time: {np.median(times)}")
+    print(f"Max  time: {np.max(times)}")
+    print(f"Min  time: {np.min(times)}")
+    print(f"Std  time: {np.std(times)}")
+    print("Done")
+
+def cli_dump_material(*args):
+    parser=argparse.ArgumentParser(description='Dumps a material from the database')
+    parser.add_argument("-g","--group",action='append',help="Restrict to specified measurement group(s): " \
+                                                              "eg -g GROUP1 -g GROUP2")
+    # For the moment, only full matname allowed... and required
+    ALL_MATERIAL_COLUMNS=[CONFIG['database']['materials']['full_name']]
+
+    for col in ALL_MATERIAL_COLUMNS:
+        parser.add_argument(f'--{col.lower()}',action='store',
+                            help=f"Restrict to specified {col}(s): " \
+                                 f"eg --{col.lower()} {col.upper()}1 --{col.lower()} {col.upper()}2")
+
+
+    namespace=parser.parse_args(args)
+    assert getattr(namespace,CONFIG['database']['materials']['full_name'].lower()) is not None, "For now, need to supply FULL MATERIAL IDENTIFIER"
+    only_material={col: getattr(namespace,col.lower()) for col in ALL_MATERIAL_COLUMNS}
+    only_material={k:v for k,v in only_material.items() if v is not None}
+
+    assert namespace.group is None or len(namespace.group)
+    db=get_database()
+    with db.engine_begin() as conn:
+        db.dump_material(only_material,conn,only_meas_group=namespace.group)
+

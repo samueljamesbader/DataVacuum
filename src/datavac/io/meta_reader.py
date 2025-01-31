@@ -72,111 +72,153 @@ def read_folder_nonrecursive(folder: str,
                     f"'Found {len(potential_finds)} options for {rname} "\
                         f"(filter '{rinfo['filter']}') in {str(folder.relative_to(READ_DIR))}'")
 
+    # Collations of data and material/load information
     matname_to_mg_to_data={}
     matname_to_matload_info={}
+
+    # For caching the regex-extraction from the filename
     cached_match=lru_cache(re.match)
+
+    # Set up the caching manager for files
     with import_modfunc(CONFIG['meta_reader']['caching_manager'])():
+
+        # Go through all files in the folder
         for f in cached_glob(folder,'*'):
+
+            # Ignore obviously not-needed files
             if f.name.startswith("~"): continue # Ignore temp files on windows
             if f.name.startswith("IGNORE"): continue # Ignore on request
             if only_file_names and f.name not in only_file_names: continue
+
+            # Go through the measurement groups, and the readers available for each
+            # And see if any of the readers can read this file
             found_mgs, not_found_mgs=[],[]
             for meas_group, mg_info in CONFIG['measurement_groups'].items():
                 if only_meas_groups and meas_group not in only_meas_groups: continue
                 for reader in mg_info['readers']:
-                    if True:
-                    #for pattern, reader_pointer in reader[''].items():
-                        pattern=reader.get('glob',reader['template']['glob'])
-                        reader_func_dotpath=reader['template']['function']
-                        #print(pattern, reader_func_dotpath, list(cached_glob(pattern))
-                        if f in cached_glob(folder,pattern):
-                            #logger.info(f"Looking for measurement group {meas_group} in {f.relative_to(folder)}")
-                            regex=reader.get('read_from_filename_regex',
-                                             CONFIG['meta_reader'].get('read_from_filename_regex',None))
-                            if (mo:=cached_match(regex,f.name)) is None:
-                                raise Exception(f"Couldn't parse {f.name} with regex {regex}")
-                            read_from_filename=mo.groupdict() if regex is not None else {}
-                            read_info_so_far=dict(**read_from_filename,**read_from_folder)
-                            completer=reader.get('matload_info_completer',
-                                             CONFIG['meta_reader'].get('matload_info_completer',None))
-                            completer=import_modfunc(completer) if completer else lambda x:x
-                            read_info_so_far=completer(read_info_so_far)
-                            #print(f"Read info so far: {read_info_so_far}");# import pdb; pdb.set_trace()
-                            meas_type=CONFIG.get_meas_type(meas_group)
+                    pattern=reader.get('glob',reader['template']['glob'])
+                    reader_func_dotpath=reader['template']['function']
+                    if f in cached_glob(folder,pattern):
 
-                            #print(f"Restriction {only_matload_info}, currently known {read_info_so_far}")
-                            if any(read_info_so_far[k] not in only_matload_info[k]
-                                   for k in only_matload_info if k in read_info_so_far):
-                                continue
-                            not_found_mgs.append(meas_group) # will remove if found
-                            found=False
+                        # Read the information from the filename
+                        regex=reader.get('read_from_filename_regex',
+                                         CONFIG['meta_reader'].get('read_from_filename_regex',None))
+                        if (mo:=cached_match(regex,f.name)) is None:
+                            raise Exception(f"Couldn't parse {f.name} with regex {regex}")
+                        read_from_filename=mo.groupdict() if regex is not None else {}
+                        read_info_so_far=dict(**read_from_filename,**read_from_folder)
+                        completer=reader.get('matload_info_completer',
+                                         CONFIG['meta_reader'].get('matload_info_completer',None))
+                        completer=import_modfunc(completer) if completer else lambda x:x
+                        read_info_so_far=completer(read_info_so_far)
+                        meas_type=CONFIG.get_meas_type(meas_group)
 
-                            try:
-                                read_dfs=import_modfunc(reader_func_dotpath)(file=f,
-                                        meas_type=meas_type,meas_group=meas_group,only_matload_info=only_matload_info,
-                                        **dict(reader['template'].get('default_args',{}),
-                                               **reader.get('fixed_args',{})),
-                                        **{k:read_info_so_far[v] for k,v in reader['template']['read_so_far_args'].items()})
-                                if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
-                                if 'post_read' in reader:
-                                    for read_df in read_dfs: import_modfunc(reader['post_read'])(read_df)
-                            except NoDataFromFileException as e:
-                                #logger.info(f"In {f.relative_to(folder)}, found nothing for '{meas_group}'")
-                                continue
-                            matname_to_read_dfs=read_dfs if type(read_dfs) is dict \
-                                else {read_info_so_far.get(FULLNAME_COL):read_dfs}
-                            for matname,read_dfs in matname_to_read_dfs.items():
-                                read_info_so_far_with_data=read_info_so_far.copy()
-                                for k in ALL_MATLOAD_COLUMNS:
-                                    if any(k in read_df.columns for read_df in read_dfs):
-                                        from_data=only(set([read_df[k].iloc[0] for read_df in read_dfs]))
+                        # If we can already rule out this file based on its name, skip it
+                        if any(read_info_so_far[k] not in only_matload_info[k]
+                               for k in only_matload_info if k in read_info_so_far):
+                            continue
+
+                        # List this meas group among those which will have been checked for this file
+                        not_found_mgs.append(meas_group) # will remove if found
+                        found=False
+
+                        # Read data
+                        try:
+                            read_dfs=import_modfunc(reader_func_dotpath)(file=f,
+                                    meas_type=meas_type,meas_group=meas_group,only_matload_info=only_matload_info,
+                                    **dict(reader['template'].get('default_args',{}),
+                                           **reader.get('fixed_args',{})),
+                                    **{k:read_info_so_far[v] for k,v in reader['template']['read_so_far_args'].items()})
+                            if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
+                        except NoDataFromFileException as e: continue
+
+                        # Some reader functions (operating on single-material files) return simply
+                        # a sequence of dataframes.  Others which operate on files with multiple
+                        # materials per file return a dictionary of dataframes mapping material
+                        # name to a sequence of dataframes. Handle both by converting the former to
+                        # the latter, with the assumption we've already garnered the material name
+                        # from the folder or filename
+                        matname_to_read_dfs=read_dfs if type(read_dfs) is dict \
+                            else {read_info_so_far[FULLNAME_COL]:read_dfs}
+
+                        # For each material and sequence of dataframs
+                        for matname,read_dfs in matname_to_read_dfs.items():
+                            # Check if read_dfs it contains any material/load information
+                            # If so, check that info for consistency with what we've already gathered
+                            # and add altogether to read_info_so_far_with_data
+                            # Of course the matname is also material/load info, so include that as well
+                            # And for convenience, add the matname to each dataframe so post_read has access to it
+                            read_info_so_far_with_data=read_info_so_far.copy()
+                            for k in ALL_MATLOAD_COLUMNS:
+                                if any(k in read_df.columns for read_df in read_dfs):
+                                    from_data=only(set([read_df[k].iloc[0] for read_df in read_dfs]))
+                                else: from_data=None
+                                if k==FULLNAME_COL:
+                                    if from_data is not None: assert matname==from_data
                                     else:
-                                        from_data=None
-                                    if k==FULLNAME_COL:
-                                        if from_data is not None: assert matname==from_data
-                                        from_data=matname
-                                    if from_data is not None:
-                                        if k in read_info_so_far_with_data:
-                                            assert read_info_so_far[k]==from_data, f"From data {from_data} vs {read_info_so_far[k]}"
-                                        else:
-                                            read_info_so_far_with_data[k]=from_data
-                                read_info_so_far_with_data=completer(read_info_so_far_with_data)
-                                if any(read_info_so_far_with_data[k] not in only_matload_info[k]
-                                       for k in only_matload_info if k in read_info_so_far_with_data):
-                                    continue
-
-                                read_data=MultiUniformMeasurementTable.from_read_data(read_dfs=read_dfs,
-                                    meas_group=meas_group,meas_type=meas_type)
-                                try: relpath=f.relative_to(os.environ['DATAVACUUM_READ_DIR'])
-                                except: relpath=f
-                                read_data['FilePath']=pd.Series([
-                                    str(relpath.as_posix())]*len(read_data),dtype='string')
-                                read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
-
-                                for k,v in read_info_so_far.get('material_lut',{}).get(matname,{}).items():
-                                    logger.debug(f"Applying {k}={v} to data")
-                                    if type(v)==str:
-                                            read_data[k]=pd.Series([v]*len(read_data),dtype='string')
+                                        for read_df in read_dfs:
+                                            read_df[FULLNAME_COL]=pd.Series([matname]*len(read_df),dtype='string')
+                                    from_data=matname
+                                if from_data is not None:
+                                    if k in read_info_so_far_with_data:
+                                        assert read_info_so_far[k]==from_data, f"From data {from_data} vs {read_info_so_far[k]}"
                                     else:
-                                        raise NotImplementedError(f"What dtype for {k} which seems to be {str(type(v))}?")
+                                        read_info_so_far_with_data[k]=from_data
+                            read_info_so_far_with_data=completer(read_info_so_far_with_data)
 
-                                matname_to_mg_to_data[matname]=matname_to_mg_to_data.get(matname,{})
-                                if (existing_data:=matname_to_mg_to_data[matname].get(meas_group,None)):
-                                    matname_to_mg_to_data[matname][meas_group]=existing_data+read_data
+                            # If altogether this info is enough to rule out this data, skip incorporating it
+                            if any(read_info_so_far_with_data[k] not in only_matload_info[k]
+                                   for k in only_matload_info if k in read_info_so_far_with_data):
+                                continue
+
+                            # Do the post_read
+                            if 'post_read' in reader:
+                                for read_df in read_dfs: import_modfunc(reader['post_read'])(read_df)
+
+                            # Form MeasurementTable from the data
+                            # And add some useful externally ensured columns
+                            read_data=MultiUniformMeasurementTable.from_read_data(read_dfs=read_dfs,
+                                meas_group=meas_group,meas_type=meas_type)
+                            try: relpath=f.relative_to(os.environ['DATAVACUUM_READ_DIR'])
+                            except: relpath=f
+                            read_data['FilePath']=pd.Series([
+                                str(relpath.as_posix())]*len(read_data),dtype='string')
+                            read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
+                            read_data[FULLNAME_COL]=pd.Series([matname]*len(read_data),dtype='string')
+
+                            # Add any material LUT information to the data
+                            for k,v in read_info_so_far.get('material_lut',{}).get(matname,{}).items():
+                                logger.debug(f"Applying {k}={v} to data")
+                                if type(v)==str:
+                                        read_data[k]=pd.Series([v]*len(read_data),dtype='string')
                                 else:
-                                    matname_to_mg_to_data[matname][meas_group]=read_data
+                                    raise NotImplementedError(f"What dtype for {k} which seems to be {str(type(v))}?")
 
-                                matname_to_matload_info[matname]=matname_to_matload_info.get(matname,{})
-                                for k in ALL_MATLOAD_COLUMNS:
-                                    if not (v:=read_info_so_far_with_data.get(k,None)):
-                                        raise Exception(f"Missing info to know '{k}' for {str(f)}")
-                                    if (existing_value:=matname_to_matload_info[matname].get(k,None)):
-                                        assert existing_value==v, f"Different values for {k} seen: {existing_value} vs {v}"
-                                    matname_to_matload_info[matname][k]=v
-                                found=True
-                            if found: found_mgs.append(not_found_mgs.pop(-1))
+                            # Collate this MeasurementTable onto any others from the same material and meas group
+                            matname_to_mg_to_data[matname]=matname_to_mg_to_data.get(matname,{})
+                            if (existing_data:=matname_to_mg_to_data[matname].get(meas_group,None)):
+                                matname_to_mg_to_data[matname][meas_group]=existing_data+read_data
+                            else:
+                                matname_to_mg_to_data[matname][meas_group]=read_data
+
+                            # Also collate any material/load information
+                            matname_to_matload_info[matname]=matname_to_matload_info.get(matname,{})
+                            for k in ALL_MATLOAD_COLUMNS:
+                                if not (v:=read_info_so_far_with_data.get(k,None)):
+                                    raise Exception(f"Missing info to know '{k}' for {str(f)}")
+                                if (existing_value:=matname_to_matload_info[matname].get(k,None)):
+                                    assert existing_value==v, f"Different values for {k} seen: {existing_value} vs {v}"
+                                matname_to_matload_info[matname][k]=v
+
+                            # If we've made it this far, some data was found for this meas group in this file
+                            found=True
+
+                        # Track what's been found or not for this file
+                        if found: found_mgs.append(not_found_mgs.pop(-1))
+
+            # If this file got checked for any meas groups, notify about what's been found
             if len(found_mgs+not_found_mgs):
-                logger.info(f"In {f.relative_to(folder)}, found {found_mgs}, didn't find {not_found_mgs}.")
+                logger.info(f"In {f.relative_to(folder)}, found {found_mgs}")
     return matname_to_mg_to_data, matname_to_matload_info
 
 def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='raise', just_extraction=False):

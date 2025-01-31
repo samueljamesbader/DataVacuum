@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 from param.parameterized import batch_call_watchers
 
-from datavac import logger
+from datavac.util.logging import logger
 from datavac.gui.bokeh_util import palettes
 from datavac.gui.bokeh_util.util import make_serializable, make_color_col, smaller_legend
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot

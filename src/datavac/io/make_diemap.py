@@ -266,6 +266,6 @@ def generate_custom_remap(main:pd.DataFrame,
     assert trans(*main3xy)==tuple(custom3xy), (custom3xy,trans(*main3xy),main3xy)
 
     # Transform everything
-    return pd.DataFrame(dict(       zip([     'CustomDieX', 'CustomDieY',     'DieX',    'DieY',     'DieXY'],
-                                 zip(*[(*trans(row['DieX'], row['DieY']),row['DieX'],row['DieY'],row['DieXY'])
+    return pd.DataFrame(dict(       zip([     'CustomDieX', 'CustomDieY',     'DieX',    'DieY',     'DieXY',     'DieCenterA [mm]',     'DieCenterB [mm]'],
+                                 zip(*[(*trans(row['DieX'], row['DieY']),row['DieX'],row['DieY'],row['DieXY'],row['DieCenterA [mm]'],row['DieCenterB [mm]'])
                                                            for _, row in main.iterrows()])))).convert_dtypes()

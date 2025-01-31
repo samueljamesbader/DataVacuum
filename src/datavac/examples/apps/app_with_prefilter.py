@@ -6,7 +6,7 @@ from panel.io import hold
 from panel.template.base import BasicTemplate
 import param as hvparam
 
-from datavac import logger
+from datavac.util.logging import logger
 from datavac.appserve.app import PanelApp
 from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.gui.panel_util.selectors import VerticalCrossSelector
@@ -35,7 +35,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         #self.lots_preselector.options=self.hose.get_lots(self.lot_prefetch_measgroup)
         lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters) \
             if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
-        self.lots_preselector.options=sorted(self.database.get_factors(lot_prefetch_measgroup[0],factor_names=['Lot'])['Lot'])
+        self.lots_preselector.options=sorted(self.database.get_factors(lot_prefetch_measgroup[0],factor_names=['Lot'])['Lot'],reverse=True)
 
     def get_page(self) -> BasicTemplate:
         self.page.sidebar.append(pn.panel("## Lot pre-filter"))

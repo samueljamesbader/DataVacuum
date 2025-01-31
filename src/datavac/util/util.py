@@ -71,7 +71,8 @@ def pickle_cached(cache_dir:Path, namer: Callable):
         def expensive_getter(key,**kwargs):
             print(f"I'm expensive {key}")
 
-        CACHE=Path(os.environ['DATAVACUUM_CACHE_DIR'])/"example"
+        from datavac.util.paths import USER_CACHE
+        CACHE=USER_CACHE/"example"
         cached_getter=pickle_cached(CACHE,lambda key,**kwargs: f"{key}.pkl")(expensive_getter)
 
     """

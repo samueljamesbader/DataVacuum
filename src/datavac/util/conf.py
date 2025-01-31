@@ -73,7 +73,7 @@ def get_current_context_name():
         assert (CONTEXT_PATH/f"{context_name}.dvcontext.env").exists(),\
             f"Context {context_name} (named in {curr_file_path}) not found in {CONTEXT_PATH}"
     elif len(globs:=list(CONTEXT_PATH.glob("*.dvcontext.env")))==1:
-        context_name=globs[0].name.split("*.dvcontext.env")[0]
+        context_name=globs[0].name.split(".dvcontext.env")[0]
     elif len(globs)==0:
         #print(f"No context files found in {CONTEXT_PATH}")
         return None
