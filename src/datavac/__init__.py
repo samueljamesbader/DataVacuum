@@ -17,3 +17,16 @@ def unload_my_imports(imports=['datavac','bokeh_transform_utils']):
         print(f"Unloading {', '.join(sorted(modules_to_drop))}")
     for k in modules_to_drop:
         del sys.modules[k]
+
+class ThisModule(sys.modules[__name__].__class__):
+    @classmethod
+    @property
+    def logger(cls):
+        return datavac.util.logging.logger
+
+    @classmethod
+    @property
+    def db(cls):
+        from datavac.io.database import get_database
+        return get_database()
+sys.modules[__name__].__class__=ThisModule

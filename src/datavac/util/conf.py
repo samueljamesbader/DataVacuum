@@ -1,12 +1,15 @@
 import sys
 import argparse
 import os
+import warnings
 from pathlib import Path
 from importlib import resources as irsc
 
 import platformdirs
+import requests
 import yaml
 from dotenv import load_dotenv
+from urllib3.exceptions import InsecureRequestWarning
 
 from datavac.util.cli import cli_helper
 from datavac.util.util import import_modfunc
@@ -59,6 +62,8 @@ class Config():
 cli_context=cli_helper(cli_funcs={
     'list':'datavac.util.conf:cli_context_list',
     'use':'datavac.util.conf:cli_context_use',
+    'install':'datavac.util.conf:cli_context_install',
+    'edit': 'datavac.util.conf:cli_context_edit',
 })
 
 CONTEXT_PATH: Path = None
@@ -121,12 +126,14 @@ def config_datavacuum():
     CONTEXT_PATH=Path(os.environ.get('DATAVACUUM_CONTEXT_DIR',None)
          or platformdirs.user_config_path('ALL',appauthor='DataVacuum'))
 
-    if Path(sys.argv[0]).stem=='datavac_with_context': return
 
     if CONTEXT_PATH=='None': print("Context-free")
     else:
         if not CONTEXT_PATH.exists(): CONTEXT_PATH.mkdir(parents=True,exist_ok=True)
-        #IF it's a datavac-config
+
+        if Path(sys.argv[0]).stem=='datavac_with_context': return # TODO: replace with 'datavac context with' and get rid of this
+        if (sys.argv[0]=='datavac') and (len(sys.argv)>1 and sys.argv[1]=='context'): return
+
         context_name=get_current_context_name()
         if context_name is not None:
             load_dotenv(CONTEXT_PATH/f"{context_name}.dvcontext.env",override=True)
@@ -151,3 +158,71 @@ def cli_datavac_with_context():
     command=sys.argv[2:]
 
     subprocess.run(command,env=env,shell=True,check=True,stdout=sys.stdout,stderr=sys.stderr,stdin=sys.stdin)
+
+def cli_context_install(*args):
+    parser=argparse.ArgumentParser(description='Install context from a deployment')
+    parser.add_argument('url',help='The URL of the deployment')
+    # TODO: allow a --cert
+    namespace=parser.parse_args(sys.argv[1:3])
+
+    CONTEXT_PATH=Path(os.environ.get('DATAVACUUM_CONTEXT_DIR',None)
+                      or platformdirs.user_config_path('ALL',appauthor='DataVacuum'))
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore",category=InsecureRequestWarning)
+        res=requests.get(namespace.url+"/context",verify=False)
+    assert res.status_code==200, f"Failed to download context from {namespace.url}"
+
+    filepath=CONTEXT_PATH/res.headers['Content-Disposition'].split("filename=")[1]
+    with open(filepath,'wb') as f:
+        f.write(res.content)
+    cli_context_use(res.headers['Content-Disposition'].split("filename=")[1].split(".dvcontext.env")[0])
+    print(f"Context installed to {filepath} and activated.")
+
+def cli_context_edit(*args):
+    parser=argparse.ArgumentParser(description='Edit the current context')
+    parser.add_argument('--variable',help='The variable to edit')
+    parser.add_argument('--value',help='The value to set the variable to')
+    parser.add_argument('--ask-user',action='store_true',help='Prompt the user for the value')
+    parser.add_argument('--path',action='store_true',help='Check that the value exists as a path')
+    namespace=parser.parse_args(args)
+
+    context_file=CONTEXT_PATH/f"{get_current_context_name()}.dvcontext.env"
+    assert context_file.exists(),\
+        f"Context {namespace.context_name} not found in {CONTEXT_PATH}"
+
+    if not namespace.variable:
+        raise NotImplementedError("Opening editor not enabled yet, supply a --variable VAR argument")
+        #os.system(f"notepad {CONTEXT_PATH/f'{namespace.context_name}.dvcontext.env'}")
+        pass
+    else:
+        if namespace.value:
+            assert not namespace.ask_user
+            val=namespace.value
+            if namespace.path:
+                assert Path(val).exists(), f"Path '{val}' does not exist"
+        else:
+            assert namespace.ask_user
+            if (current_val:=os.environ.get(namespace.variable)):
+                print(f"Current value of {namespace.variable} is '{current_val}'")
+                if input("Should it be changed? [Y/n] ") in ['N','n']:
+                    return
+            while True:
+                val=input(f"What should {namespace.variable} be set to? ").strip()
+                if len(val):
+                    if namespace.path:
+                        if Path(val).exists(): break
+                        else: print(f"Path '{val}' does not exist")
+                    else: break
+
+        with open(context_file,'r') as f:
+            context_contents=f.read().split("\n")
+        preexists=False
+        for i,line in enumerate(context_contents):
+            if line.startswith(f"{namespace.variable}="):
+                context_contents[i]=f"{namespace.variable}={val}"
+                preexists=True
+        if not preexists:
+            context_contents.append(f"{namespace.variable}={val}")
+        with open(context_file,'w') as f:
+            f.write("\n".join(context_contents))

@@ -18,7 +18,7 @@ ALL_MATERIAL_COLUMNS=[CONFIG['database']['materials']['full_name'],
 ALL_LOAD_COLUMNS=CONFIG['database']['loads']['info_columns']
 ALL_MATLOAD_COLUMNS=[*ALL_MATERIAL_COLUMNS,*ALL_LOAD_COLUMNS]
 
-if 'DATAVACUUM_READ_DIR' in os.environ:
+if os.environ.get('DATAVACUUM_READ_DIR'):
     READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])
 
 class MissingFolderInfoException(Exception): pass
@@ -185,6 +185,7 @@ def read_folder_nonrecursive(folder: str,
                                 str(relpath.as_posix())]*len(read_data),dtype='string')
                             read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
                             read_data[FULLNAME_COL]=pd.Series([matname]*len(read_data),dtype='string')
+                            read_data['FQSite']=read_data[FULLNAME_COL]+'/'+read_data['DieXY']+'/'+read_data['Site']
 
                             # Add any material LUT information to the data
                             for k,v in read_info_so_far.get('material_lut',{}).get(matname,{}).items():

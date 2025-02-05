@@ -46,5 +46,9 @@ def get_custom_dieremap(mask, remap_name, conn=None):
             raise KeyError(f"Custom remap {remap_name} not found for mask {mask},"\
                            f" options include {list(CONFIG['custom_remaps'][mask].keys())}") from e
         func=import_modfunc(conf['generator'])
-        _diecrms[(mask,remap_name)]=func(get_die_table(mask,conn=conn),**conf.get('args',{}))
+        try:
+            _diecrms[(mask,remap_name)]=func(get_die_table(mask,conn=conn),**conf.get('args',{}))
+        except Exception as e:
+            logger.error(f"Error generating custom die map {remap_name} for mask {mask}")
+            raise e
     return _diecrms[(mask,remap_name)]

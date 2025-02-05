@@ -61,7 +61,7 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
                   'oauth_extra_params','oauth_redirect_uri','cookie_secret']:
             kwargs[k]=auth_info[k]
     elif oauth_provider=='none':
-        if 'DATAVACUUM_PASSWORD' in os.environ:
+        if os.environ.get('DATAVACUUM_PASSWORD'):
             logger.warning("Launching with password authentication, NOT MEANT FOR PRODUCTION!")
             kwargs['cookie_secret']=os.environ['DATAVACUUM_BOKEH_COOKIE_SECRET']
             kwargs['basic_auth']=os.environ['DATAVACUUM_PASSWORD']
@@ -104,13 +104,22 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
 
     if 'shareable_secrets' in theyaml:
         from datavac.appserve.ad_auth import SimpleSecretShare
-        extra_patterns={'extra_patterns':[
+        extra_patterns_kwargs={'extra_patterns':[
             ('/secretshare',SimpleSecretShare,
              {'callers':{k:import_modfunc(v)
-                             for k,v in theyaml['shareable_secrets']['callers'].items()}})]}
+                             for k,v in theyaml['shareable_secrets']['callers'].items()}}),
+            ('/context',ContextDownload),
+        ]}
         index.slug_to_app['accesskey']=lambda: AccessKeyDownload().get_page()
         index.slug_to_role['accesskey']=theyaml['shareable_secrets']['role']
-    else: extra_patterns={}
+    else: extra_patterns_kwargs={'extra_patterns':[]}
+
+    extra_patterns_kwargs['extra_patterns']+=\
+        [('/'+k,import_modfunc(v)) for k,v in theyaml['additional_handlers'].items()]
+    if not len(extra_patterns_kwargs['extra_patterns']): extra_patterns_kwargs={}
+    print("\n\n\n\n")
+    print("Extra Patterns kwargs",extra_patterns_kwargs)
+    print("\n\n\n\n")
 
     db=get_database()
 
@@ -135,8 +144,19 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     pn.serve(
         index.slug_to_app,
         port=port,websocket_origin='*',show=False,
-        static_dirs=additional_static_dirs, **extra_patterns, use_xheaders=True,
+        static_dirs=additional_static_dirs, **extra_patterns_kwargs, use_xheaders=True,
         **kwargs)
+
+from tornado.web import RequestHandler
+from datavac.util.conf import get_current_context_name
+class ContextDownload(RequestHandler):
+    def get(self):
+        depname=os.environ['DATAVACUUM_DEPLOYMENT_NAME']
+        self.set_header('Content-Disposition', f'attachment; filename={depname}.dvcontext.env')
+        self.write(f"# Context file for '{depname}'\n")
+        self.write(f"# Downloaded {datetime.datetime.now()}\n")
+        for name in ['DATAVACUUM_DEPLOYMENT_NAME','DATAVACUUM_DEPLOYMENT_URI','DATAVACUUM_CONFIG_PKG']:
+            self.write(f"{name}={os.environ[name]}\n")
 
 if __name__=='__main__':
     launch()

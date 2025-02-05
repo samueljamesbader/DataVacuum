@@ -261,9 +261,9 @@ def generate_custom_remap(main:pd.DataFrame,
 
     # Transform the given points to check
     trans = lambda mx,my: ((my+affy)*sgnymain,(mx+affx)*sgnxmain) if xyflip else ((mx+affx)*sgnxmain,(my+affy)*sgnymain)
-    assert trans(*main1xy)==tuple(custom1xy), (custom1xy,trans(*main1xy),main1xy)
-    assert trans(*main2xy)==tuple(custom2xy), (custom2xy,trans(*main2xy),main2xy)
-    assert trans(*main3xy)==tuple(custom3xy), (custom3xy,trans(*main3xy),main3xy)
+    assert trans(*main1xy)==tuple(custom1xy), (tuple(custom1xy),trans(*main1xy),main1xy)
+    assert trans(*main2xy)==tuple(custom2xy), (tuple(custom2xy),trans(*main2xy),main2xy)
+    assert trans(*main3xy)==tuple(custom3xy), (tuple(custom3xy),trans(*main3xy),main3xy)
 
     # Transform everything
     return pd.DataFrame(dict(       zip([     'CustomDieX', 'CustomDieY',     'DieX',    'DieY',     'DieXY',     'DieCenterA [mm]',     'DieCenterB [mm]'],

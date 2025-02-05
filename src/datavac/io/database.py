@@ -413,16 +413,22 @@ class PostgreSQLDatabase(AlchemyDatabase):
                          .on_conflict_do_update(index_elements=['Mask'],set_=update_info))
 
         diemdf=pd.concat(diemdf).reset_index(drop=True).reset_index(drop=False)
-        previous_dietab=pd.read_sql(select(*self._diemtab.columns),conn).reset_index(drop=False)
+        previous_dietab=pd.read_sql(select(*self._diemtab.columns).order_by(self._diemtab.c['dieid']),conn).reset_index(drop=False)
         # This checks that nothing has changed in the previous table
         # very important to check that because all the measured data is only associated with a die index,
         # so if we accidentally change the die index, even by uploading the tables in a different order...
         # poof all the old data is now associated with the wrong dies or even wrong masks!!
+        print("\n\n\nPREVIOUS:")
+        print(previous_dietab)
+        print("\n\n\nNEW:")
+        print(diemdf)
+        print("\n")
         assert len(previous_dietab.merge(diemdf))==len(previous_dietab),\
             "Can't add to die tables without messing up existing dies"
         self._upload_csv(diemdf.iloc[len(previous_dietab):],conn,self.int_schema,'Dies')
 
         self.fix_die_constraint(conn,add_or_remove='add')
+        print("Successful")
 
     def get_mask_info(self,mask,conn=None):
         with (returner_context(conn) if conn else self.engine_connect()) as conn:
@@ -1319,6 +1325,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
         assert len(res)==1
         return res[0][0]
 
+    def run_query(self,query,conn=None, commit=False):
+        with (returner_context(conn) if conn else self.engine_connect()) as conn:
+            result=conn.execute(text(query)).all()
+            if commit: conn.commit()
+        return result
 
 ##### NOT FUNCTIONAL
 ####class SQLiteDatabase(AlchemyDatabase):

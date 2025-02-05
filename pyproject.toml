@@ -93,5 +93,8 @@ datavac_with_context = "datavac.util.conf:cli_datavac_with_context"
 where = ["src"]
 namespaces = false
 
+[tool.setuptools.package-data]
+datavac = ["**/*.jsl"]
+
 [tool.setuptools.dynamic]
 version = {attr = "datavac.__version__"}

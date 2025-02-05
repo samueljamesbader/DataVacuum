@@ -28,7 +28,7 @@ class AppDieMapDisplay(PanelApp):
                            text='DieLabel')
             subtabs.append((f'Core: {mask}', pltr.fig))
             for name in CONFIG['custom_remaps'][mask]:
-                crm=get_custom_dieremap(mask,name)
+                crm=get_custom_dieremap(mask,name).drop(columns=['DieCenterA [mm]','DieCenterB [mm]'])
                 dietab=pd.merge(main_dietab,crm,
                                 left_on=['DieX','DieY'],right_on=['DieX','DieY'],
                                 how='left',validate='1:1').set_index('DieXY')

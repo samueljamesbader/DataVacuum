@@ -52,7 +52,7 @@ def cli_compile_jmp_addin(*args):
             env_values = os.environ
         envname=(env if len(env) else "LOCAL")
         addin_id=f'datavacuum_helper.{envname.lower()}'
-        print(f"Using {envname}")
+        #print(f"Using {envname}")
 
         if (jmp_conf:=Path(env_values["DATAVACUUM_CONFIG_DIR"])/"jmp.yaml").exists():
             with open(jmp_conf,'r') as f:
@@ -73,7 +73,7 @@ def cli_compile_jmp_addin(*args):
                 "minJmpVersion=16",])
 
         with open(addin_folder/"env_vars.jsl",'w') as f:
-            print(sys.path)
+            #print(sys.path)
             potential_dlls=sum((list(Path(p).glob("Python31*.dll")) for p in sys.path),[])
             built_in_capture_vars={'DATAVACUUM_DEPLOYMENT_URI':env_values.get("DATAVACUUM_DEPLOYMENT_URI",""),
                                    'PYTHON_SYS_PATHS': ";".join(sys.path),
@@ -107,7 +107,7 @@ def cli_compile_jmp_addin(*args):
             #f.write("[sys.path.append(path) for path in paths if path not in sys.path]\n")
             #for x in ['DATAVACUUM_CONFIG_DIR','DATAVACUUM_DB_DRIVERNAME',
             #          'DATAVACUUM_DBSTRING','DATAVACUUM_CACHE_DIR','DATAVACUUM_LAYOUT_PARAMS_DIR']:
-            for x in ['DATAVACUUM_CONTEXT','DATAVACUUM_CONTEXT_DIR','DATAVACUUM_DB_DRIVERNAME']:
+            for x in ['DATAVACUUM_CONTEXT','DATAVACUUM_CONTEXT_DIR','DATAVACUUM_DB_DRIVERNAME',*jmp_conf.get("capture_variables",{})]:
                 f.write(f"os.environ['{x}']=r'{env_values.get(x,None)}'\n" if env_values.get(x,None) else "")
             f.write(dedent("""
                 os.environ['DATAVACUUM_FROM_JMP']='YES'
@@ -228,3 +228,7 @@ def cli_compile_jmp_addin(*args):
 
         shutil.make_archive(addin_folder/f"DataVac_{envname.capitalize()}",'zip', addin_folder)
         shutil.move(addin_folder/f"DataVac_{envname.capitalize()}.zip",addin_folder/f"DataVac_{envname.capitalize()}.jmpaddin")
+
+        logger.debug(f"Add-in for {envname} compiled")
+        print("\n\nNow install by opening the following file in JMP:")
+        print(fr"{addin_folder/f'DataVac_{envname.capitalize()}.jmpaddin'}")
