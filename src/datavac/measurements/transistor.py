@@ -99,6 +99,10 @@ class IdVg(MeasurementType):
         else:
             gm=VG*np.NaN
             invswing=VG*np.NaN
+        if has_idlin:
+            invswing_lin=savgol_filter(np.log10(np.abs(IDlin.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
+        else:
+            invswing_lin=VG*np.NaN
 
         all_inds=np.arange(len(VG))
         inds_gmpeak=np.argmax(gm,axis=1)
@@ -126,6 +130,7 @@ class IdVg(MeasurementType):
         measurements['VTgm_sat']=vt_gmpeak
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
+        measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
         measurements['Igmax_lin [A]']=np.max(np.abs(IGlin),axis=1)

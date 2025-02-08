@@ -244,8 +244,10 @@ class MultiUniformMeasurementTable(MeasurementTable):
         for read_df in read_dfs:
             if not len(read_df): continue
             meas_length=read_df['MeasLength'].iloc[0]
-            assert all(n == meas_length for n in read_df['MeasLength']), \
-                f"Multiple meas_length's: {read_df['MeasLength'].unique()}"
+            if not all(n == meas_length for n in read_df['MeasLength']):
+                logger.warning('Multiple meas lengths... here\'s some one example location for each\n'+
+                    str(read_df[['DieX','DieY','Site','MeasLength']].drop_duplicates(['MeasLength'])))
+                raise Exception(f"Multiple meas_length's: {read_df['MeasLength'].unique()}")
 
             headers=read_df['RawData'].iloc[0].keys()
             assert all(raw.keys() == headers for raw in read_df['RawData']),\

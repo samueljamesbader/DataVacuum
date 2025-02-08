@@ -647,7 +647,6 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if do_recreate_view:
             layout_params=get_layout_params(conn=conn)
             logger.debug(f"(Re)-creating view for {mg}")
-            #import pdb; pdb.set_trace()
             view_cols=[
                 CONFIG['database']['materials']['full_name'],
                 *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
@@ -1330,6 +1329,10 @@ class PostgreSQLDatabase(AlchemyDatabase):
             result=conn.execute(text(query)).all()
             if commit: conn.commit()
         return result
+    def read_sql(self,query,conn=None):
+        with (returner_context(conn) if conn else self.engine_connect()) as conn:
+            result=pd.read_sql(query,conn)
+        return result
 
 ##### NOT FUNCTIONAL
 ####class SQLiteDatabase(AlchemyDatabase):
@@ -1604,8 +1607,8 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                         if len(data):
                             mumts[mg]=UniformMeasurementTable(dataframe=data,headers=[],
                                                               meas_length=None,meas_type=None,meas_group=mg)
-                        assert len(list(data['loadid'].unique()))==1
-                        precol_loadids[mg]=data['loadid'].iloc[0]
+                            assert len(list(data['loadid'].unique()))==1
+                            precol_loadids[mg]=data['loadid'].iloc[0]
                     logger.info(f"Re-analyzing {analyses} for {matname}")
                     db.perform_analyses(conn,analyses=analyses,
                                         precollected_data_by_meas_group=mumts,
