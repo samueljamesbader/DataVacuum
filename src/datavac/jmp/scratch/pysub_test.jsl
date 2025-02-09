@@ -1,5 +1,4 @@
-Names Default To Here( 1 );
-dv = Namespace( "datavacuum_helper.local" );
+Names Default To Here( 1 ); dv=::dv;
 
 pyinit = dv:addin_home || "/jmp16_pyinit.py";
 dv:PySub = Function( {code},

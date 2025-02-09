@@ -11,6 +11,7 @@ import dotenv
 import requests
 import warnings
 import sys
+import re
 
 import yaml
 from urllib3.exceptions import InsecureRequestWarning
@@ -26,10 +27,14 @@ jmp_folder.mkdir(exist_ok=True)
 
 def copy_in_file(filename,addin_folder,addin_id):
     with open(filename,'r') as f1:
+        f1lines=f1.readlines()
+        assert f1lines[0].replace(" ","").strip()=='NamesDefaultToHere(1);dv=::dv;',\
+            f"All JSL files to copy into add-in must start with 'Names Default To Here(1); dv=::dv;'.  See {filename}."
+        f1content="".join(['Names Default To Here(1);\ndv=Namespace("%ADDINID%");\n',*f1lines[1:]])
         with open((addin_folder/filename.name),'w') as f2:
-            f2.write(f1.read()\
+            f2.write(f1content\
                      .replace("%ADDINID%",addin_id) \
-                     .replace("datavacuum_helper.local",addin_id)\
+                     #.replace("datavacuum_helper.local",addin_id)\
                      .replace("%LOCALADDINFOLDER%",str(addin_folder)))
 
 def make_db_connect(addin_folder,addin_id, env_values):
@@ -78,7 +83,7 @@ def cli_compile_jmp_addin(*args):
             built_in_capture_vars={'DATAVACUUM_DEPLOYMENT_URI':env_values.get("DATAVACUUM_DEPLOYMENT_URI",""),
                                    'PYTHON_SYS_PATHS': ";".join(sys.path),
                                    'PYTHON_DLL':str(potential_dlls[0]),
-                                   'DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),
+                                   'DATAVACUUM_JMP_DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),
                                   }
             # TODO: Remove DB connection info from JMP add-in, rely on shareable secrets
             connection_info=get_db_connection_info()
@@ -107,7 +112,8 @@ def cli_compile_jmp_addin(*args):
             #f.write("[sys.path.append(path) for path in paths if path not in sys.path]\n")
             #for x in ['DATAVACUUM_CONFIG_DIR','DATAVACUUM_DB_DRIVERNAME',
             #          'DATAVACUUM_DBSTRING','DATAVACUUM_CACHE_DIR','DATAVACUUM_LAYOUT_PARAMS_DIR']:
-            for x in ['DATAVACUUM_CONTEXT','DATAVACUUM_CONTEXT_DIR','DATAVACUUM_DB_DRIVERNAME',*jmp_conf.get("capture_variables",{})]:
+            for x in ['DATAVACUUM_CONTEXT','DATAVACUUM_CONTEXT_DIR','DATAVACUUM_DB_DRIVERNAME',
+                      'DATAVACUUM_JMP_DEFER_INIT',*jmp_conf.get("capture_variables",{})]:
                 f.write(f"os.environ['{x}']=r'{env_values.get(x,None)}'\n" if env_values.get(x,None) else "")
             f.write(dedent("""
                 os.environ['DATAVACUUM_FROM_JMP']='YES'
@@ -141,15 +147,18 @@ def cli_compile_jmp_addin(*args):
                 f"Repeated filename in {inc_files}"
             f.writelines([
                 f'Names Default To Here(1);\n',
-                f'dv=Namespace("{addin_id}"); If(Namespace Exists(dv)&(!IsEmpty(dv:force_init)),force_init=dv:force_init,force_init=0);\n'
+                f'dv=Namespace("{addin_id}");\n',
+                f'If(Namespace Exists(dv)&(!IsEmpty(dv:force_init)),force_init=dv:force_init,force_init=0);\n',
                 f'dv=New Namespace("{addin_id}");\n',
+                f'dv:name="{envname}";\n',
                 f'dv:addin_home=Get Path Variable("ADDIN_HOME({addin_id})");\n',
                 f'Include( "$ADDIN_HOME({addin_id})/env_vars.jsl" );\n',
-                f'If((dv:DEFER_INIT!="YES")|force_init,\n',
+                f'If((dv:DATAVACUUM_JMP_DEFER_INIT!="YES")|force_init,\n',
+                f'::dv=dv;\n',
                 *[f'  Include( "$ADDIN_HOME({addin_id})/{Path(filename).name}" );\n'
                     for filename in inc_files],
                 f'  dv:force_init=0;\n',
-                f',//Else\n  Write("Deferred initialization because of DEFER_INIT\\!N"));'
+                f',//Else\n  Write("Deferred initialization of {addin_id} because of DATAVACUUM_JMP_DEFER_INIT\\!N"));'
             ])
             for add_file in [*dv_base_jsl,*request_jsl]:
                 copy_in_file(add_file,addin_folder=addin_folder,addin_id=addin_id)

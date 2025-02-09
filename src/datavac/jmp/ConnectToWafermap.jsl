@@ -1,5 +1,4 @@
-Names Default To Here(1);
-dv = Namespace("%ADDINID%");
+Names Default To Here(1); dv=::dv;
 
 dv:ConnectToWafermap = Function( { dt=0 , map_name="Default-Name.jmp" }, {Default Local},
 

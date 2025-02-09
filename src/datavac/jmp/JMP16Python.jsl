@@ -1,5 +1,4 @@
-Names Default To Here( 1 );
-dv=Namespace("datavacuum_helper.local");
+Names Default To Here( 1 ); dv=::dv;
 
 // dv:PyConn()
 // Returns a Python Connection object, initializing it if it doesn't yet exist.
@@ -123,7 +122,3 @@ dv:PullSweeps=Function({dt=0, db_table_name=0},
 );
 
 //dv:PyRefresh();
-
-//dv:PySub(
-//	"dat=db.get_data('Cyp4x4 PUN IdVg',include_sweeps=True,unstack_headers=True,raw_only=False); print(len(dat));"
-//);

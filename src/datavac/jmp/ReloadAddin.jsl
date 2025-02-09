@@ -1,5 +1,4 @@
-Names Default To Here( 1 );
-dv = Namespace("%ADDINID%");
+Names Default To Here( 1 ); dv=::dv;
 dv:ReloadAddin=Function( {}, {Default Local},
     Write("Recompiling " || "%ADDINID%" || "\!N");
     dv:PySub("from datavac.jmp.compile_addin import cli_compile_jmp_addin as ccja; ccja();");
