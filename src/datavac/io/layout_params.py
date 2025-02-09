@@ -4,6 +4,7 @@ from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 
+from datavac.util.cli import cli_helper
 from datavac.util.logging import logger, time_it
 import pandas as pd
 import numpy as np
@@ -253,3 +254,8 @@ def cli_layout_params_valid():
         print("Layout params are valid")
     else:
         print("Layout params need to be regenerated (use 'datavac update_layout_params').")
+
+cli_layout_params=cli_helper(cli_funcs={
+    'check_layout_params_valid (clpv)': 'datavac.io.layout_params:cli_layout_params_valid',
+    'update_layout_params (ulp)': 'datavac.io.database:cli_update_layout_params',
+})

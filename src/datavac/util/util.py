@@ -96,7 +96,6 @@ def pickle_cached(cache_dir:Path, namer: Callable):
 def base64encode(s):
     return base64.b64encode(s.encode()).decode()
 
-# TODO: tuck these into a 'datavac util ...'
 def cli_base64encode(*args):
     parser=argparse.ArgumentParser(description='Encodes a string to base64')
     parser.add_argument('thestring',nargs='?',help='the string to encode')

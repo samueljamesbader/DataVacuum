@@ -28,6 +28,7 @@ from sqlalchemy.engine import URL
 import io
 import pandas as pd
 
+from datavac.util.cli import cli_helper
 from datavac.util.conf import CONFIG
 from datavac.util.logging import logger, time_it
 from datavac.util.paths import USER_CACHE
@@ -1819,3 +1820,19 @@ def cli_dump_material(*args):
     with db.engine_begin() as conn:
         db.dump_material(only_material,conn,only_meas_group=namespace.group)
 
+cli_database=cli_helper(cli_funcs={
+    'clear': 'datavac.io.database:cli_clear_database',
+    'upload_data': 'datavac.io.database:cli_upload_data',
+    'upload_all_data': 'datavac.io.database:cli_upload_all_data',
+    'dump_extraction': 'datavac.io.database:cli_dump_extraction',
+    'dump_measurement': 'datavac.io.database:cli_dump_measurement',
+    'dump_analysis': 'datavac.io.database:cli_dump_analysis',
+    'dump_material': 'datavac.io.database:cli_dump_material',
+    'print': 'datavac.io.database:cli_print_database',
+    'clear_reextract_list': 'datavac.io.database:cli_clear_reextract_list',
+    'clear_reanalyze_list': 'datavac.io.database:cli_clear_reanalyze_list',
+    'force': 'datavac.io.database:cli_force_database',
+    'update_mask_info': 'datavac.io.database:cli_update_mask_info',
+    'heal': 'datavac.io.database:cli_heal',
+    'test_db_connect':'datavac.io.database:cli_test_db_connection_speed',
+})
