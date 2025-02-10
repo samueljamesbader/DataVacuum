@@ -52,7 +52,7 @@ class AppLoader(PanelApp):
             if not len(fargs): return
             identifier="hmm"
             with open(LOG_DIR/(f'load_{identifier}.txt'),'w') as f1:
-                sp=subprocess.Popen([f"datavac","upload_data",*fargs,*flags],stdout=f1,stderr=f1)
+                sp=subprocess.Popen([f"datavac","db","upload_data",*fargs,*flags],stdout=f1,stderr=f1)
             with open(LOG_DIR/(f'load_{identifier}.txt'),'r') as f2:
                 while sp.poll() is None:
                     self.load_log_display.value+=f2.read()
