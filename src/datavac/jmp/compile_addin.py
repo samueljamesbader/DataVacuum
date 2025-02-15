@@ -119,9 +119,9 @@ def cli_compile_jmp_addin(*args):
                 os.environ['DATAVACUUM_FROM_JMP']='YES'
                 import numpy as np
                 import pandas as pd
-                from datavac.appserve.user_side import validate_access_key as vak
-                try: vak()
-                except: print("No valid access key")
+                from datavac.appserve.user_side import is_access_key_valid as iakv
+                if not iakv():
+                    print("No valid access key")
                 else:
                     from datavac.io.database import get_database; db = get_database(populate_metadata=False);
                     print("DataVacuum Python-side DB setup")

@@ -43,7 +43,7 @@ def get_db_connection_info_from_environment(dbstring:Optional[str]=None) -> dict
     return connection_info
 
 def get_ssl_rootcert_for_db() -> Optional[None]:
-    """Returns the path to the SSL root certificate
+    """Returns the path to the SSL root certificate for the database
 
     If a replacement function is designated in the configuration (database.credentials.get_ssl_rootcert_for_db),
     it will be called.  Otherwise, the environment variable DATAVACUUM_SSLROOTCERT will be used.
@@ -55,6 +55,24 @@ def get_ssl_rootcert_for_db() -> Optional[None]:
         dotpath=CONFIG['database']['credentials']['get_ssl_rootcert_for_db']
     except KeyError:
         logger.debug("No database.credentials.get_ssl_rootcert_for_db configured, falling back on environment")
+        pth=os.environ.get('DATAVACUUM_SSLROOTCERT',None)
+    else:
+        pth=import_modfunc(dotpath)()
+    if pth is not None: assert Path(pth).exists(), f"SSL root certificate not found at {pth}"
+    return pth
+def get_ssl_rootcert_for_ak() -> Optional[None]:
+    """Returns the path to the SSL root certificate for the Access key
+
+    If a replacement function is designated in the configuration (database.credentials.get_ssl_rootcert_for_ak),
+    it will be called.  Otherwise, the environment variable DATAVACUUM_SSLROOTCERT will be used.
+
+    Returns:
+        Optional[None]: The path to the SSL root certificate, or None if not found
+    """
+    try:
+        dotpath=CONFIG['database']['credentials']['get_ssl_rootcert_for_ak']
+    except KeyError:
+        logger.debug("No database.credentials.get_ssl_rootcert_for_ak configured, falling back on environment")
         pth=os.environ.get('DATAVACUUM_SSLROOTCERT',None)
     else:
         pth=import_modfunc(dotpath)()

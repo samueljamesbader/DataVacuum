@@ -1,4 +1,7 @@
-from datavac.util.logging import logger
+import requests
+
+from datavac.appserve.dvsecrets import get_ssl_rootcert_for_ak
+from datavac.util.logging import logger, time_it
 import webbrowser
 import os
 from pathlib import Path
@@ -36,6 +39,25 @@ def get_saved_access_key(suppress_error=False):
             raise
         return None
 
-def validate_access_key():
+def is_access_key_valid():
     assert get_saved_access_key() is not None
-    # Should actually make a request
+    try: get_secret_from_deployment('readonly_dbstring')
+    except Exception as e:
+        if ('not valid' in str(e)) or ('expired' in str(e)):
+            return False
+        else: raise
+    return True
+
+def get_secret_from_deployment(secret_name):
+    try: access_key=get_saved_access_key()
+    except:
+        if (os.environ.get('DATAVACUUM_FROM_JMP')=='YES'):
+            raise Exception("No access key")
+        have_user_download_access_key()
+        access_key=get_saved_access_key()
+    with time_it("Secret-share request"):
+        response=requests.post(os.environ['DATAVACUUM_DEPLOYMENT_URI'] +"/secretshare",
+                               data={"secretname":secret_name,"access_key":access_key},
+                               verify=str(get_ssl_rootcert_for_ak()))
+    assert response.status_code==200, f"Failed to get {secret_name} from deployment: {response.text}"
+    return response.text

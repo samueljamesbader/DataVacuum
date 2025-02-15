@@ -166,7 +166,7 @@ class SimpleSecretShare(RequestHandler):
         age=datetime.now()-datetime.fromisoformat(validated['Generated'])
         if age>timedelta(days=14):
             self.set_status(403)
-            self.write(f"Access key expired.  Its ages is {age}.")
+            self.write(f"Access key expired.  Its age is {age}.")
             return
         secretname=self.get_argument('secretname',default=None)
         if not secretname:
