@@ -1143,14 +1143,18 @@ class PostgreSQLDatabase(AlchemyDatabase):
         return data
 
     def get_meas_data_for_jmp(self,meas_group,loadids,measids):
+
+        # Set up query for the specific loadids and measids
         # https://stackoverflow.com/a/6672707
         values="(VALUES "+",".join([f"({l},{m})" for l,m in zip(loadids,measids)])+") AS t2 (loadid, measid)"
         query=f"SELECT t1.loadid, t1.measid, sweep, header from {self.int_schema}.\"Sweep -- {meas_group}\""\
               f" AS t1 JOIN {values} ON t1.loadid = t2.loadid AND t1.measid = t2.measid"
 
+        # Get the data, unstacked
         data= self._get_data_from_meas_group_helper(meas_group,sel=query,selcols={},include_sweeps=True,
                                               unstack_headers=True, raw_only=True)
 
+        # Infer names of X and Y columns and sweep variables
         from datavac.util.tables import stack_multi_sweeps
         from datavac.util.util import only
         headers=[k for k in data.columns if k not in ['loadid','measid']]
@@ -1171,6 +1175,15 @@ class PostgreSQLDatabase(AlchemyDatabase):
         ys=[y for y in ys if y not in swvs]
         #print(x,ys,swvs)
         #print(data)
+
+        # The above results in NaN values where there is no data for a given sweep or sweep variable
+        # eg for IdVg if sometimes the source current is measured and sometimes not,
+        # then there will be NaNs in the I_S column.
+        # In order to be able to explode data, we will want to replace each NaN with an *array* of NaN's
+        # of the same length as the independent variable.
+        data=data.where(data.notna(),pd.Series([np.full(len(c),np.nan) for c in data[x]]),axis=0)
+
+        # Restack the data so different sweep variables are columns rather than parts of headers
         data=stack_multi_sweeps(data,x=x,ys=ys,swvs=swvs,restrict_dirs=(('f','r') if directed else ('',)))
         print(x,ys)
         data = data.explode([x,*ys],ignore_index=True)\
