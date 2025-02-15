@@ -642,7 +642,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             PrimaryKeyConstraint('loadid','measid','header'),
             ForeignKeyConstraint(columns=['loadid','measid'],**_CASC,
                                  refcolumns=[f"Meas -- {mg}.loadid",f"Meas -- {mg}.measid",]),
-            on_mismatch=sweep_replacement_callback, just_metadata=just_metadata)
+            on_mismatch=(sweep_replacement_callback if on_mismatch=='replace' else on_mismatch), just_metadata=just_metadata)
 
         # TODO: Replace this with SQLAlchemy select like in get_where
         if do_recreate_view:
@@ -751,6 +751,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 else:
                     tab=Table(table_name,self._metadata,*args)
                     if not just_metadata:
+                        logger.info(f"Creating table {table_name}")
                         tab.create(conn)
                         on_init()
             return tab
@@ -1822,7 +1823,7 @@ def cli_dump_material(*args):
 
 cli_database=cli_helper(cli_funcs={
     'clear': 'datavac.io.database:cli_clear_database',
-    'upload_data': 'datavac.io.database:cli_upload_data',
+    'upload_data (ud)': 'datavac.io.database:cli_upload_data',
     'upload_all_data': 'datavac.io.database:cli_upload_all_data',
     'dump_extraction': 'datavac.io.database:cli_dump_extraction',
     'dump_measurement': 'datavac.io.database:cli_dump_measurement',

@@ -1,6 +1,7 @@
 import os
 import re
 from fnmatch import fnmatch
+from typing import Union
 
 import pandas as pd
 from functools import lru_cache, cache
@@ -35,9 +36,16 @@ def get_cached_glob():
         return [p for p in paths if fnmatch(p,patt)]
     return cached_glob
 
-def read_folder_nonrecursive(folder: str,
+def quick_read_filename(filename:Union[Path,str],**kwargs):
+    if not (filename:=Path(filename)).is_absolute():
+        filename=READ_DIR/filename
+    assert filename.exists(), f"Can't find file {str(filename)}"
+    folder=filename.parent
+    return read_folder_nonrecursive(folder,only_file_names=[filename.name],already_read_from_folder=kwargs)
+
+def read_folder_nonrecursive(folder: Union[Path,str],
                only_meas_groups=None,only_matload_info={},
-               only_file_names:list[str]=None,
+               only_file_names:list[str]=None,already_read_from_folder=None,
                cached_glob=None) -> dict:
 
     if only_meas_groups is not None:
@@ -52,7 +60,7 @@ def read_folder_nonrecursive(folder: str,
 
     # Read any auxiliary information in the folder
     #logger.debug(f"Reading aux info in {folder}")
-    read_from_folder={}
+    read_from_folder=already_read_from_folder.copy() if already_read_from_folder else {}
     for rname,rinfo in CONFIG['meta_reader'].get('read_from_folder',{}).items():
         assert (rcount:=rinfo.get('count','required')) in ['required','optional']
         if len(potential_finds:=list(cached_glob(folder,(rinfo['filter']))))==1:
