@@ -83,3 +83,16 @@ dv:AbsCurrents = Function({dt=0},
 		);
 	);
 );
+
+
+dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
+	if(close previous,
+		Try(Close(DataTable(tablename)), "No issue");
+	);
+	q1="Select * from jmp.\!""||tablename||"\!"";
+	New SQL Query(
+		Connection(dv:conn_str_no_pass),
+		QueryName( tablename ),
+		CustomSQL(q1),
+	) << Run Foreground();
+);
