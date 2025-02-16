@@ -132,13 +132,13 @@ def cli_compile_jmp_addin(*args):
         with open(addin_folder/"addinLoad.jsl",'w') as f:
             generated_jsl=[]#addin_folder/'env_vars.jsl']
             dv_base_jsl=[get_resource_path(x) for x in [
-                                                        'datavac.jmp:JMP16Python.jsl',
-                                                        'datavac.jmp:Secrets.jsl',
-                                                        'datavac.jmp:DBConnect.jsl',
-                                                        'datavac.jmp:Util.jsl',
-                                                        'datavac.jmp:ConnectToWaferMap.jsl',
-                                                        'datavac.jmp:ReloadAddin.jsl',
-                                                        #*(['datavac.jmp:ReloadAddin.jsl'] if envname=='LOCAL' else [])
+                                                        'datavac.jmp::JMP16Python.jsl',
+                                                        'datavac.jmp::Secrets.jsl',
+                                                        'datavac.jmp::DBConnect.jsl',
+                                                        'datavac.jmp::Util.jsl',
+                                                        'datavac.jmp::ConnectToWaferMap.jsl',
+                                                        'datavac.jmp::ReloadAddin.jsl',
+                                                        #*(['datavac.jmp::ReloadAddin.jsl'] if envname=='LOCAL' else [])
                                                        ]]
             request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])]
             inc_files=[*generated_jsl,*dv_base_jsl,*request_jsl]
@@ -163,38 +163,40 @@ def cli_compile_jmp_addin(*args):
             for add_file in [*dv_base_jsl,*request_jsl]:
                 copy_in_file(add_file,addin_folder=addin_folder,addin_id=addin_id)
 
-        commands=[
+        general_commands=[
             {
                 'name':'Connect to Wafermap',
                 'tip':'Assign map role for current table',
-                'text': f'dv=Namespace("{addin_id}");dv:ConnectToWafermap();',
+                'text': f'dv:ConnectToWafermap();',
                 'icon':None
             },
             *([{
                 'name':'Reload Addin',
                 'tip':'Reload this add-in',
-                'text': f'dv=Namespace("{addin_id}");dv:ReloadAddin();',
+                'text': f'dv:ReloadAddin();',
                 'icon':None
             }] ),#if envname=="LOCAL" else []),
             {
                 'name':'Pull Sweeps',
                 'tip':'Pull raw curves corresponding to open table',
-                'text': f'dv=Namespace("{addin_id}");dv:PullSweeps();',
+                'text': f'dv:PullSweeps();',
                 'icon':None
             },
             {
                 'name':'Abs Currents',
                 'tip':'For headers that look like currents, take absolute value',
-                'text': f'dv=Namespace("{addin_id}");dv:AbsCurrents();',
+                'text': f'dv:AbsCurrents();',
                 'icon':None
             },
+        ]
+        menus=[
             *([{
                 'name':'Init',
                 'tip':'Initialize the add-in',
-                'text': f'dv=Namespace("{addin_id}");dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
+                'text': f'dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
                 'icon':None
             }] if env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO")=='YES' else []),
-        ]
+            {'General':general_commands},*jmp_conf.get('menus',[])]
         with (open(addin_folder/"addin.jmpcust",'wb') as f):
             root=gfg.Element("jm:menu_and_toolbar_customizations")
             root.set("xmlns:jm","http://www.jmp.com/ns/menu")
@@ -210,24 +212,39 @@ def cli_compile_jmp_addin(*args):
             dvmenu_name.text=f'DataVac_{envname.capitalize()}'
             dvmenu.append((dvmenu_caption:=gfg.Element("jm:caption")))
             dvmenu_caption.text=f'DataVac_{envname.capitalize()}'
-            for command in commands:
-                dvmenu.append((comm:=gfg.Element("jm:command")))
-                comm.append((comm_name:=gfg.Element("jm:name")))
-                comm_name.text=command['name']
-                comm.append((comm_cap:=gfg.Element("jm:caption")))
-                comm_cap.text=command['name']
-                comm.append((comm_act:=gfg.Element("jm:action")))
-                #comm_act.set("type","path")
-                #comm_act.text=fr"$ADDIN_HOME({addin_id})\{command['filename']}"
-                comm_act.text=command['text']
-                comm_act.set("type","text")
-                comm.append((comm_tip:=gfg.Element("jm:tip")))
-                comm_tip.text=command['tip']
-                assert command['icon'] is None
-                comm.append((comm_icon:=gfg.Element("jm:icon")))
-                comm_icon.set('type','None')
-
-                #copy_in_file(command['filename'],addin_folder,addin_id=addin_id)
+            def populate_menu(menu,items):
+                for item in items:
+                    assert type(item) is dict
+                    if 'name' in item:
+                        command=item
+                        menu.append((comm:=gfg.Element("jm:command")))
+                        comm.append((comm_name:=gfg.Element("jm:name")))
+                        comm_name.text=command['name']
+                        comm.append((comm_cap:=gfg.Element("jm:caption")))
+                        comm_cap.text=command['name']
+                        comm.append((comm_act:=gfg.Element("jm:action")))
+                        text=f'dv=Namespace("{addin_id}");'
+                        for inc in command.get('includes',[]):
+                            text+=f'Include("{get_resource_path(inc)}");'
+                        text+=command['text']
+                        comm_act.text=text
+                        comm_act.set("type","text")
+                        comm.append((comm_tip:=gfg.Element("jm:tip")))
+                        comm_tip.text=command.get('tip',command['name'])
+                        assert command.get('icon',None) is None
+                        comm.append((comm_icon:=gfg.Element("jm:icon")))
+                        comm_icon.set('type','None')
+                    else:
+                        assert len(item)==1
+                        itemname,itemcontent=list(item.items())[0]
+                        submenu=itemcontent
+                        menu.append((sub:=gfg.Element("jm:menu")))
+                        sub.append((sub_name:=gfg.Element("jm:name")))
+                        sub.append((sub_cap:=gfg.Element("jm:caption")))
+                        sub_cap.text=itemname
+                        sub_name.text=itemname
+                        populate_menu(sub,submenu)
+            populate_menu(dvmenu,menus)
 
             tree=gfg.ElementTree(root)
             gfg.indent(tree,'  ')
@@ -241,3 +258,4 @@ def cli_compile_jmp_addin(*args):
         logger.debug(f"Add-in for {envname} compiled")
         print("\n\nNow install by opening the following file in JMP:")
         print(fr"{addin_folder/f'DataVac_{envname.capitalize()}.jmpaddin'}")
+        print("")

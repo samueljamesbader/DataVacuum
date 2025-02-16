@@ -54,7 +54,7 @@ def import_modfunc(dotpath):
     return func
 
 def get_resource_path(dotpath):
-    pkg,relpath=dotpath.split(":")
+    pkg,relpath=dotpath.split("::")
     with irsc.as_file(irsc.files(pkg)) as pkg_path:
         return pkg_path/relpath
 
