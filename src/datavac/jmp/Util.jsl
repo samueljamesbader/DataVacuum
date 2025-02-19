@@ -89,10 +89,16 @@ dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
 	if(close previous,
 		Try(Close(DataTable(tablename)), "No issue");
 	);
-	q1="Select * from jmp.\!""||tablename||"\!"";
+	q1="Select * from jmp.\!""||tablename||"\!""||sqlrestrict;
 	New SQL Query(
 		Connection(dv:conn_str_no_pass),
 		QueryName( tablename ),
 		CustomSQL(q1),
 	) << Run Foreground();
+);
+
+dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict=Empty(), close previous=1},
+	If(Is Empty(sqlrestrict) | sqlrestrict=="",
+		sqlrestrict=dv:LotPreselectorSQL(tablename));
+	dv:QuickSelect(tablename, sqlrestrict, close previous);
 );
