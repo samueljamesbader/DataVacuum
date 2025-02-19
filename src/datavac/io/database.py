@@ -109,9 +109,10 @@ class AlchemyDatabase:
             tc.__exit__(None,None,None)
             yield conn
 
-    def validate(self, on_mismatch='raise'):
+    def validate(self, on_mismatch='raise', force_recreate_views=False):
         assert self._metadata_source=='reflect', "Need to reflect DB metadata to validate it!"
-        self.establish_database(on_mismatch=on_mismatch,just_metadata=False)
+        assert not ((on_mismatch=='warn') and force_recreate_views), "Can't force recreate views on dry-run"
+        self.establish_database(on_mismatch=on_mismatch,just_metadata=False,force_recreate_views=force_recreate_views)
 
     def establish_database(self, on_mismatch='raise', just_metadata=True):
         raise NotImplementedError
@@ -268,7 +269,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     conn.execute(text(f'DROP TABLE "{table.replace(".","\".\"")}" CASCADE;'))
 
 
-    def establish_database(self, on_mismatch='raise', just_metadata=False):
+    def establish_database(self, on_mismatch='raise', just_metadata=False, force_recreate_views=False):
 
         class FakeConnect():
             def commit(self): pass
@@ -342,7 +343,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     if not just_metadata: conn.commit()
             with time_it("Ensuring measurement group tables",threshold_time=.1):
                 for mg in CONFIG['measurement_groups']:
-                    self.establish_measurement_group_tables(mg,conn,on_mismatch=on_mismatch,just_metadata=just_metadata)
+                    self.establish_measurement_group_tables(mg,conn,on_mismatch=on_mismatch,just_metadata=just_metadata, force_recreate_view=force_recreate_views)
                     if not just_metadata: conn.commit()
             with time_it("Ensuring higher_analyses tables",threshold_time=.1):
                 for an in CONFIG['higher_analyses']:
@@ -581,10 +582,10 @@ class PostgreSQLDatabase(AlchemyDatabase):
         conn.commit()
 
 
-    def establish_measurement_group_tables(self,measurement_group,conn, on_mismatch='raise',just_metadata=False):
+    def establish_measurement_group_tables(self,measurement_group,conn, on_mismatch='raise',just_metadata=False, force_recreate_view=False):
         mg, mg_info = measurement_group, CONFIG['measurement_groups'][measurement_group]
 
-        do_recreate_view=False
+        do_recreate_view=force_recreate_view
         def on_init():
             nonlocal do_recreate_view
             do_recreate_view=True
@@ -1405,6 +1406,8 @@ def cli_update_layout_params(*args):
         for mg in layout_params._tables_by_meas:
             db.update_layout_parameters(layout_params,mg,conn)
         conn.commit()
+    print("\n\nUpdating layout params can result in views getting deleted")
+    print("Make sure to run datavac database force -rv")
 
 def cli_dump_measurement(*args):
     parser=argparse.ArgumentParser(description='Dumps measurements')
@@ -1443,9 +1446,10 @@ def cli_dump_analysis(*args):
 def cli_force_database(*args):
     parser=argparse.ArgumentParser(description='Replaces any tables not currently in agreement with schema')
     parser.add_argument('-dr','--dry_run',action='store_true',help='Just print what would be done')
+    parser.add_argument('-rv','--force_recreate_views',action='store_true',help='Force recreation of views')
     namespace=parser.parse_args(args)
     db=get_database(metadata_source='reflect')
-    db.validate(on_mismatch=('warn' if namespace.dry_run else 'replace'))
+    db.validate(on_mismatch=('warn' if namespace.dry_run else 'replace'),force_recreate_views=namespace.force_recreate_views)
 
 def cli_upload_data(*args):
     from datavac.io.meta_reader import ALL_MATLOAD_COLUMNS
