@@ -84,21 +84,24 @@ dv:AbsCurrents = Function({dt=0},
 	);
 );
 
-
-dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
+dv:QuickSQL = Function({tablename, sql, close previous=1},
 	if(close previous,
 		Try(Close(DataTable(tablename)), "No issue");
 	);
-	q1="Select * from jmp.\!""||tablename||"\!""||sqlrestrict;
 	New SQL Query(
 		Connection(dv:conn_str_no_pass),
 		QueryName( tablename ),
-		CustomSQL(q1),
+		CustomSQL(sql),
 	) << Run Foreground();
+);
+
+dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
+	sql="Select * from jmp.\!""||tablename||"\!""||sqlrestrict;
+	dv:QuickSQL(tablename, sql, close previous)
 );
 
 dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict=Empty(), close previous=1},
 	If(Is Empty(sqlrestrict) | sqlrestrict=="",
-		sqlrestrict=dv:LotPreselectorSQL(tablename));
+		sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1));
 	dv:QuickSelect(tablename, sqlrestrict, close previous);
 );
