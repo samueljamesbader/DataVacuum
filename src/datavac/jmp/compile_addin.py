@@ -120,9 +120,13 @@ def cli_compile_jmp_addin(*args):
                 import numpy as np
                 import pandas as pd
                 from datavac.appserve.user_side import is_access_key_valid as iakv
-                if not iakv():
+                access_key_bad=False
+                if 'localhost' in os.environ['DATAVACUUM_DEPLOYMENT_URI']:
+                    print("Local deployment so not checking for access key")
+                elif not iakv():
                     print("No valid access key")
-                else:
+                    access_key_bad=True
+                if not access_key_bad:
                     from datavac.io.database import get_database; db = get_database(populate_metadata=False);
                     print("DataVacuum Python-side DB setup")
             """))

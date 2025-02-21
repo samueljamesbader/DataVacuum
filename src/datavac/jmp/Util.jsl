@@ -100,8 +100,7 @@ dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
 	dv:QuickSQL(tablename, sql, close previous)
 );
 
-dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict=Empty(), close previous=1},
-	If(Is Empty(sqlrestrict) | sqlrestrict=="",
-		sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1));
+dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", close previous=1},
+	sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
 	dv:QuickSelect(tablename, sqlrestrict, close previous);
 );

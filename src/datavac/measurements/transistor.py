@@ -29,6 +29,7 @@ class IdVg(MeasurementType):
     Iswf: float = 1e-6
     pol: str = 'n'
     vgoff: float = 0
+    Vgons: dict[str,float] = dataclasses.field(default_factory=lambda:{'':1})
     abs_vdlin: float = None
     abs_vdsat: float = None
 
@@ -89,6 +90,12 @@ class IdVg(MeasurementType):
                 logger.warning(f"Must be an exactly {self.vgoff} entry in VG, no tol for this")
                 ind0=False
         else: ind0=False
+        indons={}
+        for k,v in self.Vgons.items():
+            indons[k]=np.argmax(VG1d==v)
+            if not VG1d[indons[k]]==v:
+                logger.warning(f"Must be an exactly {v} entry in VG for on-state, no tol for this")
+                indons[k]=False
         DVG=VG1d[1]-VG1d[0]
         assert np.allclose(np.diff(VG),DVG), "VG should be even spacing"
         assert np.sign(DVG)==(-1 if self.pol=='p' else 1), "VG should sweep off-to-on"
@@ -121,7 +128,12 @@ class IdVg(MeasurementType):
         measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
         measurements['Ion/Ioffmin']=measurements['Ion [A]']/measurements['Ioffmin [A]']
         measurements['Ion/Ioffstart']=measurements['Ion [A]']/measurements['Ioffstart [A]']
-        measurements['Ron [ohm]']=np.abs(VDlin)/(np.abs(IDlin[:,-1])+tol)
+        for k,ind in indons.items():
+            measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.NaN if (ind is False) or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
+            measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
+        measurements[f'Ronstop [ohm]']=np.abs(VDlin)/(measurements['Ion_lin [A]']+tol)
+        measurements[f'RonWstop [ohm.um]']=measurements[f'Ronstop [ohm]']*W*1e6
+        measurements['VGstop [V]']=VG1d[-1]
         for k,v in self.Iccs.items():
             measurements[f'VTcc{k}_lin']=VTCC((IDlin.T/W).T,VG,v,itol=tol)
             measurements[f'VTcc{k}_sat']=VTCC((IDsat.T/W).T,VG,v,itol=tol)
