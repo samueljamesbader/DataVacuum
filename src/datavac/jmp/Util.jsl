@@ -16,7 +16,7 @@ dv:LotPreselector = Function({dbtable,single=0},{Default Local},
 		QueryName(qname),
 		CustomSQL("select distinct \!"Lot\!" from \!"jmp\!".\!""||dbtable||"\!";")
 	) << Run Foreground(Invisible);
-	potential_lots=Column(dt,"Lot")<<Get Values();
+	potential_lots=Sort Descending(Column(dt,"Lot")<<Get Values());
 	If(single,
 		win=New Window("Select Lot",<<modal,<<return result,
 			lots=ListBox(potential_lots,maxSelected(1)))
