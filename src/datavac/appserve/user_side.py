@@ -25,6 +25,8 @@ def copy_in_access_key():
         logger.debug(f"Copied over {str(selected)} to cache")
 
 def have_user_download_access_key():
+    input("When you hit enter, a browser window will open for you to download an access key.\n" 
+        "Let this key download to your default Downloads folder, then close that browser window.")
     direct_user_to_access_key()
     input('Press enter once downloaded')
     copy_in_access_key()

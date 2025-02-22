@@ -132,7 +132,7 @@ def config_datavacuum():
         if not CONTEXT_PATH.exists(): CONTEXT_PATH.mkdir(parents=True,exist_ok=True)
 
         if Path(sys.argv[0]).stem=='datavac_with_context': return # TODO: replace with 'datavac context with' and get rid of this
-        if (sys.argv[0]=='datavac') and (len(sys.argv)>1 and sys.argv[1]=='context'): return
+        if (Path(sys.argv[0]).stem=='datavac') and (len(sys.argv)>1 and sys.argv[1] in ['context','cn']): return
 
         context_name=get_current_context_name()
         if context_name is not None:
@@ -181,19 +181,20 @@ def cli_context_install(*args):
 
 def cli_context_edit(*args):
     parser=argparse.ArgumentParser(description='Edit the current context')
+    parser.add_argument('--context',help='The context to edit')
     parser.add_argument('--variable',help='The variable to edit')
     parser.add_argument('--value',help='The value to set the variable to')
     parser.add_argument('--ask-user',action='store_true',help='Prompt the user for the value')
     parser.add_argument('--path',action='store_true',help='Check that the value exists as a path')
     namespace=parser.parse_args(args)
 
-    context_file=CONTEXT_PATH/f"{get_current_context_name()}.dvcontext.env"
+    context_file=CONTEXT_PATH/f"{namespace.context or get_current_context_name()}.dvcontext.env"
     assert context_file.exists(),\
-        f"Context {namespace.context_name} not found in {CONTEXT_PATH}"
+        f"Context {namespace.context} not found in {CONTEXT_PATH}"
 
     if not namespace.variable:
         raise NotImplementedError("Opening editor not enabled yet, supply a --variable VAR argument")
-        #os.system(f"notepad {CONTEXT_PATH/f'{namespace.context_name}.dvcontext.env'}")
+        #os.system(f"notepad {CONTEXT_PATH/f'{namespace.context}.dvcontext.env'}")
         pass
     else:
         if namespace.value:
