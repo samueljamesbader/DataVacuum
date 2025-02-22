@@ -950,6 +950,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 logger.debug(f"Running analysis: {an}")
             else:
                 logger.debug(f"Skipping analysis {an} because missing some required dependencies")
+                conn.execute(delete(self._reatab) \
+                             .where(self._reatab.c.matid==matid) \
+                             .where(self._reatab.c.analysis==an))
                 continue
             df=import_modfunc(CONFIG.higher_analyses[an]['analysis_func'])(
                 #**{v: mg_to_data[k].scalar_table_with_layout_params() for k,v in
@@ -1177,15 +1180,16 @@ class PostgreSQLDatabase(AlchemyDatabase):
         #print(x,ys,swvs)
         #print(data)
 
-        # The above results in NaN values where there is no data for a given sweep or sweep variable
+
+        # Restack the data so different sweep variables are columns rather than parts of headers
+        data=stack_multi_sweeps(data,x=x,ys=ys,swvs=swvs,restrict_dirs=(('f','r') if directed else ('',))).reset_index(drop=True)
+
+        # The above (both the unstack and the stack each) results in NaN values where there is no data for a given sweep
         # eg for IdVg if sometimes the source current is measured and sometimes not,
         # then there will be NaNs in the I_S column.
         # In order to be able to explode data, we will want to replace each NaN with an *array* of NaN's
         # of the same length as the independent variable.
         data=data.where(data.notna(),pd.Series([np.full(len(c),np.nan) for c in data[x]]),axis=0)
-
-        # Restack the data so different sweep variables are columns rather than parts of headers
-        data=stack_multi_sweeps(data,x=x,ys=ys,swvs=swvs,restrict_dirs=(('f','r') if directed else ('',)))
         print(x,ys)
         data = data.explode([x,*ys],ignore_index=True)\
             [['loadid','measid',*[k for k in data.columns if k not in ['loadid','measid']]]]
