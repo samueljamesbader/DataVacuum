@@ -44,7 +44,7 @@ class MeasurementTable:
 
     @property
     def scalar_table(self):
-        return self._dataframe.drop(columns=self.headers)
+        return self._dataframe.drop(columns=[h for h in self.headers if h in self._dataframe.columns])
 
     def scalar_table_with_layout_params(self, params=None, on_missing='error') -> pd.DataFrame:
         if self.meas_group:
