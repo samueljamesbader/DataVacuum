@@ -1497,7 +1497,7 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
             if not yes:
                 if not (input(f'No folder or {connected} restriction, continue to read EVERYTHING? [y/n] ').strip().lower()=='y'):
                     return
-            folders=[f.name for f in Path(os.environ['DATAVACUUM_READ_DIR']).glob('*') if 'IGNORE' not in f.name]
+            folders=sorted([f.name for f in Path(os.environ['DATAVACUUM_READ_DIR']).glob('*') if 'IGNORE' not in f.name], reverse=True)
 
     if isolate_errors:
         timings={}
