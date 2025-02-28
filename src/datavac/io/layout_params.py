@@ -107,7 +107,10 @@ class _LayoutParameters:
                 for afunc_dotpath in afunc_dotpaths:
                     afunc=getattr(import_module(afunc_dotpath.split(":")[0]),
                                   afunc_dotpath.split(":")[1])
-                    afunc(self._tables_by_meas[meas_key])
+                    try: afunc(self._tables_by_meas[meas_key])
+                    except:
+                        logger.error(f"Error applying {afunc_dotpath} to {meas_key}")
+                        raise
             for c in self._tables_by_meas[meas_key].columns:
                 if self._tables_by_meas[meas_key][c].dtype==np.dtype('O'):
                     logger.debug(f"Stringifying '{c}' in '{meas_key}'")

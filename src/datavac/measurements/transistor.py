@@ -93,8 +93,8 @@ class IdVg(MeasurementType):
         indons={}
         for k,v in self.Vgons.items():
             indons[k]=np.argmax(VG1d==v)
-            if not VG1d[indons[k]]==v:
-                logger.warning(f"Must be an exactly {v} entry in VG for on-state, no tol for this")
+            if not np.allclose(VG1d[indons[k]],v):
+                logger.warning(f"Must be an exactly {v} entry in VG for on-state")
                 indons[k]=False
         DVG=VG1d[1]-VG1d[0]
         assert np.allclose(np.diff(VG),DVG), "VG should be even spacing"
