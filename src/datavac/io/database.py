@@ -1233,7 +1233,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         factor_cols:list[Column]=[get_col(f) for f in factor_names]
         def apply_joins():
             ordered_needed_tables=[]
-            need_queue=set(absolute_needs+[f.table for f in factor_cols])
+            need_queue=set(absolute_needs+[f.table for f in factor_cols]+[get_col(pf).table for pf in pre_filters])
             while len(need_queue):
                 for n in need_queue.copy():
                     further_needs=table_depends[n]
