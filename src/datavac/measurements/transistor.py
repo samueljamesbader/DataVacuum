@@ -4,7 +4,7 @@ import numpy as np
 from scipy.signal import savgol_filter
 
 from .measurement_type import MeasurementType
-from datavac.util.maths import VTCC
+from datavac.util.maths import VTCC, YatX
 from datavac.util.util import only
 from datavac.util.logging import logger
 from ..io.measurement_table import MeasurementTable
@@ -90,12 +90,12 @@ class IdVg(MeasurementType):
                 logger.warning(f"Must be an exactly {self.vgoff} entry in VG, no tol for this")
                 ind0=False
         else: ind0=False
-        indons={}
-        for k,v in self.Vgons.items():
-            indons[k]=np.argmax(VG1d==v)
-            if not np.allclose(VG1d[indons[k]],v):
-                logger.warning(f"Must be an exactly {v} entry in VG for on-state")
-                indons[k]=False
+        #indons={}
+        #for k,v in self.Vgons.items():
+        #    indons[k]=np.argmax(VG1d==v)
+        #    if not np.allclose(VG1d[indons[k]],v):
+        #        logger.warning(f"Must be an exactly {v} entry in VG for on-state")
+        #        indons[k]=False
         DVG=VG1d[1]-VG1d[0]
         assert np.allclose(np.diff(VG),DVG), "VG should be even spacing"
         assert np.sign(DVG)==(-1 if self.pol=='p' else 1), "VG should sweep off-to-on"
@@ -128,8 +128,11 @@ class IdVg(MeasurementType):
         measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
         measurements['Ion/Ioffmin']=measurements['Ion [A]']/measurements['Ioffmin [A]']
         measurements['Ion/Ioffstart']=measurements['Ion [A]']/measurements['Ioffstart [A]']
-        for k,ind in indons.items():
-            measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.NaN if (ind is False) or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
+        #for k,ind in indons.items():
+        #    measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.NaN if (ind is False)# or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
+        #    measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
+        for k,v in self.Vgons.items():
+            measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v))
             measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         measurements[f'Ronstop [ohm]']=np.abs(VDlin)/(measurements['Ion_lin [A]']+tol)
         measurements[f'RonWstop [ohm.um]']=measurements[f'Ronstop [ohm]']*W*1e6
@@ -150,3 +153,38 @@ class IdVg(MeasurementType):
         measurements['Igmax_lin [A]']=np.max(np.abs(IGlin),axis=1)
         measurements['Igmax_sat [A]']=np.max(np.abs(IGsat),axis=1)
         measurements['Igmax [A]']=np.maximum(measurements['Igmax_lin [A]'],measurements['Igmax_sat [A]'])
+
+
+@dataclasses.dataclass
+class IdVd(MeasurementType):
+    norm_column: str
+    pol: str = 'n'
+    VGoffs: dict[str,float] = dataclasses.field(default_factory=lambda:{'':0})
+    VDDs: dict[str,float] = dataclasses.field(default_factory=lambda:{'':1})
+
+    def __post_init__(self):
+        self._norm_col_units={'mm':1e-3,'um':1e-6,'nm':1e-9} \
+            [self.norm_column.split("[")[1].split("]")[0]]
+
+    def get_norm(self, measurements):
+        return np.array(measurements[self.norm_column],dtype=np.float32)*self._norm_col_units
+
+    def get_preferred_dtype(self,header):
+        return np.float32
+
+    def analyze(self, measurements):
+        has_ig=any('IG' in k for k in measurements.headers)
+        VGstrs=[k.split("=")[-1] for k in measurements.headers if k.startswith('fID')]
+        for VDDlabel,VDD in self.VDDs.items():
+            for VGofflabel,VGoff in self.VGoffs.items():
+                try: VGoffstr=only([k for k in VGstrs if np.isclose(float(k),VGoff)])
+                except: measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= np.NaN
+                else: measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= \
+                        YatX(X=measurements['VD'],Y=measurements[f'fID@VG={VGoffstr}'],x=VDD)
+        if has_ig:
+            Igmax=np.max(np.vstack([np.max(np.abs(measurements[f'fIG@VG={vgs}']),axis=1) for vgs in VGstrs]).T,axis=1)
+        else: Igmax=np.NaN
+        measurements['Igmax [A]']=Igmax
+
+    def __str__(self):
+        return 'IdVd'

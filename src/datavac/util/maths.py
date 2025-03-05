@@ -68,21 +68,30 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float):
     Returns:
         an array (of length n) of interpolated targets
     """
+    X=np.asarray(X); Y=np.asarray(Y);
 
     ind_aboves=np.argmax(X>=x, axis=1)
-    ind_belows=X.shape[1]-np.argmax(X[:,::-1]<x, axis=1)-1
-    valid_crossing=(ind_aboves==(ind_belows+1))
+    ind_belows=X.shape[1]-np.argmax(X[:,::-1]<=x, axis=1)-1
+    valid_crossing_between=(ind_aboves==(ind_belows+1))
+    valid_crossing_rightat=(ind_aboves==ind_belows)
 
     allinds=np.arange(len(X))
-    X1,X2=X[allinds,ind_belows][valid_crossing],X[allinds,ind_aboves][valid_crossing]
-    Y1,Y2=Y[allinds,ind_belows][valid_crossing],Y[allinds,ind_aboves][valid_crossing]
+    Ycc=np.empty(len(X))
+
+    # Cover the crossing-between case
+    X1,X2=X[allinds,ind_belows][valid_crossing_between],X[allinds,ind_aboves][valid_crossing_between]
+    Y1,Y2=Y[allinds,ind_belows][valid_crossing_between],Y[allinds,ind_aboves][valid_crossing_between]
 
     slope=(Y2-Y1)/(X2-X1)
     Yavg=(Y1+Y2)/2
     Xavg=(X1+X2)/2
 
-    Ycc=np.empty(len(X))
-    Ycc[valid_crossing]=Yavg+(x-Xavg)*slope
-    Ycc[~valid_crossing]=np.NaN
+    Ycc[valid_crossing_between]=Yavg+(x-Xavg)*slope
+
+    # Cover the crossing-at case
+    Ycc[valid_crossing_rightat]=Y[allinds,ind_aboves][valid_crossing_rightat]
+
+    # NaN everything else
+    Ycc[~(valid_crossing_between|valid_crossing_rightat)]=np.NaN
 
     return Ycc
