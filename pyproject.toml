@@ -48,7 +48,7 @@ dependencies = [
     # BSD-3-Clause license, no CVE risk as of 2/4/2023
     "h5py >= 3.8.0",
 
-    "pint >= 0.22",
+    "pint >= 0.24.4",
 
     # Public Domain + BSD license, no CVE risk as of 12/31/2024
     "pynacl >= 1.5.0",
