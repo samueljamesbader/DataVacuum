@@ -369,6 +369,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                           Column('DieCenterB [mm]',DOUBLE_PRECISION,nullable=False),
                           Column('DieX',INTEGER,nullable=False),
                           Column('DieY',INTEGER,nullable=False),
+                          Column('DieComplete',BOOLEAN,nullable=False),
                           UniqueConstraint('Mask','DieXY'),
                           on_mismatch=on_mismatch,on_init=yes_needs_update,just_metadata=just_metadata)
         if needs_update:
@@ -409,7 +410,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         diemdf=[]
         for mask,info in CONFIG['array_maps'].items():
             dbdf,to_pickle=import_modfunc(info['generator'])(**info['args'])
-            diemdf.append(dbdf.assign(Mask=mask)[['Mask','DieXY','DieRadius [mm]','DieCenterA [mm]','DieCenterB [mm]','DieX','DieY']])
+            diemdf.append(dbdf.assign(Mask=mask)[['Mask','DieXY','DieRadius [mm]','DieCenterA [mm]','DieCenterB [mm]','DieX','DieY','DieComplete']])
             update_info=dict(Mask=mask,info_pickle=pickle.dumps(to_pickle))
             conn.execute(pgsql_insert(self._masktab).values(**update_info)\
                          .on_conflict_do_update(index_elements=['Mask'],set_=update_info))

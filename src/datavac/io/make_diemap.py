@@ -200,7 +200,8 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
         'DieY':list(dieys.values()),
         'DieCenterA [mm]':a_diecenters,
         'DieCenterB [mm]':b_diecenters,
-        'DieRadius [mm]':np.asarray(np.round(np.sqrt((np.array(list(a_lefts.values()))+.5*aindex)**2+(np.array(list(b_bottoms.values()))+.5*bindex)**2)),dtype=int)
+        'DieRadius [mm]':np.asarray(np.round(np.sqrt((np.array(list(a_lefts.values()))+.5*aindex)**2+(np.array(list(b_bottoms.values()))+.5*bindex)**2)),dtype=int),
+        'DieComplete':[(k in complete_dies) for k in allmappoints.keys()],
     })
 
     # Add a shape for the circle as well
