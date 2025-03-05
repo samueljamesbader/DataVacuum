@@ -1,3 +1,5 @@
+import argparse
+
 import requests
 
 from datavac.appserve.dvsecrets import get_ssl_rootcert_for_ak
@@ -49,6 +51,14 @@ def is_access_key_valid():
             return False
         else: raise
     return True
+
+def cli_ensure_valid_access_key(*args):
+    parser=argparse.ArgumentParser(description="Ensure that the user has a valid access key")
+    if (get_saved_access_key(suppress_error=True) is None) or (not is_access_key_valid()):
+        print("No valid access key found, asking user to download")
+        have_user_download_access_key()
+    assert is_access_key_valid()
+    print("Access key is valid")
 
 def get_secret_from_deployment(secret_name):
     try: access_key=get_saved_access_key()
