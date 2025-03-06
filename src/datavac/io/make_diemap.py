@@ -1,9 +1,10 @@
-from typing import Callable, Union
+from typing import Callable, Union, Optional
 from pathlib import Path
 import pandas as pd
 import numpy as np
 
 def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 0, boffset:float = 0,
+                          adim:Optional[float]=None, bdim:Optional[float]=None,
                           radius:float=150, notchsize:float=5, discard_ratio:float = .3, plot:bool = False,
                           save_csv:bool = True, save_dir:Path=None,
                           transform:Callable[[float,float],tuple[float,float]]=lambda x,y: (x,y),
@@ -29,9 +30,11 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
         bindex: length in mm of the die in the b (ie perp-to-notch) direction.
         aoffset: a-coordinate of the bottom-left-when-notchleft corner of the reference (A,B)=(0,0) die (default 0)
         boffset: b-coordinate of the bottom-left-when-notchleft corner of the reference (A,B)=(0,0) die (default 0)
+        adim: the length along a of the die (defaults to aindex)
+        bdim: the length along b of the die (defaults to bindex)
         radius: radius in mm of the wafer
         notchsize: size in mm of the notch indentation [not real notch, just for visual purposes]
-        discard_ratio: dies which fit into a rectangle with area less than discard_ratio*aindex*bindex are deleted
+        discard_ratio: dies which fit into a rectangle with area less than discard_ratio*adim*bdim are deleted
         plot: whether to draw a matplotlib figure representing the wafer
         save_csv: produce the JMP-friendly .csv outputs
         save_dir: path where to save the csv or pickle files (defaults to current directory)
@@ -45,6 +48,10 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
 
     # labeller will be used as a function below.  If it's a string, we'll make it a function.
     if type(labeller) is str: labeller= lambda x,y,lblstr=labeller: lblstr.format(x=x,y=y)
+
+    # adim and bdim default to aindex and bindex
+    if adim is None: adim=aindex
+    if bdim is None: bdim=bindex
 
     # Default to current directory if not supplied
     save_dir=save_dir or Path.cwd()
@@ -92,7 +99,7 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
         a,b=(diea)*aindex+aoffset,(dieb)*bindex+boffset
 
         # All points of the die rectangle, going CW
-        rect_points=[(a,b),(a,b+bindex),(a+aindex,b+bindex),(a+aindex,b)]
+        rect_points=[(a,b),(a,b+bdim),(a+adim,b+bdim),(a+adim,b)]
 
         # Get all the points of the rectangle and points where it intersects the circle, going CW
         poly_points=[]
@@ -149,9 +156,13 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
                 refined_poly_points+=zip(radius*np.cos(thetas),radius*np.sin(thetas))
 
         # Find the area of a rectangle that would contain this polygon and if it's tiny, disregard die
+        # Special case: if discard_ratio is 1, base on complete_dies list to avoid floating-point equality check
         w=max([ab[0] for ab in refined_poly_points])-min([ab[0] for ab in refined_poly_points])
         h=max([ab[1] for ab in refined_poly_points])-min([ab[1] for ab in refined_poly_points])
-        if w*h<discard_ratio*aindex*bindex: continue
+        if discard_ratio==1:
+            if label not in complete_dies: continue
+        else:
+            if w*h<discard_ratio*adim*bdim: continue
 
         # Finally, remove the notch
         refined_poly_points_dodge_notch=[]
@@ -192,15 +203,15 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
                     }).set_index('DieXY').sort_index()}
 
     # Table of die coordinates
-    a_diecenters=np.array(list(a_lefts.values()))+.5*aindex
-    b_diecenters=np.array(list(b_bottoms.values()))+.5*bindex
+    a_diecenters=np.array(list(a_lefts.values()))+.5*adim
+    b_diecenters=np.array(list(b_bottoms.values()))+.5*bdim
     die_coords=pd.DataFrame({
         'DieXY':list(allmappoints.keys()),
         'DieX':list(diexs.values()),
         'DieY':list(dieys.values()),
         'DieCenterA [mm]':a_diecenters,
         'DieCenterB [mm]':b_diecenters,
-        'DieRadius [mm]':np.asarray(np.round(np.sqrt((np.array(list(a_lefts.values()))+.5*aindex)**2+(np.array(list(b_bottoms.values()))+.5*bindex)**2)),dtype=int),
+        'DieRadius [mm]':np.asarray(np.round(np.sqrt((np.array(list(a_lefts.values()))+.5*adim)**2+(np.array(list(b_bottoms.values()))+.5*bdim)**2)),dtype=int),
         'DieComplete':[(k in complete_dies) for k in allmappoints.keys()],
     })
 
@@ -211,6 +222,7 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
 
     # Output in CSVs in the form that JMP will like
     if save_csv:
+        (save_dir:=Path(save_dir)).mkdir(exist_ok=True,parents=True)
         for notch,sgn1,ind1,sgn2,ind2 in [('Left',1,0,1,1),('Down',-1,1,1,0),('Right',-1,0,-1,1),('Up',1,1,-1,0)]:
             pd.DataFrame(dict(
                 zip(["Shape ID","DieXY"], \
