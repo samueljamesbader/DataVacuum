@@ -69,6 +69,7 @@ def stack_multi_sweeps(df,x,ys,swvs, restrict_dirs=None, restrict_swvs=None, non
 
     bystanders=[c for c in df.columns if c not in yheaders and c!=x and '@' not in c]
     subtabs=[]
+    sweepid=0
     for vs in vals:
         for d in restrict_dirs:
             yheaders_in_subtab=[yheader for yheader in yheaders
@@ -78,11 +79,12 @@ def stack_multi_sweeps(df,x,ys,swvs, restrict_dirs=None, restrict_swvs=None, non
                 df[([x] if x is not None else [])+yheaders_in_subtab+bystanders] \
                     .rename(columns={yheader:yheader[len(d):].split("@")[0] \
                                      for yheader in yheaders_in_subtab}) \
-                    .assign(**{swv:v for swv,v in zip(swvs,vs)},**({} if non_directed else {'SweepDir':d})))
+                    .assign(sweepid=sweepid,**{swv:v for swv,v in zip(swvs,vs)},**({} if non_directed else {'SweepDir':d})))
+            sweepid+=1
     if len(subtabs):
         return pd.concat(subtabs)
     else:
-        return pd.DataFrame({k:[] for k in ([x] if x is not None else [])+ys+bystanders})
+        return pd.DataFrame({k:[] for k in ['sweepid']+([x] if x is not None else [])+ys+bystanders})
 
 def stack_sweeps(df,x,ys,swv, restrict_dirs=None, restrict_swv=None, non_directed=False):
     return stack_multi_sweeps(

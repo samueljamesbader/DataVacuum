@@ -122,6 +122,8 @@ dv:PullSweeps=Function({dt=0, db_table_name=0},
 		linkidcol = sweeptab << New Column( "loadid_measid", "Continuous","Nominal",
 			Formula(:loadid*1e9+:measid));
 		Column(sweeptab, "loadid_measid") << Set Property( "Link Reference", Reference Table(path) );
+		sweeptab << New Column( "loadid_measid_sweepid", "Continuous","Nominal",
+			Formula(:loadid*1e10+:measid*1e1+:sweepid));
 		sweeptab << New Data View();
 	);
 	sweeptab;
