@@ -349,7 +349,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 for an in CONFIG['higher_analyses']:
                     self.establish_higher_analysis_tables(an,conn,on_mismatch=on_mismatch,just_metadata=just_metadata)
                     if not just_metadata: conn.commit()
-        self._established=True
+        self._populated_metadata=True
 
     def establish_mask_tables(self,conn, on_mismatch='raise',just_metadata=False):
         needs_update=False
