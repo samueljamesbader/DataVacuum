@@ -211,22 +211,25 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
         'DieY':list(dieys.values()),
         'DieCenterA [mm]':a_diecenters,
         'DieCenterB [mm]':b_diecenters,
-        'DieRadius [mm]':np.asarray(np.round(np.sqrt((np.array(list(a_lefts.values()))+.5*adim)**2+(np.array(list(b_bottoms.values()))+.5*bdim)**2)),dtype=int),
+        'DieRadius [mm]':np.asarray(np.round(np.sqrt((np.array(list(a_lefts.values()))+.5*adim)**2
+                                                    +(np.array(list(b_bottoms.values()))+.5*bdim)**2)),dtype=int),
         'DieComplete':[(k in complete_dies) for k in allmappoints.keys()],
     })
 
     # Add a shape for the circle as well
     thetas=np.linspace(np.arctan2(-notchsize,-radius),np.arctan2(notchsize,-radius),60,endpoint=True)
     allmappoints["Circle"]=list(zip(radius*np.cos(thetas),radius*np.sin(thetas)))+[(-radius+notchsize,0)]
+    diexs['Circle']=pd.NA; dieys['Circle']=pd.NA # needed because of use of zip function for *Name.csv
 
 
     # Output in CSVs in the form that JMP will like
     if save_csv:
         (save_dir:=Path(save_dir)).mkdir(exist_ok=True,parents=True)
         for notch,sgn1,ind1,sgn2,ind2 in [('Left',1,0,1,1),('Down',-1,1,1,0),('Right',-1,0,-1,1),('Up',1,1,-1,0)]:
+            if (save_csv!=True) and (notch not in save_csv): continue
             pd.DataFrame(dict(
-                zip(["Shape ID","DieXY"], \
-                    zip(*enumerate(allmappoints.keys(),start=1))))) \
+                zip(["Shape ID","DieXY","DieX","DieY"], \
+                    [*zip(*enumerate(allmappoints.keys(),start=1)),diexs.values(),dieys.values()]))) \
                 .to_csv(save_dir/f"{name}_Notch{notch}Diemap-Name.csv",index=False)
             pd.DataFrame(dict(
                 zip(["Shape ID","Part ID","X","Y"], \
