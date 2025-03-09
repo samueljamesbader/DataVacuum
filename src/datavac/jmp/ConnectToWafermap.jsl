@@ -19,3 +19,55 @@ dv:ConnectToWafermap = Function( { dt=0 , map_name="Default-Name.jmp" }, {Defaul
 		)));
 	);
 );
+
+dv:Convert To JMP Map = Function({Name csv path, Name jmp path}, {Default Local},
+
+	Name dt=Open(
+		Name csv path,
+		columns(
+			New Column( "Shape ID", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "DieXY", Character, "Nominal" ),
+			New Column( "DieX", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "DieY", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "GenericName", Character, "Nominal" )
+		),
+		Import Settings(
+			End Of Line( CRLF, CR, LF ), End Of Field( Comma, CSV( 1 ) ),
+			Strip Quotes( 0 ), Use Apostrophe as Quotation Mark( 0 ),
+			Use Regional Settings( 0 ), Scan Whole File( 1 ),
+			Treat empty columns as numeric( 0 ), CompressNumericColumns( 0 ),
+			CompressCharacterColumns( 0 ), CompressAllowListCheck( 0 ),
+			Labels( 1 ), Column Names Start( 1 ),
+			Data Starts( 2 ), Lines To Read( "All" ), Year Rule( "20xx" )
+		)
+	);
+	Name dt:DieXY << Set Property( "Map Role", "Shape Name Definition" );
+	Name dt << Save(Name jmp path, ".csv", ".jmp" );
+	Close(Name dt, NoSave);
+	Write("Made "||Name jmp path||"\!N");
+
+	XY csv path = Substitute( Name csv path, "Name", "XY");
+	XY dt=Open(
+		xy csv path,
+		columns(
+			New Column( "Shape ID", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "DieXY", Character, "Nominal" ),
+			New Column( "DieX", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "DieY", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "GenericName", Character, "Nominal" )
+		),
+		Import Settings(
+			End Of Line( CRLF, CR, LF ), End Of Field( Comma, CSV( 1 ) ),
+			Strip Quotes( 0 ), Use Apostrophe as Quotation Mark( 0 ),
+			Use Regional Settings( 0 ), Scan Whole File( 1 ),
+			Treat empty columns as numeric( 0 ), CompressNumericColumns( 0 ),
+			CompressCharacterColumns( 0 ), CompressAllowListCheck( 0 ),
+			Labels( 1 ), Column Names Start( 1 ),
+			Data Starts( 2 ), Lines To Read( "All" ), Year Rule( "20xx" )
+		)
+	);
+	XY jmp path = Substitute( Name jmp path, "-Name", "-XY");
+	XY dt << Save(XY jmp path);
+	Close(XY dt, NoSave);
+	Write("Made "||XY jmp path||"\!N");
+);
