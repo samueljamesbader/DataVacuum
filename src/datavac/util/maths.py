@@ -80,7 +80,10 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float):
 
     # Cover the crossing-between case
     X1,X2=X[allinds,ind_belows][valid_crossing_between],X[allinds,ind_aboves][valid_crossing_between]
-    Y1,Y2=Y[allinds,ind_belows][valid_crossing_between],Y[allinds,ind_aboves][valid_crossing_between]
+    try:
+        Y1,Y2=Y[allinds,ind_belows][valid_crossing_between],Y[allinds,ind_aboves][valid_crossing_between]
+    except:
+        pass
 
     slope=(Y2-Y1)/(X2-X1)
     Yavg=(Y1+Y2)/2
