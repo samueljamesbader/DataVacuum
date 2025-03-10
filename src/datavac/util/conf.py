@@ -162,15 +162,16 @@ def cli_datavac_with_context():
 def cli_context_install(*args):
     parser=argparse.ArgumentParser(description='Install context from a deployment')
     parser.add_argument('url',help='The URL of the deployment')
-    # TODO: allow a --cert
+    parser.add_argument('--cert',help='Path to SSL certificate')
     namespace=parser.parse_args(sys.argv[1:3])
 
     CONTEXT_PATH=Path(os.environ.get('DATAVACUUM_CONTEXT_DIR',None)
                       or platformdirs.user_config_path('ALL',appauthor='DataVacuum'))
-
+    if namespace.cert:
+        assert Path(namespace.cert).exists(), f"Cert file {namespace.cert} not found"
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore",category=InsecureRequestWarning)
-        res=requests.get(namespace.url+"/context",verify=False)
+        res=requests.get(namespace.url+"/context",verify=(namespace.cert or False))
     assert res.status_code==200, f"Failed to download context from {namespace.url}"
 
     filepath=CONTEXT_PATH/res.headers['Content-Disposition'].split("filename=")[1]
