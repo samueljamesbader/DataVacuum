@@ -1,0 +1,36 @@
+###
+# Database Section
+###
+database:
+
+  # Schema names to separate the internal, normalized, hard-to-interpret tables from user-friendly views
+  schema_names:
+    internal: vac
+    user_views: jmp
+
+  # How to describe measured samples [this might be different for projects with wafers vs coupons, etc]
+  materials:
+    # Column name that fully describes a unique piece of material
+    full_name: 'LotSample'
+    # Other columns that are descriptive of the piece of material
+    # Currently, 'Mask' is required to be in this list
+    #info_columns: ['Lot','Sample','Mask']
+    info_columns: ['Lot','Sample']
+
+meta_reader:
+  read_from_filename_regex: ^(?P<LotSample>(?P<Lot>[A-Za-z0-9]+)_(?P<Sample>[A-Za-z0-9]+))
+
+misc_shorthands:
+  - &example_csv_reader_template
+    glob: '*.csv'
+    function: 'datavac.examples.demo1.example_data:read_csv'
+
+measurement_groups:
+  nMOS_IdVg:
+    analysis_columns: {'SS [mV/dec]':'float64', 'RonW [ohm.um]':'float64', 'Ron [ohm]':'float64'}
+    meas_columns: {'FileName':'string'}
+    readers:
+      - template: *example_csv_reader_template
+    meas_type: ['datavac.measurements.transistor:IdVg',
+                {'pol':'n','norm_column':'W [um]','abs_vdsat':1, 'Vgons':{'':1}}]
+    connect_to_die_table: False

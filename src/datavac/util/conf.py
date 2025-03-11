@@ -1,3 +1,4 @@
+import inspect
 import sys
 import argparse
 import os
@@ -6,10 +7,8 @@ from pathlib import Path
 from importlib import resources as irsc
 
 import platformdirs
-import requests
 import yaml
 from dotenv import load_dotenv
-from urllib3.exceptions import InsecureRequestWarning
 
 from datavac.util.cli import cli_helper
 from datavac.util.util import import_modfunc
@@ -21,12 +20,17 @@ class Config():
     def __init__(self):
         with open(Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"project.yaml",'r') as f:
             self._yaml=yaml.safe_load(f)
+            if 'higher_analyses' not in self._yaml: self._yaml['higher_analyses']={}
+            if 'array_maps' not in self._yaml: self._yaml['array_maps']={}
 
     def __getattr__(self, item):
         return self._yaml[item]
 
     def __getitem__(self, item):
         return self._yaml[item]
+
+    def get(self, item, default=None):
+        return self._yaml.get(item,default)
 
     def get_meas_type(self, meas_group):
         res=self.measurement_groups[meas_group]['meas_type']
@@ -70,11 +74,14 @@ CONTEXT_PATH: Path = None
 
 def get_current_context_name():
     if (from_env:=os.environ.get('DATAVACUUM_CONTEXT',None)) is not None:
-        assert (CONTEXT_PATH/f"{from_env}.dvcontext.env").exists(),\
-            f"Context {from_env} (from DATAVACUUM_CONTEXT) not found in {CONTEXT_PATH}"
-        return from_env
+        if from_env.startswith('builtin:'): return from_env
+        else:
+            assert (CONTEXT_PATH/f"{from_env}.dvcontext.env").exists(),\
+                f"Context {from_env} (from DATAVACUUM_CONTEXT) not found in {CONTEXT_PATH}"
+            return from_env
     elif (curr_file_path:=(CONTEXT_PATH/"current.txt")).exists():
         with open(curr_file_path) as f: context_name=f.read().strip()
+        if context_name.startswith('builtin:'): return context_name
         assert (CONTEXT_PATH/f"{context_name}.dvcontext.env").exists(),\
             f"Context {context_name} (named in {curr_file_path}) not found in {CONTEXT_PATH}"
     elif len(globs:=list(CONTEXT_PATH.glob("*.dvcontext.env")))==1:
@@ -91,19 +98,24 @@ def cli_context_list(*args):
     parser=argparse.ArgumentParser(description='Lists available contexts')
     namespace=parser.parse_args(args)
     ccn=get_current_context_name()
+    print(f"Current context: \"{ccn}\"")
+    print("Available contexts (excluding builtins):")
     for f in CONTEXT_PATH.glob("*.dvcontext.env"):
         context_name=f.name.split(".dvcontext.env")[0]
         print("*" if context_name==ccn else " ",context_name)
+
 
 def cli_context_use(*args):
     parser=argparse.ArgumentParser(description='Selects the named context as current')
     parser.add_argument('context_name',help='The name of the context to use')
     namespace=parser.parse_args(args)
-    assert (CONTEXT_PATH/f"{namespace.context_name}.dvcontext.env").exists(),\
-        f"Context {namespace.context_name} not found in {CONTEXT_PATH}"
+    if not namespace.context_name.startswith('builtin:'):
+        assert (CONTEXT_PATH/f"{namespace.context_name}.dvcontext.env").exists(),\
+            f"Context {namespace.context_name} not found in {CONTEXT_PATH}"
     with open(CONTEXT_PATH/"current.txt",'w') as f: f.write(namespace.context_name)
 
 def load_config_pkg():
+    """ Note: if DATAVACUUM_CONFIG_PKG is set, it will be imported!"""
     conf_pkg=os.environ.get('DATAVACUUM_CONFIG_PKG',None)
     conf_dir=os.environ.get('DATAVACUUM_CONFIG_DIR',None)
     assert (conf_pkg is not None) or (conf_dir is not None), \
@@ -122,25 +134,36 @@ def load_config_pkg():
 
 def config_datavacuum():
     global CONFIG, CONTEXT_PATH
-    # Load context
-    CONTEXT_PATH=Path(os.environ.get('DATAVACUUM_CONTEXT_DIR',None)
-         or platformdirs.user_config_path('ALL',appauthor='DataVacuum'))
 
-
-    if CONTEXT_PATH=='None': print("Context-free")
+    if (envcont:=os.environ.get('DATAVACUUM_CONTEXT','')).startswith('builtin:'):
+        os.environ['DATAVACUUM_CONFIG_PKG']='datavac.examples.'+envcont.split(":")[1]+'.config'
+        if 'DATAVACUUM_CONFIG_DIR' in os.environ: del os.environ['DATAVACUUM_CONFIG_DIR']
     else:
-        if not CONTEXT_PATH.exists(): CONTEXT_PATH.mkdir(parents=True,exist_ok=True)
 
-        if Path(sys.argv[0]).stem=='datavac_with_context': return # TODO: replace with 'datavac context with' and get rid of this
-        if (Path(sys.argv[0]).stem=='datavac') and (len(sys.argv)>1 and sys.argv[1] in ['context','cn']): return
+        # Load context
+        CONTEXT_PATH=Path(os.environ.get('DATAVACUUM_CONTEXT_DIR',None)
+             or platformdirs.user_config_path('ALL',appauthor='DataVacuum'))
 
-        context_name=get_current_context_name()
-        if context_name is not None:
-            load_dotenv(CONTEXT_PATH/f"{context_name}.dvcontext.env",override=True)
+        if CONTEXT_PATH=='None': print("Context-free")
+        else:
+            if not CONTEXT_PATH.exists(): CONTEXT_PATH.mkdir(parents=True,exist_ok=True)
 
-    # Load config
-    #print(f"Using context {context_name}")
+            if Path(sys.argv[0]).stem=='datavac_with_context': return # TODO: replace with 'datavac context with' and get rid of this
+            if (Path(sys.argv[0]).stem=='datavac') and (len(sys.argv)>1 and sys.argv[1] in ['context','cn']): return
+
+            context_name=get_current_context_name()
+            if context_name is not None:
+                os.environ['DATAVACUUM_CONTEXT']=context_name
+                if context_name.startswith('builtin:'):
+                    os.environ['DATAVACUUM_CONFIG_PKG']='datavac.examples.'+context_name.split(":")[1]+'.config'
+                    if 'DATAVACUUM_CONFIG_DIR' in os.environ: del os.environ['DATAVACUUM_CONFIG_DIR']
+                else:
+                    load_dotenv(CONTEXT_PATH/f"{context_name}.dvcontext.env",override=True)
+
+        # Load config
+        #print(f"Using context {context_name}")
     load_config_pkg()
+
     CONFIG=Config()
 
 def cli_datavac_with_context():
@@ -169,6 +192,9 @@ def cli_context_install(*args):
                       or platformdirs.user_config_path('ALL',appauthor='DataVacuum'))
     if namespace.cert:
         assert Path(namespace.cert).exists(), f"Cert file {namespace.cert} not found"
+
+    import requests
+    from urllib3.exceptions import InsecureRequestWarning
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore",category=InsecureRequestWarning)
         res=requests.get(namespace.url+"/context",verify=(namespace.cert or False))

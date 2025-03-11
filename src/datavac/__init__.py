@@ -1,5 +1,4 @@
 import sys
-
 from dotenv import load_dotenv as _load_dotenv
 
 from datavac.util.conf import config_datavacuum

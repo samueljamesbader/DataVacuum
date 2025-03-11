@@ -68,6 +68,15 @@ def get_database(metadata_source:Optional[str]=None,populate_metadata:bool=True)
         _database.establish_database(just_metadata=True)
     return _database
 
+def unget_database():
+    global _database
+    if _database:
+        # Maybe overkill, hopefully anything holding onto _database so whole object will be GC'd
+        # but just being defensive here.
+        del _database.engine
+        del _database._metadata
+    _database=None
+
 def get_blob_store() -> 'PostgreSQLDatabase':
     return get_database(populate_metadata=False)
 
@@ -299,19 +308,19 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 matscheme=CONFIG['database']['materials']
                 self._ensure_table_exists(conn,self.int_schema,'Materials',
                             Column('matid',INTEGER,primary_key=True,autoincrement=True),
-                            *[Column(name,VARCHAR,nullable=False) for name in matscheme['info_columns'] if name!='Mask'],
+                            *[Column(name,VARCHAR,nullable=False) for name in matscheme.get('info_columns',{}) if name!='Mask'],
                             Column(matscheme['full_name'],VARCHAR,unique=True,nullable=False),
                             Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
                             Column('date_user_changed',TIMESTAMP,nullable=False),
                             on_mismatch='raise',just_metadata=just_metadata)
 
                 # Loads table
-                loadscheme=CONFIG['database']['loads']
+                loadscheme=CONFIG['database'].get('loads',{})
                 loadtab=self._ensure_table_exists(conn,self.int_schema,'Loads',
                           Column('loadid',INTEGER,primary_key=True,autoincrement=True),
                           Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
                           Column('MeasGroup',VARCHAR,nullable=False),
-                          *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
+                          *[Column(name,VARCHAR,nullable=False) for name in loadscheme.get('info_columns',{})],
                           UniqueConstraint('matid','MeasGroup'),
                           on_mismatch='raise',just_metadata=just_metadata)
 
@@ -320,7 +329,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                           Column('matid',INTEGER,ForeignKey("Materials.matid",**_CASC),nullable=False),
                           Column('MeasGroup',VARCHAR,nullable=False),
                           Column('full_reload',BOOLEAN,nullable=False),
-                          *[Column(name,VARCHAR,nullable=False) for name in loadscheme['info_columns']],
+                          *[Column(name,VARCHAR,nullable=False) for name in loadscheme.get('info_columns',{})],
                           UniqueConstraint('matid','MeasGroup'),
                           on_mismatch='raise',just_metadata=just_metadata)
 
@@ -407,6 +416,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def update_mask_info(self,conn):
         #previous_masktab=pd.read_sql(select(*self._masktab.columns),conn)
         #######Column('Mask',VARCHAR,ForeignKey("Masks.Mask",name='fk_mask',**_CASC),nullable=False),
+        if not len(CONFIG['array_maps']): return
         diemdf=[]
         for mask,info in CONFIG['array_maps'].items():
             dbdf,to_pickle=import_modfunc(info['generator'])(**info['args'])
@@ -652,8 +662,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
             logger.debug(f"(Re)-creating view for {mg}")
             view_cols=[
                 CONFIG['database']['materials']['full_name'],
-                *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
-                *(f'Loads"."{i}' for i in CONFIG['database']['loads']['info_columns']),
+                *(f'Materials"."{i}' for i in CONFIG['database']['materials'].get('info_columns',{})),
+                *(f'Loads"."{i}' for i in CONFIG['database'].get('loads',{}).get('info_columns',{})),
                 *([f'Meas -- {mg}"."Structure'] if conlay else []),
                 *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
                 *mg_info['analysis_columns'].keys(),
@@ -706,8 +716,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if do_recreate_view:
             view_cols=[
                 CONFIG['database']['materials']['full_name'],
-                *(f'Materials"."{i}' for i in CONFIG['database']['materials']['info_columns']),
-                *(f'Loads"."{i}' for i in CONFIG['database']['loads']['info_columns']),
+                *(f'Materials"."{i}' for i in CONFIG['database']['materials'].get('info_columns',{})),
+                *(f'Loads"."{i}' for i in CONFIG['database'].get('loads',{}).get('info_columns',{})),
                 *([f'Analysis -- {analysis}"."Structure'] if conlay else []),
                 *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
                 *(CONFIG.higher_analyses[analysis]['analysis_columns'].keys()),
@@ -1540,8 +1550,8 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
     from datavac.io.meta_reader import perform_extraction, get_cached_glob
     cached_glob=get_cached_glob()
     fullname=CONFIG['database']['materials']['full_name']
-    matcolnames=[*CONFIG['database']['materials']['info_columns']]
-    loadcolnames=[*CONFIG['database']['loads']['info_columns']]
+    matcolnames=[*CONFIG['database']['materials'].get('info_columns',{})]
+    loadcolnames=[*CONFIG['database'].get('loads',{}).get('info_columns',{})]
     with db.engine_connect() as conn:
         res=conn.execute(select(db._rextab.c.matid,
                                 *[db._mattab.c[n] for n in [fullname]+matcolnames],
@@ -1621,7 +1631,7 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                                          scalar_columns=[*mg_info['meas_columns'],*mg_info['analysis_columns'],
                                                          'loadid',*(['DieXY'] if condie else []),*(['Structure'] if conlay else []),
                                                          CONFIG['database']['materials']['full_name'],
-                                                         *CONFIG['database']['materials']['info_columns']],
+                                                         *CONFIG['database']['materials'].get('info_columns',{})],
                                          **{CONFIG['database']['materials']['full_name']:[matname]})
                         if mg in req_meas_groups:
                             #assert len(data), f"Missing required data for '{mg}' in {matname}"

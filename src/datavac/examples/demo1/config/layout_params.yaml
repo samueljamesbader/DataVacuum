@@ -1,3 +1,8 @@
 by_meas_group:
   'IdVg':
-    Mask1: ['Sam']
+    Mask1: ['mask1_xtor']
+    names: ['nMOS_IdVg']
+
+layout_param_paths:
+  Mask1:
+    - mask1_xtor.csv

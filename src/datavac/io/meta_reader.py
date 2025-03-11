@@ -15,8 +15,8 @@ from datavac.util.conf import CONFIG
 
 FULLNAME_COL=CONFIG['database']['materials']['full_name']
 ALL_MATERIAL_COLUMNS=[CONFIG['database']['materials']['full_name'],
-                      *CONFIG['database']['materials']['info_columns']]
-ALL_LOAD_COLUMNS=CONFIG['database']['loads']['info_columns']
+                      *CONFIG['database']['materials'].get('info_columns',{})]
+ALL_LOAD_COLUMNS=CONFIG['database'].get('loads',{}).get('info_columns',[])
 ALL_MATLOAD_COLUMNS=[*ALL_MATERIAL_COLUMNS,*ALL_LOAD_COLUMNS]
 
 if os.environ.get('DATAVACUUM_READ_DIR'):
@@ -36,12 +36,14 @@ def get_cached_glob():
         return [p for p in paths if fnmatch(p,patt)]
     return cached_glob
 
-def quick_read_filename(filename:Union[Path,str],**kwargs):
+def quick_read_filename(filename:Union[Path,str],extract=True,**kwargs):
     if not (filename:=Path(filename)).is_absolute():
         filename=READ_DIR/filename
     assert filename.exists(), f"Can't find file {str(filename)}"
     folder=filename.parent
-    return read_folder_nonrecursive(folder,only_file_names=[filename.name],already_read_from_folder=kwargs)
+    mt2mg2dat,mt2ml=read_folder_nonrecursive(folder,only_file_names=[filename.name],already_read_from_folder=kwargs)
+    if extract: perform_extraction(mt2mg2dat)
+    return mt2mg2dat,mt2ml
 
 def read_folder_nonrecursive(folder: Union[Path,str],
                only_meas_groups=None,only_matload_info={},
@@ -61,7 +63,7 @@ def read_folder_nonrecursive(folder: Union[Path,str],
     # Read any auxiliary information in the folder
     #logger.debug(f"Reading aux info in {folder}")
     read_from_folder=already_read_from_folder.copy() if already_read_from_folder else {}
-    for rname,rinfo in CONFIG['meta_reader'].get('read_from_folder',{}).items():
+    for rname,rinfo in CONFIG.get('meta_reader',{}).get('read_from_folder',{}).items():
         assert (rcount:=rinfo.get('count','required')) in ['required','optional']
         if len(potential_finds:=list(cached_glob(folder,(rinfo['filter']))))==1:
             match rinfo['read_action']:
@@ -88,7 +90,7 @@ def read_folder_nonrecursive(folder: Union[Path,str],
     cached_match=lru_cache(re.match)
 
     # Set up the caching manager for files
-    with import_modfunc(CONFIG['meta_reader']['caching_manager'])():
+    with import_modfunc(CONFIG.get('meta_reader',{}).get('caching_manager','contextlib:nullcontext'))():
 
         # Go through all files in the folder
         for f in cached_glob(folder,'*'):
@@ -110,13 +112,13 @@ def read_folder_nonrecursive(folder: Union[Path,str],
 
                         # Read the information from the filename
                         regex=reader.get('read_from_filename_regex',
-                                         CONFIG['meta_reader'].get('read_from_filename_regex',None))
+                                         CONFIG.get('meta_reader',{}).get('read_from_filename_regex','.*'))
                         if (mo:=cached_match(regex,f.name)) is None:
                             raise Exception(f"Couldn't parse {f.name} with regex {regex}")
                         read_from_filename=mo.groupdict() if regex is not None else {}
                         read_info_so_far=dict(**read_from_filename,**read_from_folder)
                         completer=reader.get('matload_info_completer',
-                                         CONFIG['meta_reader'].get('matload_info_completer',None))
+                                         CONFIG.get('meta_reader',{}).get('matload_info_completer',None))
                         completer=import_modfunc(completer) if completer else lambda x:x
                         read_info_so_far=completer(read_info_so_far)
                         meas_type=CONFIG.get_meas_type(meas_group)
@@ -136,7 +138,7 @@ def read_folder_nonrecursive(folder: Union[Path,str],
                                     meas_type=meas_type,meas_group=meas_group,only_matload_info=only_matload_info,
                                     **dict(reader['template'].get('default_args',{}),
                                            **reader.get('fixed_args',{})),
-                                    **{k:read_info_so_far[v] for k,v in reader['template']['read_so_far_args'].items()})
+                                    **{k:read_info_so_far[v] for k,v in reader['template'].get('read_so_far_args',{}).items()})
                             if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
                         except NoDataFromFileException as e: continue
 
@@ -193,7 +195,8 @@ def read_folder_nonrecursive(folder: Union[Path,str],
                                 str(relpath.as_posix())]*len(read_data),dtype='string')
                             read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
                             read_data[FULLNAME_COL]=pd.Series([matname]*len(read_data),dtype='string')
-                            read_data['FQSite']=read_data[FULLNAME_COL]+'/'+read_data['DieXY']+'/'+read_data['Site']
+                            if 'DieXY' in read_data:
+                                read_data['FQSite']=read_data[FULLNAME_COL]+'/'+read_data['DieXY']+'/'+read_data['Site']
 
                             # Add any material LUT information to the data
                             for k,v in read_info_so_far.get('material_lut',{}).get(matname,{}).items():

@@ -1,0 +1,4 @@
+Structure,L [um],W [um],pol
+nmos1,.2,1,n
+nmos2,.2,2,n
+nmos3,.2,2,n
