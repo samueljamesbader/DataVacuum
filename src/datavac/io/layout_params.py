@@ -54,21 +54,18 @@ class _LayoutParameters:
             for path in paths_by_mask:
                 logger.info(f"Reading {str(LAYOUT_PARAMS_DIR/path)}")
                 with open(LAYOUT_PARAMS_DIR/path,'rb') as f:
-                    xls=pd.ExcelFile(f,engine='openpyxl')
-                    for sh in xls.book.sheetnames:
-                        if 'IGNORE' in sh:
-                            #logger.debug(f"Ignoring '{sh}' because of its name")
-                            continue
-                        table=pd.read_excel(xls,sh)#
-                        table['rowname']=table['rowname'].ffill().astype('string')
-                        if not ('rowname' in table.keys() and 'DUT' in table.keys()):
-                            logger.debug(f"Ignoring '{sh}' because missing rowname and/or DUT")
-                            continue
-                        self._rows_by_mask[mask]+=list(table['rowname'].unique())
+                    def read_table(table,sh):
+                        #if not ('rowname' in table.keys() and 'DUT' in table.keys()):
+                        #    logger.debug(f"Ignoring '{sh}' because missing rowname and/or DUT")
+                        #    return
                         table=table.rename(columns={c:c.replace("\n"," ").strip() for c in table.columns})
                         table.drop(columns=[c for c in self._yaml.get("drop_param_names",[]) if c in table],inplace=True)
-                        table=table.rename(columns={k:v for k,v in self._yaml['replace_param_names'].items() if k in table.columns})
-                        table['Structure']=(table['RowName']+"-DUT"+table['DUT'].astype(str).str.zfill(2)).astype('string')
+                        table=table.rename(columns={k:v for k,v in self._yaml.get('replace_param_names',{}).items() if k in table.columns})
+                        if 'RowName' in table:
+                            table['RowName']=table['RowName'].ffill().astype('string')
+                            self._rows_by_mask[mask]+=list(table['RowName'].unique())
+                        if 'Structure' not in table.columns:
+                            table['Structure']=(table['RowName']+"-DUT"+table['DUT'].astype(str).str.zfill(2)).astype('string')
                         table.set_index('Structure',inplace=True)
                         pad_cols=[col for col in table.columns if col[:4]=="PAD:"]
                         for c in pad_cols:
@@ -83,6 +80,17 @@ class _LayoutParameters:
                         self._cat_tables[(mask,sh)]=table
                         for structure,r in table.iterrows():
                             self._dut_to_catkey[(structure,mask)]=(mask,sh)
+                    if str(f).endswith(".xlsx"):
+                        xls=pd.ExcelFile(f,engine='openpyxl')
+                        for sh in xls.book.sheetnames:
+                            if 'IGNORE' in sh:
+                                #logger.debug(f"Ignoring '{sh}' because of its name")
+                                continue
+                            table=pd.read_excel(xls,sh)#
+                            read_table(table,sh)
+                    else:
+                        table=pd.read_csv(f)
+                        read_table(table,Path(path).stem)
 
         logger.info("Collating by measurement group")
         by_meas_group=self._yaml['by_meas_group']
@@ -232,7 +240,8 @@ class _LayoutParameters:
         else:
             cols_to_drop=[c for c in ['RowName','DUT'] if c in meas_df]+[c for c in params if c.startswith("PAD:")]
             params=params.drop(columns=cols_to_drop)
-        merged=pd.merge(left=meas_df,right=params,how='left',left_on=['Structure'],right_index=True,
+        left_on='Structure' if 'Structure' in meas_df.columns else 'Site'
+        merged=pd.merge(left=meas_df,right=params,how='left',left_on=[left_on],right_index=True,
                         suffixes=(None,'_param'))
         #import pdb; pdb.set_trace()
         return merged
@@ -249,6 +258,9 @@ def get_layout_params(force_regenerate=False, conn=None):
         from datavac.io.database import pickle_db_cached
         _layout_params,_layout_params_timestamp=pickle_db_cached('LayoutParams',namespace='vac',conn=conn)(_LayoutParameters)(force=force_regenerate)
     return _layout_params
+def unget_layout_params():
+    global _layout_params
+    _layout_params=None
 
 def cli_layout_params_valid():
     from datavac.io.database import get_database
