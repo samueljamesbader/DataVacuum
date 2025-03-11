@@ -80,7 +80,7 @@ class _LayoutParameters:
                         self._cat_tables[(mask,sh)]=table
                         for structure,r in table.iterrows():
                             self._dut_to_catkey[(structure,mask)]=(mask,sh)
-                    if str(f).endswith(".xlsx"):
+                    if f.name.endswith(".xlsx"):
                         xls=pd.ExcelFile(f,engine='openpyxl')
                         for sh in xls.book.sheetnames:
                             if 'IGNORE' in sh:

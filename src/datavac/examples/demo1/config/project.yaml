@@ -27,9 +27,10 @@ misc_shorthands:
 
 measurement_groups:
   nMOS_IdVg:
-    analysis_columns: {'SS [mV/dec]':'float64'}
+    analysis_columns: {'SS [mV/dec]':'float64', 'RonW [ohm.um]':'float64', 'Ron [ohm]':'float64'}
     meas_columns: {'FileName':'string'}
     readers:
       - template: *example_csv_reader_template
-    meas_type: ['datavac.measurements.transistor:IdVg',{'pol':'n','norm_column':'W [um]','abs_vdsat':1}]
+    meas_type: ['datavac.measurements.transistor:IdVg',
+                {'pol':'n','norm_column':'W [um]','abs_vdsat':1, 'Vgons':{'':1}}]
     connect_to_die_table: False

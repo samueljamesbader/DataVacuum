@@ -62,13 +62,15 @@ def make_example_data():
     lp=get_layout_params()
     site_params=lp.get_params(['nmos1','nmos2','nmos3'],mask='Mask1')
     site_params['VT0']=[.5,.5,.8]
+    site_params['alpha']=0
     site_params['W']=site_params['W [um]']*1e-6
     site_params['L']=site_params['L [um]']*1e-6
-    site_params=site_params[['W','L','VT0']].to_dict(orient='index')
+    site_params=site_params[['W','L','VT0','alpha']].to_dict(orient='index')
 
     data={site: make_IdVg(Transistor4T(**params), [.01, 1], [0, 1], do_plot=False)
           for site,params in site_params.items()}
     write_example_data_file('lot1','sample1','IdVg',data)
+
 
 
 if __name__ == '__main__':
