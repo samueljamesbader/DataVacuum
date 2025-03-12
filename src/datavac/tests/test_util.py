@@ -52,6 +52,13 @@ def test_yatx():
     output=YatX(X,Y,x=3)
     assert np.isclose(output[0],7) and np.isnan(output[1]), f"output={output}, rather than [7,NaN]"
 
+
+    # Same as previous but reversed
+    X=[[4,3,2,1],[7,6,5,4]]
+    Y=[[9,7,6,5],[11,9,7,5]]
+    output=YatX(X,Y,x=3,reverse_crossing=True)
+    assert np.isclose(output[0],7) and np.isnan(output[1]), f"output={output}, rather than [7,NaN]"
+
 if __name__=='__main__':
     #test_multiy_singlex_linregress()
     test_yatx()
