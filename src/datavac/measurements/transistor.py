@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -139,7 +139,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         #    measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.NaN if (ind is False)# or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
         #    measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         for k,v in self.Vgons.items():
-            measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v))
+            measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v,reverse_crossing=(self.pol=='p'))+tol)
             measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         measurements[f'Ronstop [ohm]']=np.abs(VDlin)/(measurements['Ion_lin [A]']+tol)
         measurements[f'RonWstop [ohm.um]']=measurements[f'Ronstop [ohm]']*W*1e6
@@ -208,6 +208,8 @@ class KelvinRon(MeasurementWithLinearNormColumn):
     #vg_for_ron: Optional[float] = 1.5
     VGons: dict[str,float] = dataclasses.field(default_factory=lambda:{})
 
+    merge_rexts_on: Optional[list[str]] = None
+
     def __post_init__(self):
         super().__post_init__()
         if self.only_ats is not None: raise NotImplementedError("Only ats not implemented")
@@ -221,12 +223,13 @@ class KelvinRon(MeasurementWithLinearNormColumn):
         W=self.get_norm(measurements)
 
         # TODO: need less janky mechanism for adding to headers
-        if rexts is not None:
-            rsext=rexts.scalar_table_with_layout_params(['xtor']) \
-                [['xtor','Rs_ext [ohm]']].groupby(['xtor']).median()
-            df=measurements.scalar_table_with_layout_params(['xtor'])
+        if (rexts is not None):
+            assert self.merge_rexts_on is not None, "What to merge RExt on"
+            rsext=rexts.scalar_table_with_layout_params(self.merge_rexts_on,on_missing='ignore') \
+                [[*self.merge_rexts_on,'Rs_ext [ohm]']].groupby(self.merge_rexts_on).median()
+            df=measurements.scalar_table_with_layout_params(self.merge_rexts_on,on_missing='ignore')
             measurements['Rs_ext [ohm]']=pd.merge(left=df,right=rsext,
-                                                  on=['xtor'],how='left',validate='m:1')['Rs_ext [ohm]']
+                                                  on=self.merge_rexts_on,how='left',validate='m:1')['Rs_ext [ohm]']
 
             id_strs=[h.split("=")[1] for h in measurements.headers if 'fRon@ID=' in h]
             for id in id_strs:
@@ -234,6 +237,7 @@ class KelvinRon(MeasurementWithLinearNormColumn):
                     list((measurements[f'VG'].T-float(id)*np.array(measurements['Rs_ext [ohm]'])).T)
                 if f'VGSi@ID={id}' not in measurements.headers: measurements.headers.append(f'VGSi@ID={id}')
         else:
+            assert self.merge_rexts_on is None, "This category requires RExt measurements"
             for k in measurements.headers:
                 VS=measurements[k]
                 if 'SourceSense' in k:
