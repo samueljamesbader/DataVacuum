@@ -88,9 +88,11 @@ class _LayoutParameters:
                                 continue
                             table=pd.read_excel(xls,sh)#
                             read_table(table,sh)
-                    else:
-                        table=pd.read_csv(f)
+                    elif f.name.endswith(".csv"):
+                        table=pd.read_csv(f,skipinitialspace=True)
                         read_table(table,Path(path).stem)
+                    else:
+                        raise Exception(f"Unrecognized file type for {f.name}")
 
         logger.info("Collating by measurement group")
         by_meas_group=self._yaml['by_meas_group']

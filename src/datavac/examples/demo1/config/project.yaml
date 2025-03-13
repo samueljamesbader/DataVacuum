@@ -22,7 +22,6 @@ meta_reader:
 
 misc_shorthands:
   - &example_csv_reader_template
-    glob: '*.csv'
     function: 'datavac.examples.demo1.example_data:read_csv'
 
 measurement_groups:
@@ -31,6 +30,16 @@ measurement_groups:
     meas_columns: {'FileName':'string'}
     readers:
       - template: *example_csv_reader_template
+        glob: '*_nMOS_IdVg.csv'
     meas_type: ['datavac.measurements.transistor:IdVg',
                 {'pol':'n','norm_column':'W [um]','abs_vdsat':1, 'Vgons':{'':1}}]
+    connect_to_die_table: False
+  pMOS_IdVg:
+    analysis_columns: {'SS [mV/dec]':'float64', 'RonW [ohm.um]':'float64', 'Ron [ohm]':'float64'}
+    meas_columns: {'FileName':'string'}
+    readers:
+      - template: *example_csv_reader_template
+        glob: '*_pMOS_IdVg.csv'
+    meas_type: ['datavac.measurements.transistor:IdVg',
+                {'pol':'p','norm_column':'W [um]','abs_vdsat':1, 'Vgons':{'':-1}}]
     connect_to_die_table: False

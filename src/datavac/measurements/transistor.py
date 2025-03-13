@@ -75,7 +75,7 @@ class IdVg(MeasurementWithLinearNormColumn):
             #print(f"Forcing VDlin {VDlin}")
             VDlin_str=next((k for k in VD_strs if np.isclose(float(k),VDlin)),"NOPE")
             #if VDlin_str!='NOPE': print(f"VDlin {VDlin} is present among {VD_strs}")
-        assert VDsat*VDlin>0, "Oops, VDsat and VDlin have different signs"
+        assert VDsat*VDlin>0, f"Oops, VDsat {VDsat} and VDlin {VDlin} have different signs"
 
         W=self.get_norm(measurements)
         VG=measurements['VG']

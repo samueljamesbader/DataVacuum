@@ -36,7 +36,7 @@ def get_cached_glob():
         return [p for p in paths if fnmatch(p,patt)]
     return cached_glob
 
-def quick_read_filename(filename:Union[Path,str],extract=True,**kwargs):
+def quick_read_filename(filename:Union[Path,str],extract=True,**kwargs) -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
     if not (filename:=Path(filename)).is_absolute():
         filename=READ_DIR/filename
     assert filename.exists(), f"Can't find file {str(filename)}"
@@ -106,7 +106,7 @@ def read_folder_nonrecursive(folder: Union[Path,str],
             for meas_group, mg_info in CONFIG['measurement_groups'].items():
                 if only_meas_groups and meas_group not in only_meas_groups: continue
                 for reader in mg_info['readers']:
-                    pattern=reader.get('glob',reader['template']['glob'])
+                    pattern=reader.get('glob',reader['template'].get('glob')); assert pattern is not None
                     reader_func_dotpath=reader['template']['function']
                     if f in cached_glob(folder,pattern):
 

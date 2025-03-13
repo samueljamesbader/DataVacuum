@@ -1,1 +1,1 @@
-from .test_freshtestdb import make_fresh_testdb, clear_cache
+from .freshtestdb import make_fresh_testdb, clear_cache

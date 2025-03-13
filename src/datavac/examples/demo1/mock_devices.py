@@ -18,7 +18,7 @@ class Transistor4T:
     pol: str = 'n'
     VT0: float = .5  # V
     n: float = 1.2
-    alpha: float = 3.5
+    alpha: float = 0
     delta: float = .01  # V/V
     beta: float = 1.6
 
@@ -66,14 +66,16 @@ class Transistor4T:
         ID = self.W * Q * self.vx0 * Fs
 
         ID *= 1 + np.random.rand(*VG.shape) * self.noise_factor_ID
-        IG = np.random.rand(*VG.shape) * 1e-13 + 0.00000001 * (20 ** (VG - 16))
+        IS = -ID
+        IG = np.random.rand(*VG.shape) * 1e-13 + 0.00000001 * (20.0 ** (VG - 16))
         IB = (-1 if self.pol=='p' else 1)*np.clip((np.exp((VB-VS)/(.026))-1),0,.1)+np.random.rand(*VG.shape) * 1e-13
 
         VS,VD=np.choose(swapSD,[VS,VD]),np.choose(swapSD,[VD,VS])
+        IS,ID=np.choose(swapSD,[IS,ID]),np.choose(swapSD,[ID,IS])
         if self.pol != "n":
             IG,ID,IB=-IG,-ID,-IB
 
-        data= {'VG':VG,'VD':VD,'ID': ID, 'IS': -ID, 'IG': IG, 'IB': IB}
+        data= {'VG':VG,'VD':VD,'ID': ID, 'IS': IS, 'IG': IG, 'IB': IB}
         if nois: del data['IS']
         if noib: del data['IB']
         return pd.DataFrame(data)
@@ -110,3 +112,7 @@ class Transistor4T:
         ti_eff=(self._btishift/(self.A_BTI*np.exp(self.beta_BTI*VG)*np.exp(-self.Ea_BTI/self._phiT(T))))**4
         tf_eff=ti_eff+duration
         self._btishift=self.A_BTI*np.exp(self.beta_BTI*VG)*np.exp(-self.Ea_BTI/self._phiT(T))*tf_eff**.25
+
+    def approximate_Ron(self,VG):
+        VD=1e-3
+        return VD/self.DCIV(VG=np.array([VG]),VD=VD,VS=0,VB=0).iloc[0]['ID']

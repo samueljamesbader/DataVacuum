@@ -40,9 +40,17 @@ def make_IdVg(transistor,VDs,VGrange, do_plot=False) -> dict:
 
     return data
 
+def make_KelvinRon(transistor,IDs,VGrange, do_plot=False) -> dict:
+    # Make a simple IdVg curve
+    npoints=51
+    VG=np.linspace(VGrange[0], VGrange[1], npoints)
+    data={'VG':VG}
+    for ID in IDs:
+        sweep_data = transistor.DCIV(VG, VD, VS=0)
+
 def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np.ndarray]]):
     data=pd.concat([pd.DataFrame(subdata).assign(**{'Site':site,'MeasNo':i}) for i,(site,subdata) in enumerate(data_dicts.items())])
-    (READ_DIR/lot).mkdir(parents=True)
+    (READ_DIR/lot).mkdir(parents=True,exist_ok=True)
     data.to_csv(READ_DIR/lot/f"{lot}_{sample}_{meas_name}.csv",index=False)
 
 def read_csv(file,meas_type,meas_group,only_matload_info=None):
@@ -53,23 +61,24 @@ def read_csv(file,meas_type,meas_group,only_matload_info=None):
              for csv,grp in rawcsv.groupby('MeasNo')]
     return [pd.DataFrame(data).convert_dtypes()]
 
+def get_transistor(mask,structure):
+    lp=get_layout_params()
+    site_params=lp.get_params([structure],mask=mask).iloc[0]
+    return Transistor4T(W=site_params['W [um]']*1e-6,L=site_params['L [um]']*1e-6,
+               VT0=site_params['VT0_target [V]'],n=site_params['n_target'],pol=site_params['pol'])
+
 def make_example_data():
 
     # Clear the directory if it exists and remake it
     if READ_DIR.exists(): shutil.rmtree(READ_DIR)
     READ_DIR.mkdir(parents=True,exist_ok=True)
 
-    lp=get_layout_params()
-    site_params=lp.get_params(['nmos1','nmos2','nmos3'],mask='Mask1')
-    site_params['VT0']=[.5,.5,.8]
-    site_params['alpha']=0
-    site_params['W']=site_params['W [um]']*1e-6
-    site_params['L']=site_params['L [um]']*1e-6
-    site_params=site_params[['W','L','VT0','alpha']].to_dict(orient='index')
-
-    data={site: make_IdVg(Transistor4T(**params), [.01, 1], [0, 1], do_plot=False)
-          for site,params in site_params.items()}
-    write_example_data_file('lot1','sample1','IdVg',data)
+    data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[ .01,  1], VGrange=[0,  1], do_plot=False)
+          for structure in ['nmos1','nmos2','nmos3']}
+    write_example_data_file('lot1','sample1','nMOS_IdVg',data)
+    data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[-.01, -1], VGrange=[0, -1], do_plot=False)
+          for structure in ['pmos1','pmos2','pmos3']}
+    write_example_data_file('lot1','sample1','pMOS_IdVg',data)
 
 
 
