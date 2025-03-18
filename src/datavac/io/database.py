@@ -665,7 +665,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 *(f'Materials"."{i}' for i in CONFIG['database']['materials'].get('info_columns',{})),
                 *(f'Loads"."{i}' for i in CONFIG['database'].get('loads',{}).get('info_columns',{})),
                 *([f'Meas -- {mg}"."Structure'] if conlay else []),
-                *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
+                *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]',f'Dies"."DieComplete'] if condie else []),
                 *mg_info['analysis_columns'].keys(),
                 *mg_info['meas_columns'].keys(),
                 *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]

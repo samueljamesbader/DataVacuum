@@ -126,20 +126,25 @@ class IdVg(MeasurementWithLinearNormColumn):
         vt_gmpeak=v_gmpeak-np.sign(DVG)*i_gmpeak/gmpeak
 
         measurements['Ion [A]']=np.abs(IDsat[:,-1])
+        measurements['Ion/W [A/m]']=measurements['Ion [A]']/W
         measurements['Ion_lin [A]']=np.abs(IDlin[:,-1])
+        measurements['Ion_lin/W [A/m]']=measurements['Ion_lin [A]']/W
         measurements['Ioff [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idsat) else np.abs(IDsat[:,ind0])
+        measurements['Ioff/W [A/m]']=measurements['Ioff [A]']/W
         measurements['Ioff_lin [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idlin) else np.abs(IDlin[:,ind0])
+        measurements['Ioff_lin/W [A/m]']=measurements['Ioff_lin [A]']/W
         measurements['Ioffmin [A]']=np.min(np.abs(IDsat),axis=1)
         measurements['Ioffstart [A]']=np.abs(IDsat[:,0])
         measurements['Ioffstart_lin [A]']=np.abs(IDlin[:,0])
-        measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
-        measurements['Ion/Ioffmin']=measurements['Ion [A]']/measurements['Ioffmin [A]']
-        measurements['Ion/Ioffstart']=measurements['Ion [A]']/measurements['Ioffstart [A]']
+        measurements['Ion/Ioff']=measurements['Ion [A]']/(np.abs(measurements['Ioff [A]'])+tol)
+        measurements['Ion/Ioffmin']=measurements['Ion [A]']/(np.abs(measurements['Ioffmin [A]'])+tol)
+        measurements['Ion/Ioffstart']=measurements['Ion [A]']/(np.abs(measurements['Ioffstart [A]'])+tol)
         #for k,ind in indons.items():
         #    measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.NaN if (ind is False)# or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
         #    measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         for k,v in self.Vgons.items():
-            measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v,reverse_crossing=(self.pol=='p'))+tol)
+            measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v,reverse_crossing=(self.pol=='p'))+tol)\
+                if has_idlin else measurements['Ion [A]']*np.NaN
             measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         measurements[f'Ronstop [ohm]']=np.abs(VDlin)/(measurements['Ion_lin [A]']+tol)
         measurements[f'RonWstop [ohm.um]']=measurements[f'Ronstop [ohm]']*W*1e6
@@ -276,16 +281,12 @@ class KelvinRon(MeasurementWithLinearNormColumn):
         dVG=VG[0,1]-VG[0,0] # Assumes uniform and regular VG
         G=np.clip(1/Ron,1e-12,1e6)
         dG_dVG=savgol_filter(G,3,1,deriv=1)/dVG
-        try:
-            ind_peak=np.nanargmax(dG_dVG,axis=-1)
-        except:
-            import pdb; pdb.set_trace()
-            raise
+        ind_peak=np.nanargmax(dG_dVG,axis=-1)
         dG_dVG_peak=dG_dVG[np.arange(len(ind_peak)),ind_peak]
         G_peak=G[np.arange(len(ind_peak)),ind_peak]
         VG_peak=VG[0,ind_peak]
         VT=VG_peak-G_peak/dG_dVG_peak
-        return VT
+        return VG_peak,VT
 
     def __str__(self):
         return 'KelvinRon'
