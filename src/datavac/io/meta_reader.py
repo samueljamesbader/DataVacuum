@@ -1,3 +1,4 @@
+import argparse
 import os
 import re
 from fnmatch import fnmatch
@@ -44,6 +45,13 @@ def quick_read_filename(filename:Union[Path,str],extract=True,**kwargs) -> tuple
     mt2mg2dat,mt2ml=read_folder_nonrecursive(folder,only_file_names=[filename.name],already_read_from_folder=kwargs)
     if extract: perform_extraction(mt2mg2dat)
     return mt2mg2dat,mt2ml
+
+def cli_quick_read_filename(*args):
+    parser=argparse.ArgumentParser(description="Quickly read a single file and extract its data")
+    parser.add_argument('filename',type=str,help="The filename to read")
+    parser.add_argument('--no-extract',action='store_true',help="Don't extract the data")
+    namespace=parser.parse_args(args)
+    mt2mg2dat,mt2ml=quick_read_filename(namespace.filename,extract=(not namespace.no_extract))
 
 def read_folder_nonrecursive(folder: Union[Path,str],
                only_meas_groups=None,only_matload_info={},

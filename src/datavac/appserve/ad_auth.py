@@ -82,6 +82,11 @@ class AuthedStaticFileHandler(StaticFileHandler):
 
         if authorized:
             return await super().get(path,*args,**kwargs)
+        else:
+            self.path = self.parse_url_path(path)
+            absolute_path = self.get_absolute_path(self.root, self.path)
+            self.absolute_path = self.validate_absolute_path(self.root, absolute_path)
+            self.set_status(403)
 
     @authenticated
     async def post(self,*args,**kwargs):

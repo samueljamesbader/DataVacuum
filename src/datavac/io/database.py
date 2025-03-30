@@ -1438,6 +1438,7 @@ def cli_dump_measurement(*args):
 def cli_dump_extraction(*args):
     parser=argparse.ArgumentParser(description='Dumps extractions')
     parser.add_argument('-g','--group',action='append',help='Measurement group(s) to drop, eg -g GROUP1 -g GROUP2')
+    parser.add_argument('-ah','--and-heal',action='store_true',help='Convenience to call heal afterwards try to heal the database')
     namespace=parser.parse_args(args)
 
     db=get_database(metadata_source='reflect')
@@ -1445,6 +1446,8 @@ def cli_dump_extraction(*args):
         for mg in (namespace.group if namespace.group else CONFIG.measurement_groups):
             db.dump_extractions(mg,conn)
         conn.commit()
+    if namespace.and_heal:
+        cli_heal()
 
 def cli_dump_analysis(*args):
     parser=argparse.ArgumentParser(description='Dumps analysis')
@@ -1868,4 +1871,5 @@ cli_database=cli_helper(cli_funcs={
     'update_mask_info': 'datavac.io.database:cli_update_mask_info',
     'heal': 'datavac.io.database:cli_heal',
     'test_db_connect':'datavac.io.database:cli_test_db_connection_speed',
+    'quick_read_filename (qrf)':'datavac.io.meta_reader:cli_quick_read_filename',
 })
