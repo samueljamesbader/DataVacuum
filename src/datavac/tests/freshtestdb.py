@@ -60,3 +60,9 @@ def make_fresh_testdb():
 @pytest.fixture(scope='session',autouse=True)
 def clear_cache():
     cli_clear_cache()
+
+
+@pytest.fixture(scope='session')
+def example_data():
+    from datavac.examples.demo1.example_data import make_example_data
+    make_example_data()

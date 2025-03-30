@@ -1,15 +1,7 @@
-import os
-
 import numpy as np
-import pytest
 
 from datavac.io.meta_reader import quick_read_filename
-
-
-@pytest.fixture(scope='session')
-def example_data():
-    from datavac.examples.demo1.example_data import make_example_data
-    make_example_data()
+from datavac.tests.freshtestdb import example_data
 
 def test_IdVg(example_data):
     from datavac.examples.demo1.example_data import get_transistor

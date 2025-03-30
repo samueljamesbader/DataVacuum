@@ -2,7 +2,11 @@ by_meas_group:
   'IdVg':
     Mask1: ['mask1_xtor']
     names: ['nMOS_IdVg','pMOS_IdVg']
+  'Logic':
+    Mask1: ['mask1_logic']
+    names: ['logic_oscope']
 
 layout_param_paths:
   Mask1:
     - mask1_xtor.csv
+    - mask1_logic.csv

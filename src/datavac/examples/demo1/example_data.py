@@ -7,7 +7,7 @@ import pandas as pd
 import platformdirs
 
 from datavac.examples.demo1 import READ_DIR
-from datavac.examples.demo1.mock_devices import Transistor4T
+from datavac.examples.demo1.mock_devices import Transistor4T, OrGate, AndGate, DFlipFlop
 from datavac.io.layout_params import get_layout_params
 
 
@@ -73,12 +73,43 @@ def make_example_data():
     if READ_DIR.exists(): shutil.rmtree(READ_DIR)
     READ_DIR.mkdir(parents=True,exist_ok=True)
 
+    ###
+    # nMOS Id-Vgs
+    ###
     data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[ .01,  1], VGrange=[0,  1], do_plot=False)
           for structure in ['nmos1','nmos2','nmos3']}
     write_example_data_file('lot1','sample1','nMOS_IdVg',data)
+
+    ###
+    # pMOS Id-Vgs
+    ###
     data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[-.01, -1], VGrange=[0, -1], do_plot=False)
           for structure in ['pmos1','pmos2','pmos3']}
     write_example_data_file('lot1','sample1','pMOS_IdVg',data)
+
+    ###
+    # OR gates
+    ###
+    data={
+        'good_or': OrGate().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=2, bandwidth=1e9),
+        'bad_or': AndGate().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=2, bandwidth=1e9),
+    }
+    write_example_data_file('lot1','sample1','orcell_logic',data)
+
+    ###
+    # D Flip-Flops
+    ###
+    spp=20
+    data={
+        'good_dff1': DFlipFlop().generate_potential_traces(clk_period=1e-9, samples_per_period=spp, repeats=2, bandwidth=1e9),
+        'bad_dff':   DFlipFlop().generate_potential_traces(clk_period=1e-9, samples_per_period=spp, repeats=2, bandwidth=1e9),
+        'good_dff2': DFlipFlop().generate_potential_traces(clk_period=1e-9, samples_per_period=spp, repeats=2, bandwidth=1e9),
+    }
+    # Flip whole output for bad D Flip-Flop
+    data['bad_dff']['o'] = 1-data['bad_dff']['o']
+    # Flip just first period, shouldn't matter because output is undefined
+    data['good_dff2']['o'][:spp] = 1-data['good_dff2']['o'][:spp]
+    write_example_data_file('lot1','sample1','dff_logic',data)
 
 
 
