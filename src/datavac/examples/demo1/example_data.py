@@ -7,7 +7,8 @@ import pandas as pd
 import platformdirs
 
 from datavac.examples.demo1 import READ_DIR
-from datavac.examples.demo1.mock_devices import Transistor4T, OrGate, AndGate, DFlipFlop
+from datavac.examples.demo1.mock_devices import Transistor4T
+from datavac.examples.demo1.mock_logic import AndGate, OrGate, DFlipFlop, TieHi, TieLo, RingOscillator, Divider
 from datavac.io.layout_params import get_layout_params
 
 
@@ -67,6 +68,14 @@ def get_transistor(mask,structure):
     return Transistor4T(W=site_params['W [um]']*1e-6,L=site_params['L [um]']*1e-6,
                VT0=site_params['VT0_target [V]'],n=site_params['n_target'],pol=site_params['pol'])
 
+def get_ring(mask,structure) -> RingOscillator:
+    lp=get_layout_params()
+    site_params=lp.get_params([structure],mask=mask).iloc[0]
+    return RingOscillator(stages=site_params['stages'],
+                          t_stage=site_params['target_t_stage [ps]']/1e12,
+                          div_by=site_params['div_by'])
+
+
 def make_example_data():
 
     # Clear the directory if it exists and remake it
@@ -86,6 +95,15 @@ def make_example_data():
     data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[-.01, -1], VGrange=[0, -1], do_plot=False)
           for structure in ['pmos1','pmos2','pmos3']}
     write_example_data_file('lot1','sample1','pMOS_IdVg',data)
+
+    ###
+    # Tie-Hi
+    ###
+    data={
+        'good_tihi': TieHi().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=1, bandwidth=1e9),
+        'bad_tihi': TieLo().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=1, bandwidth=1e9),
+    }
+    write_example_data_file('lot1','sample1','tiehi_logic',data)
 
     ###
     # OR gates
@@ -111,6 +129,26 @@ def make_example_data():
     data['good_dff2']['o'][:spp] = 1-data['good_dff2']['o'][:spp]
     write_example_data_file('lot1','sample1','dff_logic',data)
 
+    ###
+    # Divs
+    ###
+    data={}
+    data['good_div2']=Divider(div_by=2).generate_potential_traces()
+    data['bad_div2']= Divider(div_by=3).generate_potential_traces()
+    data['good_div4']=Divider(div_by=4).generate_potential_traces()
+    data['bad_div4']= Divider(div_by=3).generate_potential_traces()
+    bd4a=data['bad_div4']['a']
+    bd4o=data['bad_div4']['o']
+    iglitch_start=np.arange(len(bd4a)-1)[np.diff(bd4a>Divider().vmid)!=0][5]+1
+    iglitch_stop= np.arange(len(bd4a)-1)[np.diff(bd4a>Divider().vmid)!=0][6]+1
+    bd4o[iglitch_start:iglitch_stop]=Divider().vhi-bd4o[iglitch_start:iglitch_stop]
+    write_example_data_file('lot1','sample1','divs',data)
+
+    ###
+    # ROs
+    ###
+    data={structure: get_ring('Mask1',structure).generate_potential_traces(n_samples=5000*3,sample_rate=10e6,enable_period=500e-6,) for structure in ['ro1','ro2','ro3','ro4']}
+    write_example_data_file('lot1','sample1','ros',data)
 
 
 if __name__ == '__main__':

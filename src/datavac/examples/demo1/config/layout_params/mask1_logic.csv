@@ -1,4 +1,6 @@
 Structure, formula
+good_tihi,   o_n = TRUE
+bad_tihi,    o_n = TRUE
 good_or,   o_n = a_n %OR% b_n
 bad_or,    o_n = a_n %OR% b_n
 good_dff1, o_n = rb_n & ((d_nm1 & (clk_n & ~ clk_nm1)) %OR% (o_nm1 & ~ (clk_n & ~ clk_nm1)))

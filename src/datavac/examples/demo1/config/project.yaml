@@ -49,4 +49,18 @@ measurement_groups:
     readers:
       - template: *example_csv_reader_template
         glob: '*_logic.csv'
-    meas_type: 'datavac.measurements.logic_cell:OscopeLogic'
+    meas_type: 'datavac.measurements.logic_cell:OscopeFormulaLogic'
+  ROs:
+    analysis_columns: {'t_stage [ps]':'float64'}
+    meas_columns: {'FileName':'string'}
+    readers:
+      - template: *example_csv_reader_template
+        glob: '*_ros.csv'
+    meas_type: ['datavac.measurements.logic_cell:OscopeRingOscillator',{'stages_col':'stages','div_by_col':'div_by'}]
+  divider:
+    analysis_columns: {'correct_division':'bool'}
+    meas_columns: {'FileName':'string'}
+    readers:
+      - template: *example_csv_reader_template
+        glob: '*_divs.csv'
+    meas_type: 'datavac.measurements.logic_cell:OscopeDivider'
