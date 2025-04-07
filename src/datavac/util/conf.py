@@ -33,7 +33,8 @@ class Config():
         return self._yaml.get(item,default)
 
     def get_meas_type(self, meas_group):
-        res=self.measurement_groups[meas_group]['meas_type']
+        default_mtype='datavac.measurements.measurement_type:MeasurementType'
+        res=self.measurement_groups[meas_group].get('meas_type',default_mtype)
         if type(res) is str:
             return import_modfunc(res)()
         else:
