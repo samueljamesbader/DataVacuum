@@ -1157,7 +1157,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     data=self._unstack_header_helper(data,unstacking_indices, drop_index=(not raw_only))
         return data
 
-    def get_meas_data_for_jmp(self,meas_group,loadids,measids):
+    def get_meas_data_for_jmp(self,meas_group,loadids,measids,only_sweeps=None):
 
         # Set up query for the specific loadids and measids
         # https://stackoverflow.com/a/6672707
@@ -1165,9 +1165,15 @@ class PostgreSQLDatabase(AlchemyDatabase):
         query=f"SELECT t1.loadid, t1.measid, sweep, header from {self.int_schema}.\"Sweep -- {meas_group}\""\
               f" AS t1 JOIN {values} ON t1.loadid = t2.loadid AND t1.measid = t2.measid"
 
+        if only_sweeps is not None:
+            query+=" WHERE header IN ("+",".join([f"'{h}'" for h in only_sweeps])+")"
+
         # Get the data, unstacked
-        data= self._get_data_from_meas_group_helper(meas_group,sel=query,selcols={},include_sweeps=True,
+        data= self._get_data_from_meas_group_helper(meas_group,sel=query,selcols={},
+                                              include_sweeps=(True if only_sweeps is None else only_sweeps),
                                               unstack_headers=True, raw_only=True)
+        if not len(data):
+            return data
 
         # Infer names of X and Y columns and sweep variables
         from datavac.util.tables import stack_multi_sweeps
@@ -1175,9 +1181,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
         headers=[k for k in data.columns if k not in ['loadid','measid']]
         if all(('@' not in k) for k in headers):
             # Assume column names of form X, Y... doesn't actually matter which is independent, so say first
-            x=headers[0]
+            # actually, it does matter in one situation: if X is something that might be NaN instead of array,
+            # then the data.where() below will have an issue, so let's try to pick a good column for now.
+            x=next((h for h in headers if h.lower() in ['x','time']),headers[0])
             swvs=[]
-            ys_withdir=headers[1:]
+            ys_withdir=[h for h in headers if h!=x]
             #data=data.rename(columns=dict(zip(ys,[y+"@" for y in headers[1:]])))
         else:
             # Assume column names of form X, fY1@SWVR=val, fY2@SWVR=val ...

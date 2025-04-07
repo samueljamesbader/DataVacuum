@@ -74,7 +74,7 @@ dv:PySub = Function( {code, ret=0, pc=0}, {Default Local},
 //        Build Query, and other JMP operations which preserve the Modify Query script.
 //        So, if you're getting fancy, you may have to supply this explicitly.
 //
-dv:PullSweeps=Function({dt=0, db_table_name=0},
+dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0}, {Default Local},
 	dt = If( dt!=0, dt, Current Data Table());
 	
 	If(db_table_name==0,
@@ -103,10 +103,15 @@ dv:PullSweeps=Function({dt=0, db_table_name=0},
 			Formula(:loadid*1e9+:measid), Set Property( "Link ID", 1)));
 	path="$temp/"||(dt << Get Name) || ".jmp";
 	dt << Save(path);
-	
+
+	// Deal with header restriction
+    Show(only_headers);
+    headers_str=If(only_headers==0,"None","[\!""||Concat Items(only_headers, "\!",\!"")||"\!"]");
+    Show(headers_str);
+
 	// Run the query in Python
 	dv:PyConn() << Send(dt,Python Name("viewdf"));
-	error=dv:PySub("db=get_database();sweepdf=db.get_meas_data_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'])");
+	error=dv:PySub("db=get_database();sweepdf=db.get_meas_data_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'],only_sweeps="||headers_str||")");
 	//Show(error);
 	//Show(error!=0);
 	If(!IsEmpty(error),
