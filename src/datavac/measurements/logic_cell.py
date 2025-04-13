@@ -8,6 +8,37 @@ from scipy.fft import rfftfreq, rfft
 
 from datavac.io.measurement_table import UniformMeasurementTable
 from datavac.measurements.measurement_type import MeasurementType
+from datavac.util.maths import YatX
+
+
+@dataclass
+class InverterDC(MeasurementType):
+    vhi: float = 1.0
+    vlo: float = 0.0
+    def analyze(self, measurements: 'UniformMeasurementTable'):
+        assert self.vlo==0
+        Vmid=YatX(X=measurements[f'fVout@VDD={self.vhi}'],Y=measurements['Vin'],
+                  x=(self.vhi+self.vlo)/2,reverse_crossing=True)
+        measurements['Vmid [V]']=Vmid
+
+        dVin=np.mean(np.diff(measurements['Vin'],axis=1))
+        gain=np.diff(measurements[f'fVout@VDD={self.vhi}'],axis=1)/dVin
+        Vinm=(measurements['Vin'][:,:-1]+measurements['Vin'][:,1:])/2
+        Voutm=(measurements[f'fVout@VDD={self.vhi}'][:,:-1]+measurements[f'fVout@VDD={self.vhi}'][:,1:])/2
+        measurements['max_gain']=np.max(-gain,axis=1)
+        after_vmid=(Vinm.T>Vmid).T
+        nan_after_vmid=np.ones_like(after_vmid,dtype=float); nan_after_vmid[ after_vmid]=np.nan
+        nan_befor_vmid=np.ones_like(after_vmid,dtype=float); nan_befor_vmid[~after_vmid]=np.nan
+
+        gainlef=gain*nan_after_vmid
+        gainrit=gain*nan_befor_vmid
+        # https://web.mit.edu/6.012/www/SP07-L11.pdf
+        measurements['VIL [V]']=YatX(Y=Vinm,X=gainlef,x=-1,reverse_crossing=True)
+        measurements['VIH [V]']=YatX(Y=Vinm,X=gainrit,x=-1,reverse_crossing=False)
+        measurements['VOL [V]']=YatX(Y=Voutm,X=gainrit,x=-1,reverse_crossing=False)
+        measurements['VOH [V]']=YatX(Y=Voutm,X=gainlef,x=-1,reverse_crossing=True)
+        measurements['NMH [V]']=measurements['VOH [V]']-measurements['VIH [V]']
+        measurements['NML [V]']=measurements['VIL [V]']-measurements['VOL [V]']
 
 def get_digitized_curves(time:np.ndarray[float], curves:dict[str,np.ndarray[float]], vmid: float,
                          tcluster_thresh: Optional[float] = None) -> dict[str,np.ndarray[bool]]:
@@ -227,7 +258,8 @@ def fine_freq_of_signal(binary_signal:np.ndarray[bool], dt:float, expected_inter
                     and iflips[0]<expected_interval[row]*1.2 \
                     and iflips[-1]>binary_signal.shape[1]-expected_interval[row]*1.2:
                 glitch_free.append(True)
-                md=np.median(np.diff(iflips))
+                #md=np.median(np.diff(iflips))
+                md=np.mean(np.diff(iflips))
                 assert np.isclose(md,expected_interval[row],rtol=.2), f"Unexpectedly large interval refinement {md} vs {expected_interval[row]}"
                 fine_freq.append(1/(md*dt*2))
             else:

@@ -6,6 +6,54 @@ import numpy as np
 from numpy.fft import irfft
 from scipy.fft import rfftfreq, rfft
 
+@dataclass
+class InverterDC:
+    Vhi: float = 1.0
+    Vlo: float = 0.0
+    Vmid: float = 0.5
+    gain: float = 10.0
+    def Vout(self,Vin: np.ndarray[float]):
+        Vr=self.Vhi-self.Vlo
+        alpha=-self.gain*4
+        x=(Vin-self.Vmid)/Vr
+        return Vr*np.exp(alpha*x)/(1+np.exp(alpha*x))
+    def generate_potential_iv(self):
+        Vin=np.linspace(self.Vlo,self.Vhi,1000)
+        Vout=self.Vout(Vin)
+        return {'Vin':Vin,f'fVout@VDD={self.Vhi}':Vout,f'rVout@VDD={self.Vhi}':Vout}
+
+    def _ngp(self):
+        alpha=-self.gain*4
+        Vr=self.Vhi-self.Vlo
+        nogainpoint=-Vr/alpha*np.arccosh(-(alpha+2)/2)
+        return nogainpoint
+
+    def characteristics(self):
+        ngp=self._ngp()
+        V_IL=self.Vmid-ngp
+        V_IH=self.Vmid+ngp
+        V_OH=self.Vout(V_IL)
+        V_OL=self.Vout(V_IH)
+        NMH=V_OH-V_IH
+        NML=V_IL-V_OL
+        return {'V_IL':V_IL,'V_IH':V_IH,'V_OH':V_OH,'V_OL':V_OL,'NMH':NMH,'NML':NML}
+
+    def plot_example(self):
+        import matplotlib.pyplot as plt
+        curves=self.generate_potential_iv()
+        plt.plot(curves['Vin'], curves[f'fVout@VDD={self.Vhi}'])
+        plt.axvline(x=self.Vmid,ymin=0,ymax=self.Vout(self.Vmid), color='k', linestyle='--', label='Vmid')
+        ch=self.characteristics()
+        plt.axvline(x=ch['V_IH'],ymin=0,ymax=ch['V_OL'], color='r', linestyle='--')
+        plt.axhline(y=ch['V_OL'],xmin=ch['V_IH'],xmax=self.Vhi, color='r', linestyle='--')
+
+        plt.axvline(x=ch['V_IL'],ymin=ch['V_OH'],ymax=self.Vhi, color='r', linestyle='--')
+        plt.axhline(y=ch['V_OH'],xmin=0,xmax=ch['V_IL'], color='r', linestyle='--')
+
+        #plt.axvline(x=ch['V_IH'],ymin=0,ymax=ch['V_OL'], color='r', linestyle='--')
+        plt.xlim(self.Vlo,self.Vhi)
+        plt.ylim(self.Vlo,self.Vhi)
+
 
 def smooth_traces(time:np.ndarray[float], traces:dict[str,np.ndarray[float]],
                   bandwidth:float) -> dict[str,np.ndarray[float]]:
@@ -207,8 +255,9 @@ class Divider:
 
 if __name__=='__main__':
     import matplotlib.pyplot as plt
+    InverterDC(Vmid=.6,gain=7).plot_example()
     #OrGate().plot_example()
     #DFlipFlop().plot_example()
     #RingOscillator().plot_example()
-    Divider().plot_example()
+    #Divider().plot_example()
     plt.show()

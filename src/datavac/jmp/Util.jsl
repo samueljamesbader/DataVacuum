@@ -124,7 +124,12 @@ dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
 	dv:QuickSQL(tablename, sql, close previous)
 );
 
-dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", close previous=1},
-	sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
-	dv:QuickSelect(tablename, sqlrestrict, close previous);
+dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", ask_inc_sweeps=0, close previous=1},
+    if (ask_inc_sweeps,
+        {sqlrestrict,checks}=dv:LotPreselectorSQL(tablename,0,1,{"include sweeps"});
+        Eval List({dv:QuickSelect(tablename, sqlrestrict, close previous),Contains(checks,"include sweeps")!=0});
+    ,//Else
+        sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
+        dv:QuickSelect(tablename, sqlrestrict, close previous);
+    )
 );

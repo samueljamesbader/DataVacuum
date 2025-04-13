@@ -8,7 +8,8 @@ import platformdirs
 
 from datavac.examples.demo1 import READ_DIR
 from datavac.examples.demo1.mock_devices import Transistor4T
-from datavac.examples.demo1.mock_logic import AndGate, OrGate, DFlipFlop, TieHi, TieLo, RingOscillator, Divider
+from datavac.examples.demo1.mock_logic import AndGate, OrGate, DFlipFlop, TieHi, TieLo, RingOscillator, Divider, \
+    InverterDC
 from datavac.io.layout_params import get_layout_params
 
 
@@ -68,6 +69,11 @@ def get_transistor(mask,structure):
     return Transistor4T(W=site_params['W [um]']*1e-6,L=site_params['L [um]']*1e-6,
                VT0=site_params['VT0_target [V]'],n=site_params['n_target'],pol=site_params['pol'])
 
+def get_inverter(mask,structure):
+    lp=get_layout_params()
+    site_params=lp.get_params([structure],mask=mask).iloc[0]
+    return InverterDC(Vmid=site_params['target_Vmid [V]'],gain=site_params['target_gain'])
+
 def get_ring(mask,structure) -> RingOscillator:
     lp=get_layout_params()
     site_params=lp.get_params([structure],mask=mask).iloc[0]
@@ -95,6 +101,12 @@ def make_example_data():
     data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[-.01, -1], VGrange=[0, -1], do_plot=False)
           for structure in ['pmos1','pmos2','pmos3']}
     write_example_data_file('lot1','sample1','pMOS_IdVg',data)
+
+    ###
+    # DC inverters
+    ###
+    data={structure: get_inverter('Mask1',structure).generate_potential_iv() for structure in ['inv1','inv2']}
+    write_example_data_file('lot1','sample1','invs',data)
 
     ###
     # Tie-Hi

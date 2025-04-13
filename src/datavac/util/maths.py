@@ -73,8 +73,8 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float, reverse_crossing: bool = False)
     X=np.asarray(X); Y=np.asarray(Y);
     if reverse_crossing: X,Y=X[:,::-1],Y[:,::-1]
 
-    ind_aboves=np.argmax(X>=x, axis=1)
-    ind_belows=X.shape[1]-np.argmax(X[:,::-1]<=x, axis=1)-1
+    ind_aboves=np.nanargmax(X>=x, axis=1)
+    ind_belows=X.shape[1]-np.nanargmax(X[:,::-1]<=x, axis=1)-1
     valid_crossing_between=(ind_aboves==(ind_belows+1))
     valid_crossing_rightat=(ind_aboves==ind_belows)
 
