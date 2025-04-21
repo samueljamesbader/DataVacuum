@@ -42,13 +42,16 @@ def make_IdVg(transistor,VDs,VGrange, do_plot=False) -> dict:
 
     return data
 
-def make_KelvinRon(transistor,IDs,VGrange, do_plot=False) -> dict:
+def make_KelvinRon(transistor:Transistor4T,IDs,VGrange, do_plot=False) -> dict:
     # Make a simple IdVg curve
     npoints=51
     VG=np.linspace(VGrange[0], VGrange[1], npoints)
     data={'VG':VG}
+    try_ron = transistor.approximate_Ron(VG)
     for ID in IDs:
-        sweep_data = transistor.DCIV(VG, VD, VS=0)
+        try_vd=try_ron*ID
+        sweep_data= transistor.DCIV(VG, try_vd, VS=0)
+        data[f'fVDS@ID={ID}']
 
 def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np.ndarray]]):
     data=pd.concat([pd.DataFrame(subdata).assign(**{'Site':site,'MeasNo':i}) for i,(site,subdata) in enumerate(data_dicts.items())])

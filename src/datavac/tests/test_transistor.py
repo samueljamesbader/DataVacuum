@@ -12,7 +12,7 @@ def test_IdVg(example_data):
     nmosdat=mt2mg2dat['lot1_sample1']['nMOS_IdVg']
     xtors=[get_transistor(mask='Mask1',structure=s) for s in nmosdat['Site']]
     assert np.allclose(nmosdat['SS [mV/dec]'], [60*xtor.n for xtor in xtors], rtol=0.01)
-    assert np.allclose(nmosdat['Ron [ohm]'], [xtor.approximate_Ron(1) for xtor in xtors], rtol=0.01)
+    assert np.allclose(nmosdat['Ron [ohm]'], [xtor.approximate_Ron([1])[0] for xtor in xtors], rtol=0.01)
 
     mt2mg2dat,mg2ml=quick_read_filename('lot1/lot1_sample1_pMOS_IdVg.csv')
     print(mt2mg2dat['lot1_sample1']['pMOS_IdVg'][['SS [mV/dec]','Ron [ohm]','RonW [ohm.um]']])
@@ -20,4 +20,4 @@ def test_IdVg(example_data):
     pmosdat=mt2mg2dat['lot1_sample1']['pMOS_IdVg']
     xtors=[get_transistor(mask='Mask1',structure=s) for s in pmosdat['Site']]
     assert np.allclose(pmosdat['SS [mV/dec]'], [60*xtor.n for xtor in xtors], rtol=0.01)
-    assert np.allclose(pmosdat['Ron [ohm]'], [xtor.approximate_Ron(-1) for xtor in xtors], rtol=0.01)
+    assert np.allclose(pmosdat['Ron [ohm]'], [xtor.approximate_Ron([-1])[0] for xtor in xtors], rtol=0.01)

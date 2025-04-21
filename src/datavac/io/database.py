@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime
 import time
 from pathlib import Path
-from typing import Union, Callable, Optional
+from typing import Union, Callable, Optional, TYPE_CHECKING
 
 import requests
 from sqlalchemy.dialects import postgresql
@@ -33,6 +33,10 @@ from datavac.util.conf import CONFIG
 from datavac.util.logging import logger, time_it
 from datavac.util.paths import USER_CACHE
 from datavac.util.util import returner_context, import_modfunc
+
+if TYPE_CHECKING:
+    from datavac.io.measurement_table import MeasurementTable
+
 
 _CASC=dict(onupdate='CASCADE',ondelete='CASCADE')
 
@@ -807,7 +811,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         .all()[0][0]
         return matid
 
-    def push_data(self, matload_info, data_by_meas_group:dict,
+    def push_data(self, matload_info, data_by_meas_group:dict[str,'MeasurementTable'],
                   clear_all_from_material=True, user_called=True, re_extraction=False,
                   defer_analyses=False):
         """
@@ -852,7 +856,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
             # For each meas_group
             collected_loadids={}
-            for meas_group, mt_or_df in data_by_meas_group.items():
+            for meas_group, mt in data_by_meas_group.items():
 
                 if not re_extraction:
                     # Drop any previous loads from the Loads table
@@ -866,77 +870,74 @@ class PostgreSQLDatabase(AlchemyDatabase):
                                        .returning(self._loadtab.c.loadid))\
                                 .all()[0][0]
 
-                #print(type(mt_or_df),isinstance(mt_or_df, MeasurementTable))
+                #print(type(mt),isinstance(mt, MeasurementTable))
                 from datavac.io.measurement_table import MeasurementTable
-                if isinstance(mt_or_df, MeasurementTable):
-                    analysis_cols=list(CONFIG['measurement_groups'][meas_group]['analysis_columns'])
-                    meas_cols=list(CONFIG['measurement_groups'][meas_group]['meas_columns'])
+                assert isinstance(mt, MeasurementTable)
+                analysis_cols=list(CONFIG['measurement_groups'][meas_group]['analysis_columns'])
+                meas_cols=list(CONFIG['measurement_groups'][meas_group]['meas_columns'])
 
-                    df=mt_or_df._dataframe
+                df=mt.scalar_table
 
-                    if not re_extraction:
-                        # Upload the measurement list
-                        with time_it(f"Meas table {meas_group} altogether"):
-                            mask=material_info['Mask']
-                            condie=CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True)
-                            conlay=CONFIG['measurement_groups'][meas_group].get('connect_to_layout_table',True)
-                            if condie:
-                                diem=pd.DataFrame.from_records(conn.execute(select(self._diemtab.c.DieXY,self._diemtab.c.dieid)\
-                                                .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
-                                df2=df.reset_index() \
-                                    .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'}) \
-                                    [['loadid','measid',*(['Structure'] if conlay else []),'DieXY','rawgroup',*meas_cols]].merge(diem,how='left',on='DieXY')\
-                                    [['loadid','measid',*(['Structure'] if conlay else []),'dieid','rawgroup',*meas_cols]]
-                            else:
-                                df2=df.reset_index() \
-                                    .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'})\
-                                    [['loadid','measid',*(['Structure'] if conlay else []),'rawgroup',*meas_cols]]
-                            self._upload_csv(df2,conn,self.int_schema,self._mgt(meas_group,'meas').name)
+                if not re_extraction:
+                    # Upload the measurement list
+                    with time_it(f"Meas table {meas_group} altogether"):
+                        mask=material_info['Mask']
+                        condie=CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True)
+                        conlay=CONFIG['measurement_groups'][meas_group].get('connect_to_layout_table',True)
+                        if condie:
+                            diem=pd.DataFrame.from_records(conn.execute(select(self._diemtab.c.DieXY,self._diemtab.c.dieid)\
+                                            .where(self._diemtab.c.Mask==mask)).all(),columns=['DieXY','dieid'])
+                            df2=df.reset_index() \
+                                .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'}) \
+                                [['loadid','measid',*(['Structure'] if conlay else []),'DieXY','rawgroup',*meas_cols]].merge(diem,how='left',on='DieXY')\
+                                [['loadid','measid',*(['Structure'] if conlay else []),'dieid','rawgroup',*meas_cols]]
+                        else:
+                            df2=df.reset_index() \
+                                .assign(loadid=loadid,Mask=mask).rename(columns={'index':'measid'})\
+                                [['loadid','measid',*(['Structure'] if conlay else []),'rawgroup',*meas_cols]]
+                        self._upload_csv(df2,conn,self.int_schema,self._mgt(meas_group,'meas').name)
 
-                        # Upload the raw sweep
-                        meas_type=CONFIG.get_meas_type(meas_group)
-                        sweepconv=(pd_to_pg_converters['STRING']) \
-                            if (hasattr(meas_type,'ONESTRING') and meas_type.ONESTRING) else lambda s: s.tobytes()
-                        self._upload_binary(
-                            df[mt_or_df.headers]
-                                .stack().reset_index()
-                                .assign(loadid=loadid).rename(columns={'level_0':'measid','level_1':'header',0:'sweep'}) \
-                                [['loadid','measid','sweep','header']],
-                            conn,self.int_schema,self._mgt(meas_group,'sweep').name,
-                            override_converters={'sweep':sweepconv,'header':pd_to_pg_converters['STRING']}
-                        )
+                    # Upload the raw sweep
+                    meas_type=CONFIG.get_meas_type(meas_group)
+                    sweepconv=(pd_to_pg_converters['STRING']) \
+                        if (hasattr(meas_type,'ONESTRING') and meas_type.ONESTRING) else lambda s: s.tobytes()
+                    self._upload_binary(
+                        mt.get_stacked_sweeps().assign(loadid=loadid)[['loadid','measid','sweep','header']],
+                        conn,self.int_schema,self._mgt(meas_group,'sweep').name,
+                        override_converters={'sweep':sweepconv,'header':pd_to_pg_converters['STRING']}
+                    )
 
-                    # Upload the extracted values
-                    if not re_extraction:
-                        df=df.assign(loadid=loadid).reset_index().rename(columns={'index':'measid'})
-                    assert len(ulid:=df['loadid'].unique())==1
-                    try:
-                        df=df[['loadid','measid',*analysis_cols]]
-                    except KeyError as e:
-                        logger.warning(f"Missing columns: {str(e)}")
-                        logger.warning(f"Present columns are {list(df.columns)}")
-                        raise e
-                    loadid=int(ulid[0])
-                    try:
-                        self._upload_csv(
-                            df,
-                            conn,self.int_schema,self._mgt(meas_group,'extr').name
-                        )
-                    except Exception as e:
-                        print("OOPS")
-                        raise e
+                # Upload the extracted values
+                if not re_extraction:
+                    df=df.assign(loadid=loadid).reset_index().rename(columns={'index':'measid'})
+                assert len(ulid:=df['loadid'].unique())==1
+                try:
+                    df=df[['loadid','measid',*analysis_cols]]
+                except KeyError as e:
+                    logger.warning(f"Missing columns: {str(e)}")
+                    logger.warning(f"Present columns are {list(df.columns)}")
+                    raise e
+                loadid=int(ulid[0])
+                try:
+                    self._upload_csv(
+                        df,
+                        conn,self.int_schema,self._mgt(meas_group,'extr').name
+                    )
+                except Exception as e:
+                    print("OOPS")
+                    raise e
 
-                    # If we've succeeded thus far, we can drop this matid, MeasGroup from the refreshes table
-                    dstat=delete(self._rextab)\
-                        .where(self._rextab.c.MeasGroup==meas_group)\
-                        .where(self._rextab.c.matid==self._loadtab.c.matid) \
-                        .where(self._loadtab.c.loadid==loadid)
-                    if re_extraction:
-                        dstat=dstat.where(self._rextab.c.full_reload==False)
-                    #print(dstat.compile())
-                    conn.execute(dstat)
+                # If we've succeeded thus far, we can drop this matid, MeasGroup from the refreshes table
+                dstat=delete(self._rextab)\
+                    .where(self._rextab.c.MeasGroup==meas_group)\
+                    .where(self._rextab.c.matid==self._loadtab.c.matid) \
+                    .where(self._loadtab.c.loadid==loadid)
+                if re_extraction:
+                    dstat=dstat.where(self._rextab.c.full_reload==False)
+                #print(dstat.compile())
+                conn.execute(dstat)
 
-                    collected_loadids[meas_group]=loadid
+                collected_loadids[meas_group]=loadid
 
             if not defer_analyses:
                 self.perform_analyses(conn, analyses,
@@ -1020,12 +1021,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
     def get_data_for_regen(self, meas_group, matname, on_no_data='raise', conn=None):
         meas_cols=list(CONFIG['measurement_groups'][meas_group]['meas_columns'])
-        die_cols=(['DieXY','DieCenterA [mm]','DieCenterB [mm]'] if CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True) else [])
-        laycols=(['Structure'] if CONFIG['measurement_groups'][meas_group].get('connect_to_layout_table',True) else [])
+        die_cols=(['DieXY','DieCenterA [mm]','DieCenterB [mm]']
+                  if CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True) else [])
+        laycols=['Structure'] if CONFIG['measurement_groups'][meas_group].get('connect_to_layout_table',True) else []
         data=self.get_data(meas_group=meas_group,
-                      # TODO: BAD hardcoding of columns
                       scalar_columns=['loadid','measid','rawgroup',*ALL_MATLOAD_COLUMNS,*die_cols,*laycols,*meas_cols],
-                      include_sweeps=True, raw_only=True, unstack_headers=True,conn=conn,
+                      include_sweeps=True, raw_only=True,conn=conn,
                       **{CONFIG['database']['materials']['full_name']:[matname]})
 
         if not(len(data)):
@@ -1036,23 +1037,21 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     return None
 
 
-        headers=[]
-        for c in data.columns:
-            if c=='rawgroup': break
-            headers.append(c)
-
         from datavac.io.measurement_table import MultiUniformMeasurementTable, UniformMeasurementTable
-
         meas_type=CONFIG.get_meas_type(meas_group)
-
-        # This uses the fact that there is only one loadid for a given mg and matname
-        return MultiUniformMeasurementTable([
-            UniformMeasurementTable(dataframe=df.reset_index(drop=True),headers=headers,
-                                    meas_length=None,meas_type=meas_type,meas_group=meas_group)
-            for rg, df in data.groupby('rawgroup')])
+        umts=[]
+        for rg, df in data.groupby("rawgroup"):
+            df=self._unstack_header_helper(df, ['loadid','measid'], drop_index=True)
+            headers=[]
+            for c in df.columns:
+                if c=='rawgroup': break
+                headers.append(c)
+            umts.append(UniformMeasurementTable(dataframe=df, headers=headers,
+                                                meas_type=meas_type, meas_group=meas_group, meas_length=None))
+        return MultiUniformMeasurementTable(umts)
 
     def get_data(self,meas_group,scalar_columns=None,include_sweeps=False,
-                         unstack_headers=False,raw_only=False,conn=None,**factors):
+                         unstack_headers=False,raw_only=False,conn=None,**factors) -> pd.DataFrame:
         if meas_group in CONFIG.higher_analyses:
             assert (include_sweeps==False or include_sweeps==[]), f"For analysis (eg {meas_group}), include_sweeps must be False or [], not {include_sweeps}"
             #assert unstack_headers==False

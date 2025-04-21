@@ -117,4 +117,4 @@ class Transistor4T:
 
     def approximate_Ron(self,VG):
         VD=1e-3
-        return VD/self.DCIV(VG=np.array([VG]),VD=VD,VS=0,VB=0).iloc[0]['ID']
+        return VD/self.DCIV(VG=np.array(VG),VD=VD,VS=0,VB=0)['ID']

@@ -14,11 +14,12 @@ database:
     full_name: 'LotSample'
     # Other columns that are descriptive of the piece of material
     # Currently, 'Mask' is required to be in this list
-    #info_columns: ['Lot','Sample','Mask']
-    info_columns: ['Lot','Sample']
+    info_columns: ['Lot','Sample','Mask']
+    #info_columns: ['Lot','Sample']
 
 meta_reader:
   read_from_filename_regex: ^(?P<LotSample>(?P<Lot>[A-Za-z0-9]+)_(?P<Sample>[A-Za-z0-9]+))
+  matload_info_completer: 'datavac.examples.demo1.config:complete_matload_info'
 
 misc_shorthands:
   - &example_csv_reader_template
@@ -26,8 +27,8 @@ misc_shorthands:
 
 measurement_groups:
   nMOS_IdVg:
-    analysis_columns: {'SS [mV/dec]':'float64', 'RonW [ohm.um]':'float64', 'Ron [ohm]':'float64'}
     meas_columns: {'FileName':'string'}
+    analysis_columns: {'SS [mV/dec]':'float64', 'RonW [ohm.um]':'float64', 'Ron [ohm]':'float64'}
     readers:
       - template: *example_csv_reader_template
         glob: '*_nMOS_IdVg.csv'
@@ -35,8 +36,8 @@ measurement_groups:
                 {'pol':'n','norm_column':'W [um]','abs_vdsat':1, 'Vgons':{'':1}}]
     connect_to_die_table: False
   pMOS_IdVg:
-    analysis_columns: {'SS [mV/dec]':'float64', 'RonW [ohm.um]':'float64', 'Ron [ohm]':'float64'}
     meas_columns: {'FileName':'string'}
+    analysis_columns: {'SS [mV/dec]':'float64', 'RonW [ohm.um]':'float64', 'Ron [ohm]':'float64'}
     readers:
       - template: *example_csv_reader_template
         glob: '*_pMOS_IdVg.csv'
@@ -44,30 +45,49 @@ measurement_groups:
                 {'pol':'p','norm_column':'W [um]','abs_vdsat':1, 'Vgons':{'':-1}}]
     connect_to_die_table: False
   inverter_DC:
-    analysis_columns: {'max_gain':'float64'}
     meas_columns: {'FileName':'string'}
+    analysis_columns: {'max_gain':'float64'}
     readers:
       - template: *example_csv_reader_template
         glob: '*_invs.csv'
     meas_type: 'datavac.measurements.logic_cell:InverterDC'
   logic_oscope:
-    analysis_columns: {'truth_table_pass':'bool'}
     meas_columns: {'FileName':'string'}
+    analysis_columns: {'truth_table_pass':'bool'}
     readers:
       - template: *example_csv_reader_template
         glob: '*_logic.csv'
     meas_type: 'datavac.measurements.logic_cell:OscopeFormulaLogic'
   ROs:
-    analysis_columns: {'t_stage [ps]':'float64'}
     meas_columns: {'FileName':'string'}
+    analysis_columns: {'t_stage [ps]':'float64'}
     readers:
       - template: *example_csv_reader_template
         glob: '*_ros.csv'
     meas_type: ['datavac.measurements.logic_cell:OscopeRingOscillator',{'stages_col':'stages','div_by_col':'div_by'}]
   divider:
-    analysis_columns: {'correct_division':'bool'}
     meas_columns: {'FileName':'string'}
+    analysis_columns: {'correct_division':'bool'}
     readers:
       - template: *example_csv_reader_template
         glob: '*_divs.csv'
     meas_type: 'datavac.measurements.logic_cell:OscopeDivider'
+  misc_test:
+    meas_columns: {'scalar1':'int32'}
+    analysis_columns: {}
+    readers: []
+    connect_to_layout_table: False
+    connect_to_die_table: False
+
+
+masks:
+  Mask1:
+    arraymap: mask1
+array_maps:
+  Mask1:
+    generator: 'datavac.io.make_diemap:make_fullwafer_diemap'
+    args:
+      name: DEPRECATETHISPLEASE
+      aindex: 30
+      bindex: 40
+      save_csv: False
