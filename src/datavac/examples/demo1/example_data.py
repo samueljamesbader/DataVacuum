@@ -72,7 +72,7 @@ def get_transistor(mask,structure):
 def get_inverter(mask,structure):
     lp=get_layout_params()
     site_params=lp.get_params([structure],mask=mask).iloc[0]
-    return InverterDC(Vmid=site_params['target_Vmid [V]'],gain=site_params['target_gain'])
+    return InverterDC(Vim=site_params['target_Vmid [V]'], gain=site_params['target_gain'])
 
 def get_ring(mask,structure) -> RingOscillator:
     lp=get_layout_params()

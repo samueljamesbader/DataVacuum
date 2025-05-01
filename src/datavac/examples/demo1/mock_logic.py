@@ -9,14 +9,19 @@ from scipy.fft import rfftfreq, rfft
 @dataclass
 class InverterDC:
     Vhi: float = 1.0
+    """ Logic high voltage """
     Vlo: float = 0.0
-    Vmid: float = 0.5
+    """ Logic low voltage """
+    Vim: float = 0.5
+    """ Input voltage at which output is halfway between Vhi and Vlo """
     gain: float = 10.0
+    """ Max gain (ie negative slope) of the inverter """
+
     def Vout(self,Vin: np.ndarray[float]):
         Vr=self.Vhi-self.Vlo
         alpha=-self.gain*4
-        x=(Vin-self.Vmid)/Vr
-        return Vr*np.exp(alpha*x)/(1+np.exp(alpha*x))
+        x= (Vin - self.Vim) / Vr
+        return Vr*np.exp(alpha*x)/(1+np.exp(alpha*x)) + self.Vlo
     def generate_potential_iv(self):
         Vin=np.linspace(self.Vlo,self.Vhi,1000)
         Vout=self.Vout(Vin)
@@ -30,8 +35,8 @@ class InverterDC:
 
     def characteristics(self):
         ngp=self._ngp()
-        V_IL=self.Vmid-ngp
-        V_IH=self.Vmid+ngp
+        V_IL= self.Vim - ngp
+        V_IH= self.Vim + ngp
         V_OH=self.Vout(V_IL)
         V_OL=self.Vout(V_IH)
         NMH=V_OH-V_IH
@@ -42,7 +47,7 @@ class InverterDC:
         import matplotlib.pyplot as plt
         curves=self.generate_potential_iv()
         plt.plot(curves['Vin'], curves[f'fVout@VDD={self.Vhi}'])
-        plt.axvline(x=self.Vmid,ymin=0,ymax=self.Vout(self.Vmid), color='k', linestyle='--', label='Vmid')
+        plt.axvline(x=self.Vim, ymin=0, ymax=self.Vout(self.Vim), color='k', linestyle='--', label='Vmid')
         ch=self.characteristics()
         plt.axvline(x=ch['V_IH'],ymin=0,ymax=ch['V_OL'], color='r', linestyle='--')
         plt.axhline(y=ch['V_OL'],xmin=ch['V_IH'],xmax=self.Vhi, color='r', linestyle='--')
@@ -255,7 +260,7 @@ class Divider:
 
 if __name__=='__main__':
     import matplotlib.pyplot as plt
-    InverterDC(Vmid=.6,gain=7).plot_example()
+    InverterDC(Vim=.6, gain=7).plot_example()
     #OrGate().plot_example()
     #DFlipFlop().plot_example()
     #RingOscillator().plot_example()
