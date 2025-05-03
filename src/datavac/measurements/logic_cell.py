@@ -17,16 +17,20 @@ class InverterDC(MeasurementType):
     vlo: float = 0.0
     def analyze(self, measurements: 'UniformMeasurementTable'):
         assert self.vlo==0
-        Vmid=YatX(X=measurements[f'fVout@VDD={self.vhi}'],Y=measurements['Vin'],
+        Vim=YatX(X=measurements[f'fVout@VDD={self.vhi}'],Y=measurements['Vin'],
                   x=(self.vhi+self.vlo)/2,reverse_crossing=True)
-        measurements['Vmid [V]']=Vmid
+        measurements['Vim [V]']=Vim
+        Vm=YatX(X=measurements[f'fVout@VDD={self.vhi}']-measurements['Vin'],
+                Y=(measurements[f'fVout@VDD={self.vhi}']+measurements['Vin'])/2,
+                x=0,reverse_crossing=True)
+        measurements['Vm [V]']=Vm
 
         dVin=np.mean(np.diff(measurements['Vin'],axis=1))
         gain=np.diff(measurements[f'fVout@VDD={self.vhi}'],axis=1)/dVin
         Vinm=(measurements['Vin'][:,:-1]+measurements['Vin'][:,1:])/2
         Voutm=(measurements[f'fVout@VDD={self.vhi}'][:,:-1]+measurements[f'fVout@VDD={self.vhi}'][:,1:])/2
         measurements['max_gain']=np.max(-gain,axis=1)
-        after_vmid=(Vinm.T>Vmid).T
+        after_vmid=(Vinm.T>Vm).T
         nan_after_vmid=np.ones_like(after_vmid,dtype=float); nan_after_vmid[ after_vmid]=np.nan
         nan_befor_vmid=np.ones_like(after_vmid,dtype=float); nan_befor_vmid[~after_vmid]=np.nan
 
