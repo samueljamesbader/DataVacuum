@@ -982,6 +982,11 @@ class PostgreSQLDatabase(AlchemyDatabase):
                 **{f'loadid - {mg}':precollected_loadids.get(mg,None) for mg in
                    CONFIG.higher_analyses[an].get('attempt_dependencies',{})})
 
+            # Delete previous analysis results
+            # TODO: really this should be down when dumping measurements/extractions; this is just easier for now
+            ds=delete(self._hat(an))
+            for k,v in loadids.items(): ds=ds.where(self._hat(an).c[k]==int(v))
+            conn.execute(ds)
 
             #if not re_extraction:
             #    # Upload the measurement list
@@ -998,6 +1003,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             if condie:
                 df=df.merge(diem,how='left',on='DieXY')
             df=df.assign(**loadids)
+
             self._upload_csv(
                 df[[*(loadids.keys()),*(['Structure'] if conlay else []),*(['dieid'] if condie else []),*CONFIG.higher_analyses[an]['analysis_columns']]],
                 conn,self.int_schema,self._hat(an).name
