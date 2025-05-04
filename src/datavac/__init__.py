@@ -1,5 +1,4 @@
 import sys
-
 from dotenv import load_dotenv as _load_dotenv
 
 from datavac.util.conf import config_datavacuum
@@ -26,7 +25,7 @@ class ThisModule(sys.modules[__name__].__class__):
 
     @classmethod
     @property
-    def db(cls):
-        from datavac.io.database import get_database
+    def db(cls) -> 'datavac.io.database.Database':
+        from datavac.io.database import get_database, PostgreSQLDatabase
         return get_database()
 sys.modules[__name__].__class__=ThisModule

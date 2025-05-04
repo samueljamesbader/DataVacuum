@@ -1,0 +1,3 @@
+Structure, target_gain, target_Vmid [V]
+inv1,   12, .5
+inv2,   16, .75

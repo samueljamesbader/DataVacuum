@@ -82,7 +82,8 @@ kerberos_clientside = [
 ]
 test = [
     "pytest",
-    "pytest-dotenv"
+    "pytest-dotenv",
+    "pytest-env",
 ]
 
 [project.scripts]
@@ -94,7 +95,7 @@ where = ["src"]
 namespaces = false
 
 [tool.setuptools.package-data]
-datavac = ["**/*.jsl"]
+datavac = ["**/*.jsl","**/*.yaml"]
 
 [tool.setuptools.dynamic]
 version = {attr = "datavac.__version__"}

@@ -52,8 +52,8 @@ def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
     logicc=np.log(icc)
     return YatX(X=logI, Y=V, x=logicc)
 
-def YatX(X: np.ndarray, Y: np.ndarray, x: float):
-    """ Finds the `Y` where `X` crosses x (from below x to above x) by linear interpolation.
+def YatX(X: np.ndarray, Y: np.ndarray, x: float, reverse_crossing: bool = False):
+    """ Finds the `Y` where `X` crosses x by linear interpolation.
 
     This function is vectorized, so `X` and `Y` are 2-D arrays of multiple sweeps.
 
@@ -64,14 +64,17 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float):
         X: an n x m numpy array of X's (n sweeps, m points)
         Y: an n x m numpy array of Y's (n sweeps, m points)
         x: the target point
+        reverse_crossing: if False (default), the crossing is assumed to go from `X` < `x` to `X` > `x`.
+            If True, the crossing is assumed to go from `X` > `x` to `X` < `x`.
 
     Returns:
         an array (of length n) of interpolated targets
     """
     X=np.asarray(X); Y=np.asarray(Y);
+    if reverse_crossing: X,Y=X[:,::-1],Y[:,::-1]
 
-    ind_aboves=np.argmax(X>=x, axis=1)
-    ind_belows=X.shape[1]-np.argmax(X[:,::-1]<=x, axis=1)-1
+    ind_aboves=np.nanargmax(X>=x, axis=1)
+    ind_belows=X.shape[1]-np.nanargmax(X[:,::-1]<=x, axis=1)-1
     valid_crossing_between=(ind_aboves==(ind_belows+1))
     valid_crossing_rightat=(ind_aboves==ind_belows)
 
@@ -80,7 +83,10 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float):
 
     # Cover the crossing-between case
     X1,X2=X[allinds,ind_belows][valid_crossing_between],X[allinds,ind_aboves][valid_crossing_between]
-    Y1,Y2=Y[allinds,ind_belows][valid_crossing_between],Y[allinds,ind_aboves][valid_crossing_between]
+    try:
+        Y1,Y2=Y[allinds,ind_belows][valid_crossing_between],Y[allinds,ind_aboves][valid_crossing_between]
+    except:
+        pass
 
     slope=(Y2-Y1)/(X2-X1)
     Yavg=(Y1+Y2)/2

@@ -1,0 +1,5 @@
+Structure, stages, target_t_stage [ps], div_by
+ro1,          501,                   1,   1024
+ro2,         1001,                   1,   1024
+ro3,         1001,                   1,   512
+ro4,         1001,                   2,   512

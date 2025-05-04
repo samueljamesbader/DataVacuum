@@ -1,3 +1,24 @@
 by_meas_group:
   'IdVg':
-    Mask1: ['Sam']
+    Mask1: ['mask1_xtor']
+    names: ['nMOS_IdVg','pMOS_IdVg']
+  'InverterDC':
+    Mask1: ['mask1_invs']
+    names: ['inverter_DC']
+  'Logic':
+    Mask1: ['mask1_logic']
+    names: ['logic_oscope']
+  'ROs':
+    Mask1: ['mask1_ros']
+    names: ['ROs']
+  'Divider':
+    Mask1: ['mask1_divs']
+    names: ['divider']
+
+layout_param_paths:
+  Mask1:
+    - mask1_xtor.csv
+    - mask1_invs.csv
+    - mask1_logic.csv
+    - mask1_ros.csv
+    - mask1_divs.csv

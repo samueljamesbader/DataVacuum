@@ -12,7 +12,7 @@ dv:ConnectToWafermap = Function( { dt=0 , map_name="Default-Name.jmp" }, {Defaul
 	, // Else
 		diemap_path=Convert File Path(diemap_path_raw,windows);
 		Write("diemap_path_raw is \!""||diemap_path_raw || "\!"\!N");
-		mr = Expr(Eval Expr(Map Role(Shape Name Use(Expr(diemap_path), "DieLoc"))));
+		mr = Expr(Eval Expr(Map Role(Shape Name Use(Expr(diemap_path), "DieXY"))));
 		dt = If( dt!=0, dt, Current Data Table());
 		Eval(EvalExpr(Column(dt,"DieXY") << Set Property(
 			"Map Role", Expr(mr)
@@ -41,7 +41,7 @@ dv:Convert To JMP Map = Function({Name csv path, Name jmp path}, {Default Local}
 			Data Starts( 2 ), Lines To Read( "All" ), Year Rule( "20xx" )
 		)
 	);
-	Name dt:DieXY << Set Property( "Map Role", "Shape Name Definition" );
+	Name dt:DieXY << Set Property( "Map Role", Map Role (Shape Name Definition) );
 	Name dt << Save(Name jmp path, ".csv", ".jmp" );
 	Close(Name dt, NoSave);
 	Write("Made "||Name jmp path||"\!N");
@@ -51,10 +51,9 @@ dv:Convert To JMP Map = Function({Name csv path, Name jmp path}, {Default Local}
 		xy csv path,
 		columns(
 			New Column( "Shape ID", Numeric, "Continuous", Format( "Best", 12 ) ),
-			New Column( "DieXY", Character, "Nominal" ),
-			New Column( "DieX", Numeric, "Continuous", Format( "Best", 12 ) ),
-			New Column( "DieY", Numeric, "Continuous", Format( "Best", 12 ) ),
-			New Column( "GenericName", Character, "Nominal" )
+			New Column( "Part ID", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "X", Numeric, "Continuous", Format( "Best", 12 ) ),
+			New Column( "Y", Numeric, "Continuous", Format( "Best", 12 ) )
 		),
 		Import Settings(
 			End Of Line( CRLF, CR, LF ), End Of Field( Comma, CSV( 1 ) ),

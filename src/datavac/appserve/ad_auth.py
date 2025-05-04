@@ -82,6 +82,11 @@ class AuthedStaticFileHandler(StaticFileHandler):
 
         if authorized:
             return await super().get(path,*args,**kwargs)
+        else:
+            self.path = self.parse_url_path(path)
+            absolute_path = self.get_absolute_path(self.root, self.path)
+            self.absolute_path = self.validate_absolute_path(self.root, absolute_path)
+            self.set_status(403)
 
     @authenticated
     async def post(self,*args,**kwargs):
@@ -164,7 +169,7 @@ class SimpleSecretShare(RequestHandler):
             self.write("Access key not valid")
             return
         age=datetime.now()-datetime.fromisoformat(validated['Generated'])
-        if age>timedelta(days=14):
+        if age>timedelta(days=90):
             self.set_status(403)
             self.write(f"Access key expired.  Its age is {age}.")
             return

@@ -1,6 +1,8 @@
 import dataclasses
+from typing import Optional, Union
 
 import numpy as np
+import pandas as pd
 from scipy.signal import savgol_filter
 
 from .measurement_type import MeasurementType
@@ -9,9 +11,23 @@ from datavac.util.util import only
 from datavac.util.logging import logger
 from ..io.measurement_table import MeasurementTable
 
+@dataclasses.dataclass
+class MeasurementWithLinearNormColumn(MeasurementType):
+    norm_column: str = None
+    def __post_init__(self):
+        if self.norm_column is not None:
+            self._norm_col_units={'mm':1e-3,'um':1e-6,'nm':1e-9} \
+                [self.norm_column.split("[")[1].split("]")[0]]
+
+    def get_norm(self, measurements: MeasurementTable):
+        if self.norm_column is None:
+            return None
+        return np.array(measurements \
+                        .scalar_table_with_layout_params(params=[self.norm_column],on_missing='ignore')[self.norm_column],dtype=np.float32) \
+            *self._norm_col_units
 
 @dataclasses.dataclass
-class IdVg(MeasurementType):
+class IdVg(MeasurementWithLinearNormColumn):
     """
 
     Assumes headers of the form 'VG', 'fID@VD=...', 'fIG@VD=...', etc
@@ -24,7 +40,6 @@ class IdVg(MeasurementType):
             but higher than noise floor to ensure noise is not caught as swing!
     """
 
-    norm_column: str
     Iccs: dict[str,float] = dataclasses.field(default_factory=lambda:{'':1})
     Iswf: float = 1e-6
     pol: str = 'n'
@@ -33,14 +48,6 @@ class IdVg(MeasurementType):
     abs_vdlin: float = None
     abs_vdsat: float = None
 
-    def __post_init__(self):
-        self._norm_col_units={'mm':1e-3,'um':1e-6,'nm':1e-9} \
-            [self.norm_column.split("[")[1].split("]")[0]]
-
-    def get_norm(self, measurements: MeasurementTable):
-        return np.array(measurements\
-                        .scalar_table_with_layout_params(params=[self.norm_column],on_missing='ignore')[self.norm_column],dtype=np.float32)\
-            *self._norm_col_units
 
     def analyze(self, measurements):
 
@@ -68,7 +75,7 @@ class IdVg(MeasurementType):
             #print(f"Forcing VDlin {VDlin}")
             VDlin_str=next((k for k in VD_strs if np.isclose(float(k),VDlin)),"NOPE")
             #if VDlin_str!='NOPE': print(f"VDlin {VDlin} is present among {VD_strs}")
-        assert VDsat*VDlin>0, "Oops, VDsat and VDlin have different signs"
+        assert VDsat*VDlin>0, f"Oops, VDsat {VDsat} and VDlin {VDlin} have different signs"
 
         W=self.get_norm(measurements)
         VG=measurements['VG']
@@ -119,20 +126,25 @@ class IdVg(MeasurementType):
         vt_gmpeak=v_gmpeak-np.sign(DVG)*i_gmpeak/gmpeak
 
         measurements['Ion [A]']=np.abs(IDsat[:,-1])
+        measurements['Ion/W [A/m]']=measurements['Ion [A]']/W
         measurements['Ion_lin [A]']=np.abs(IDlin[:,-1])
+        measurements['Ion_lin/W [A/m]']=measurements['Ion_lin [A]']/W
         measurements['Ioff [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idsat) else np.abs(IDsat[:,ind0])
+        measurements['Ioff/W [A/m]']=measurements['Ioff [A]']/W
         measurements['Ioff_lin [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idlin) else np.abs(IDlin[:,ind0])
+        measurements['Ioff_lin/W [A/m]']=measurements['Ioff_lin [A]']/W
         measurements['Ioffmin [A]']=np.min(np.abs(IDsat),axis=1)
         measurements['Ioffstart [A]']=np.abs(IDsat[:,0])
         measurements['Ioffstart_lin [A]']=np.abs(IDlin[:,0])
-        measurements['Ion/Ioff']=measurements['Ion [A]']/measurements['Ioff [A]']
-        measurements['Ion/Ioffmin']=measurements['Ion [A]']/measurements['Ioffmin [A]']
-        measurements['Ion/Ioffstart']=measurements['Ion [A]']/measurements['Ioffstart [A]']
+        measurements['Ion/Ioff']=measurements['Ion [A]']/(np.abs(measurements['Ioff [A]'])+tol)
+        measurements['Ion/Ioffmin']=measurements['Ion [A]']/(np.abs(measurements['Ioffmin [A]'])+tol)
+        measurements['Ion/Ioffstart']=measurements['Ion [A]']/(np.abs(measurements['Ioffstart [A]'])+tol)
         #for k,ind in indons.items():
         #    measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.NaN if (ind is False)# or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
         #    measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         for k,v in self.Vgons.items():
-            measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v))
+            measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v,reverse_crossing=(self.pol=='p'))+tol)\
+                if has_idlin else measurements['Ion [A]']*np.NaN
             measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         measurements[f'Ronstop [ohm]']=np.abs(VDlin)/(measurements['Ion_lin [A]']+tol)
         measurements[f'RonWstop [ohm.um]']=measurements[f'Ronstop [ohm]']*W*1e6
@@ -188,3 +200,93 @@ class IdVd(MeasurementType):
 
     def __str__(self):
         return 'IdVd'
+
+
+
+@dataclasses.dataclass
+class KelvinRon(MeasurementWithLinearNormColumn):
+    # Columns should include 'VG', 'fRon@ID=...', 'fVSSense@ID=...', 'fVD2p@ID=...', 'fVDSense@ID=...'
+
+    only_ats:Optional[list[str]] = None
+    only_fields:Optional[list[str]] = None
+    main_ron_id:Optional[str] = None
+    #vg_for_ron: Optional[float] = 1.5
+    VGons: dict[str,float] = dataclasses.field(default_factory=lambda:{})
+
+    merge_rexts_on: Optional[list[str]] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.only_ats is not None: raise NotImplementedError("Only ats not implemented")
+        if self.only_fields is not None: raise NotImplementedError("Only fields not implemented")
+
+    def get_preferred_dtype(self,header):
+        return np.float32
+
+    def analyze(self, measurements,rexts=None):
+
+        W=self.get_norm(measurements)
+
+        # TODO: need less janky mechanism for adding to headers
+        if (rexts is not None):
+            assert self.merge_rexts_on is not None, "What to merge RExt on"
+            rsext=rexts.scalar_table_with_layout_params(self.merge_rexts_on,on_missing='ignore') \
+                [[*self.merge_rexts_on,'Rs_ext [ohm]']].groupby(self.merge_rexts_on).median()
+            df=measurements.scalar_table_with_layout_params(self.merge_rexts_on,on_missing='ignore')
+            measurements['Rs_ext [ohm]']=pd.merge(left=df,right=rsext,
+                                                  on=self.merge_rexts_on,how='left',validate='m:1')['Rs_ext [ohm]']
+
+            id_strs=[h.split("=")[1] for h in measurements.headers if 'fRon@ID=' in h]
+            for id in id_strs:
+                measurements._the_dataframe[f'VGSi@ID={id}']= \
+                    list((measurements[f'VG'].T-float(id)*np.array(measurements['Rs_ext [ohm]'])).T)
+                if f'VGSi@ID={id}' not in measurements.headers: measurements.headers.append(f'VGSi@ID={id}')
+        else:
+            assert self.merge_rexts_on is None, "This category requires RExt measurements"
+            for k in measurements.headers:
+                VS=measurements[k]
+                if 'SourceSense' in k:
+                    if k.replace("VSourceSense","VGSi") not in measurements.headers:
+                        measurements.headers.append(k.replace("VSourceSense","VGSi"))
+                    measurements._the_dataframe[k.replace("VSourceSense","VGSi")]=measurements['VG']-VS
+
+        fron_headers=[h for h in measurements.headers if 'fRon@ID=' in h]
+        if self.main_ron_id is None:
+            if len(fron_headers)==1:
+                main_ron_id=fron_headers[0].split("=")[-1]
+            else: main_ron_id=None
+        else: main_ron_id=self.main_ron_id
+        if (k:=('fRon@ID='+str(main_ron_id))) in measurements.headers:
+            #if self.vg_for_ron is not None:
+            #    ind_vg=np.argmin(np.abs(measurements['VG']-self.vg_for_ron))
+            #    assert np.allclose(self.vg_for_ron,measurements['VG'][:,ind_vg],atol=1e-3)
+            #else: ind_vg=-1
+            measurements['Ronstop [ohm]']=measurements[k][:,-1]
+            for vglabel, vgon in self.VGons.items():
+                measurements[f'Ron{vglabel} [ohm]']=YatX(measurements['VG'],measurements[k],vgon)
+                if W is not None:
+                    measurements[f'Ron{vglabel}W [ohm.um]']=measurements[f'Ron{vglabel} [ohm]']*W*1e6
+            if any('Sense' in k for k in measurements.headers):
+                measurements['Rs_ext [ohm]']= \
+                    measurements['fVSSense@ID='+str(main_ron_id)][:,-1] / float(main_ron_id)
+                measurements['Rd_ext [ohm]']= \
+                    (measurements['fVD2p@ID='+str(main_ron_id)][:,-1]
+                     -measurements['fVDSense@ID='+str(main_ron_id)][:,-1]) / float(main_ron_id)
+            #measurements['RonZ [Ωμm]']=measurements['Ron [Ω]']*measurements['Znorm [nm]']/1e3
+
+
+    @staticmethod
+    def VTRon(VG:np.ndarray,Ron:np.ndarray):
+        # Compute the effective on-state VT from the slope of the conductance at peak transconductance
+        dVG=VG[0,1]-VG[0,0] # Assumes uniform and regular VG
+        G=np.clip(1/Ron,1e-12,1e6)
+        dG_dVG=savgol_filter(G,3,1,deriv=1)/dVG
+        ind_peak=np.nanargmax(dG_dVG,axis=-1)
+        dG_dVG_peak=dG_dVG[np.arange(len(ind_peak)),ind_peak]
+        G_peak=G[np.arange(len(ind_peak)),ind_peak]
+        VG_peak=VG[0,ind_peak]
+        VT=VG_peak-G_peak/dG_dVG_peak
+        return VG_peak,VT
+
+    def __str__(self):
+        return 'KelvinRon'

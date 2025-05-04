@@ -1,13 +1,16 @@
 Names Default To Here(1); dv=::dv;
 
-dv:LotPreselector = Function({dbtable,single=0},{Default Local},
+dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0},{Default Local},
 	// Asks the user to choose a lot and returns it
 	// Args:
 	//   dbtable: the DataVacuum measurement group from which to list lots
-	//   single: if 1, allow only a single pick, return is either the lot or {}.
-	//           if 0, allow any number of lots, return is as a list of lots or {}.
+	//   single: if 1, allow only a single pick, first return is either the lot or {}.
+	//           if 0, allow any number of lots, first return is as a list of lots or {}.
+	//   additional_checkboxes: list of strings naming additional options for user to check
 	// Returns:
-	//   See argument 'single' above
+	//   Two items.
+	//		For first item, see argument 'single' above.
+	//   	Second item is a list of strings of selected additional_checkboxes.
 	
 	qname="Lots For"||dbtable;
 	Try(Close(DataTable(qname),NoSave), "No issue");
@@ -18,11 +21,20 @@ dv:LotPreselector = Function({dbtable,single=0},{Default Local},
 	) << Run Foreground(Invisible);
 	potential_lots=Sort Descending(Column(dt,"Lot")<<Get Values());
 	If(single,
-		win=New Window("Select Lot",<<modal,<<return result,
-			lots=ListBox(potential_lots,maxSelected(1)))
+		win=Eval(Eval Expr(New Window(dbtable,<<modal,<<return result,
+			HListBox(
+				PanelBox("Select Lot",lots=ListBox(potential_lots,maxSelected(1))),
+				If(additional_checkboxes!=0,PanelBox("Other options",checks=CheckBox(additional_checkboxes)))
+			)
+		)));
 	,//Else
-		win=New Window("Select Lot",<<modal,<<return result,
-			lots=ListBox(potential_lots)));
+		win=Eval(Eval Expr(New Window(dbtable,<<modal,<<return result,
+			HListBox(
+				PanelBox("Select Lot",lots=ListBox(potential_lots)),
+				If(additional_checkboxes!=0,PanelBox("Other options",checks=CheckBox(additional_checkboxes)))
+			)
+		)));
+	);
 	If(win["Button"]==1,
 		If(single,
 			If(Length(win["lots"]),
@@ -32,39 +44,51 @@ dv:LotPreselector = Function({dbtable,single=0},{Default Local},
 			)
 		,//Else
 			lot=win["lots"];
-		)
+		);
 	,//Else
 		lot={};
 	);
-	lot
+	If(additional_checkboxes!=0,
+		checks=Recode(win["checks"],{additional_checkboxes[_rcNow]});
+		Eval List({lot,checks})
+	, //Else
+		Eval List({lot,{}})
+	);
 );
 
-dv:LotPreselectorSQL = Function({dbtable, single=0, err on none=0},
+dv:LotPreselectorSQL = Function({dbtable, single=0, err on none=1, additional_checkboxes=0},{Default Local},
 	// Runs the dv:LotPreselector, except return is an SQL 'where' statement which
 	// can be concatenated onto a CustomSQL query
 	// Args:
 	//   dbtable, single: passed to dv:LotPreselector
 	//   err on none: whether to raise an error if the user makes no selection.
+	sql="YOOOOO";
 	If(single,
-		lot=dv:LotPreselector(dbtable,single);
+		{lot,checks}=dv:LotPreselector(dbtable,single,additional_checkboxes);
 		If(lot=={},
 			If(err on none,
 				Throw("No lots selected")
 			,//Else
-				"")
+				sql="")
 		,//Else
-			" where \!"Lot\!"='"||lot||"'")
+			sql=" where \!"Lot\!"='"||lot||"'");
 	,//Else (not single)
-		lots=dv:LotPreselector(dbtable,single);
+		{lots,checks}=dv:LotPreselector(dbtable,single,additional_checkboxes);
 		If(lots=={},
 			If(err on none,
 				Throw("No lots selected")
 			,//Else
-				"")
+				sql="")
 		,//Else
-			" where \!"Lot\!" in ('"||Concat Items(lots,"','")||"')"
-		)
-	)
+			sql=" where \!"Lot\!" in ('"||Concat Items(lots,"','")||"')";
+		);
+	);
+	
+	If(additional_checkboxes!=0,
+		EvalList({sql,checks})
+	,//Else
+		sql
+	);
 );
 
 
@@ -100,7 +124,12 @@ dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
 	dv:QuickSQL(tablename, sql, close previous)
 );
 
-dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", close previous=1},
-	sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
-	dv:QuickSelect(tablename, sqlrestrict, close previous);
+dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", ask_inc_sweeps=0, close previous=1},
+    if (ask_inc_sweeps,
+        {sqlrestrict,checks}=dv:LotPreselectorSQL(tablename,0,1,{"include sweeps"});
+        Eval List({dv:QuickSelect(tablename, sqlrestrict, close previous),Contains(checks,"include sweeps")!=0});
+    ,//Else
+        sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
+        dv:QuickSelect(tablename, sqlrestrict, close previous);
+    )
 );

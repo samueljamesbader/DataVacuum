@@ -142,6 +142,7 @@ def cli_compile_jmp_addin(*args):
                                                         'datavac.jmp::Util.jsl',
                                                         'datavac.jmp::ConnectToWaferMap.jsl',
                                                         'datavac.jmp::ReloadAddin.jsl',
+                                                        'datavac.jmp::SplitTables.jsl',
                                                         #*(['datavac.jmp::ReloadAddin.jsl'] if envname=='LOCAL' else [])
                                                        ]]
             request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])]
@@ -190,6 +191,12 @@ def cli_compile_jmp_addin(*args):
                 'name':'Abs Currents',
                 'tip':'For headers that look like currents, take absolute value',
                 'text': f'dv:AbsCurrents();',
+                'icon':None
+            },
+            {
+                'name':'Attach Splits',
+                'tip':'Attach to a split table',
+                'text': f'dv:AttachSplitTable();',
                 'icon':None
             },
         ]
