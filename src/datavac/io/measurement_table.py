@@ -32,6 +32,14 @@ class MeasurementTable:
     def scalar_table(self):
         raise NotImplementedError()
 
+    def scalar_table_with_layout_params(self, params=None, on_missing='error') -> pd.DataFrame:
+        if self.meas_group:
+            return get_layout_params().merge_with_layout_params(
+                self.scalar_table,self.meas_group,param_names=params,on_missing=on_missing)
+        else:
+            return self.scalar_table
+
+
 class DataFrameBackedMeasurementTable(MeasurementTable):
 
     def __init__(self, dataframe: pd.DataFrame, meas_type: MeasurementType,
@@ -65,13 +73,6 @@ class DataFrameBackedMeasurementTable(MeasurementTable):
     def scalar_table(self):
         return self._dataframe.drop(columns=[h for h in self._non_scalar_columns
                                              if h in self._dataframe.columns])
-
-    def scalar_table_with_layout_params(self, params=None, on_missing='error') -> pd.DataFrame:
-        if self.meas_group:
-            return get_layout_params().merge_with_layout_params(
-                self.scalar_table,self.meas_group,param_names=params,on_missing=on_missing)
-        else:
-            return self.scalar_table
 
     def full_table_with_layout_params(self, params=None, on_missing='error'):
         if self.meas_group:
