@@ -1514,7 +1514,7 @@ def cli_upload_data(*args):
 
 def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
                          clear_all_from_material=True, user_called=True, cached_glob=None,
-                         yes=False, isolate_errors=False):
+                         yes=False, isolate_errors=False, only_file_names=None):
     from datavac.io.meta_reader import read_and_analyze_folders
 
     if folders is None:
@@ -1535,7 +1535,8 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
             try:
                 read_and_upload_data(db,[folder],only_material=only_material,only_meas_groups=only_meas_groups,
                                      clear_all_from_material=clear_all_from_material,user_called=user_called,
-                                     cached_glob=cached_glob,yes=yes,isolate_errors=False)
+                                     cached_glob=cached_glob,yes=yes,isolate_errors=False,
+                                     only_file_names=only_file_names)
             except Exception as e:
                 logger.critical(f"Failed on {folder}")
                 logger.critical(traceback.format_exc())
@@ -1556,7 +1557,8 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
     else:
         logger.info(f"Will read folder(s) {' and '.join((str(f) for f in folders))}")
         matname_to_data,matname_to_inf=read_and_analyze_folders(folders,
-                    only_matload_info=only_material, only_meas_groups=only_meas_groups,cached_glob=cached_glob)
+                    only_matload_info=only_material, only_meas_groups=only_meas_groups,cached_glob=cached_glob,
+                    only_file_names=only_file_names)
         for matname in matname_to_data:
             logger.info(f"Uploading {matname}")
             db.push_data(matname_to_inf[matname],matname_to_data[matname],

@@ -7,8 +7,7 @@ from datavac.util.caching import cli_clear_cache
 from datavac.util.logging import logger
 
 
-@pytest.fixture(scope='session',autouse=True)
-def make_fresh_testdb():
+def make_fresh_testdb(dbname):
     logger.debug("Creating test database")
     con = psycopg2.connect(dbname='postgres', user='postgres', host='localhost', password=os.environ['DATAVACUUM_TEST_DB_PASS'])
     con.autocommit = True
@@ -16,7 +15,7 @@ def make_fresh_testdb():
     cur = con.cursor()
 
     # Check if the database exists
-    cur.execute("SELECT 1 FROM pg_database WHERE datname = 'datavacuum_test'")
+    cur.execute(f"SELECT 1 FROM pg_database WHERE datname = '{dbname}'")
     exists = cur.fetchone()
 
     if exists:
@@ -24,7 +23,7 @@ def make_fresh_testdb():
         # Connect to actual database
         cur.close()
         con.close()
-        con = psycopg2.connect(dbname='datavacuum_test', user='postgres', host='localhost', password=os.environ['DATAVACUUM_TEST_DB_PASS'])
+        con = psycopg2.connect(dbname=dbname, user='postgres', host='localhost', password=os.environ['DATAVACUUM_TEST_DB_PASS'])
         con.autocommit = True
         cur = con.cursor()
 
@@ -45,7 +44,7 @@ def make_fresh_testdb():
         """)
     else:
         # Create the database
-        cur.execute(sql.SQL('CREATE DATABASE {};').format(sql.Identifier('datavacuum_test')))
+        cur.execute(sql.SQL('CREATE DATABASE {};').format(sql.Identifier(dbname)))
 
     cur.close()
     con.close()
@@ -55,14 +54,15 @@ def make_fresh_testdb():
     from datavac.io.database import get_database
     db = get_database(metadata_source='reflect')
     db.validate(on_mismatch='replace')
-    logger.debug("Fresh test database ready for data.")
+    logger.debug(f"Fresh test database {dbname} ready for data.")
 
 @pytest.fixture(scope='session',autouse=True)
 def clear_cache():
     cli_clear_cache()
 
-
 @pytest.fixture(scope='session')
 def example_data():
+    from datavac.examples.demo1 import dbname
     from datavac.examples.demo1.example_data import make_example_data
+    make_fresh_testdb(dbname)
     make_example_data()
