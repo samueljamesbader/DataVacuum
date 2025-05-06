@@ -986,7 +986,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
             # Delete previous analysis results
             # TODO: really this should be down when dumping measurements/extractions; this is just easier for now
             ds=delete(self._hat(an))
-            for k,v in loadids.items(): ds=ds.where(self._hat(an).c[k]==int(v))
+            for k,v in loadids.items():
+                if v is not None: ds=ds.where(self._hat(an).c[k]==int(v))
             conn.execute(ds)
 
             #if not re_extraction:
@@ -1554,6 +1555,8 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
             print(f"{f}: {fail}")
         with open("upload_all.pkl",'wb') as f:
             pickle.dump({'timings':timings,'failures':failures},f)
+        if len(failures):
+            raise Exception(f"Failed on {len(failures)} folders, see upload_all.pkl")
     else:
         logger.info(f"Will read folder(s) {' and '.join((str(f) for f in folders))}")
         matname_to_data,matname_to_inf=read_and_analyze_folders(folders,

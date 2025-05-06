@@ -48,4 +48,5 @@ cli_util=cli_helper(cli_funcs={
     'base64encode': 'datavac.util.util:cli_base64encode',
     'generate_secret': 'datavac.util.util:cli_b64rand',
     'ensure_valid_access_key (evak)': 'datavac.appserve.user_side:cli_ensure_valid_access_key',
+    'rerun_data (rd)': 'datavac.tests.rerun_data:cli_rerun_data',
 })

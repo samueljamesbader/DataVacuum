@@ -58,22 +58,45 @@ def compare_data(newer: Optional[Union[str,dict[str,pd.DataFrame]]]=None,
     for k in older:
         if k not in newer:
             found_problem=True
-            logger.critical(f"Key {k} not found in newer data")
+            logger.critical(f"MISMATCH ERROR: Key {k} not found in newer data")
         else:
             newtab=newer[k]; oldtab=older[k];
+            if len(oldtab)==0:
+                if len(newtab)>0:
+                    logger.debug(f"Data has been added for {k}, which was previously empty")
             for c in oldtab.columns:
                 if c=='date_user_changed': continue
                 if c not in newtab.columns:
                     found_problem=True
-                    logger.critical(f"Column {c} not found in newer data for key {k}")
-                else:
-                    if not oldtab[c].equals(newtab[c]):
+                    logger.critical(f"MISMATCH ERROR: Column {c} not found in newer data for key {k}")
+                elif len(oldtab) and (not oldtab[c].equals(newtab[c])):
                         found_problem=True
-                        logger.critical(f"Column {c} does not match for key {k}")
+                        logger.critical(f"MISMATCH ERROR: Column {c} does not match for key {k}")
+            for c in newtab.columns:
+                if c not in oldtab.columns:
+                    logger.debug(f"Column {c} has been added to newer data in key {k}")
+    for k in newer:
+        if k not in older:
+            logger.debug(f"Key {k} has been added to newer data")
+
     if found_problem:
         raise Exception("Mismatch found in rerun data")
     else:
         logger.debug("No mismatches found in rerun data")
+
+
+def cli_rerun_data(*args):
+    """
+    Command line interface for rerun_data
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description='Rerun data and compare to golden data')
+    parser.add_argument('-dc','--dont-compare', action='store_true', help='Skip comparing data to golden')
+    args = parser.parse_args(args)
+
+    dat=rerun_data()
+    if not args.dont_compare:
+        compare_data(dat,'Golden')
 
 #compare_data(rerun_data(),'Golden')
 #compare_data()
