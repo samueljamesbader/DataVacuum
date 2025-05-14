@@ -1048,9 +1048,10 @@ class PostgreSQLDatabase(AlchemyDatabase):
         meas_type=CONFIG.get_meas_type(meas_group)
         umts=[]
         for rg, df in data.groupby("rawgroup"):
-            df=self._unstack_header_helper(df, ['loadid','measid'], drop_index=True)
+            df=self._unstack_header_helper(df, ['loadid','measid'], drop_index=False)
             headers=[]
             for c in df.columns:
+                if c in ['loadid','measid']: continue
                 if c=='rawgroup': break
                 headers.append(c)
             umts.append(UniformMeasurementTable(dataframe=df, headers=headers,
@@ -1612,7 +1613,8 @@ def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
                     meas_groups=[r[0] for r in res]
                     all_meas_groups=ensure_meas_group_sufficiency(meas_groups,on_error='ignore')
                     logger.info(f"Pulling sweeps for {all_meas_groups} to re-extract {meas_groups}")
-                    mumts={mg:db.get_data_for_regen(mg,matname=matname,on_no_data=None,conn=conn) for mg in all_meas_groups}
+                    mumts={mg:db.get_data_for_regen(mg,matname=matname,on_no_data=None,conn=conn)
+                               for mg in all_meas_groups}
                     mumts={k:v for k,v in mumts.items() if v is not None}
                     logger.info(f"Re-extracting {meas_groups}")
                     perform_extraction({matname:mumts})
