@@ -759,6 +759,7 @@ class ImageFilterPlotter(FilterPlotter):
     def update_sources(self,pre_sources):
         if pre_sources is not None:
             df:pd.DataFrame=pre_sources[0]
+
             if len(df)==0:
                 self._gb.param.update(objects=[StaticText(value="No images selected")])
             else:
@@ -773,7 +774,7 @@ class ImageFilterPlotter(FilterPlotter):
                 else:
                     lst=[   [StaticText(value=""),*[StaticText(value=c,align='center') for c in cs]],
                             *[ [StaticText(value=r,align='center'),
-                                  *[ (self.row_to_img(df.loc[(r,c)])
+                                  *[ (self.row_to_img(dict(**dict(df.loc[(r,c)],**{self.rowvar:r,self.colvar:c})))
                                       if (r,c) in df.index else StaticText(value="None")) for c in cs]]
                                for r in rs]]
                     self._gb.param.update(**{'ncols':len(cs)+1,'nrows':len(rs)+1,'objects':[e for r in lst for e in r]})
