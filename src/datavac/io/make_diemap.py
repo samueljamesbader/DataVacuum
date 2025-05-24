@@ -8,7 +8,7 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
                           radius:float=150, notchsize:float=5, discard_ratio:float = .3, plot:bool = False,
                           save_csv:bool = True, save_dir:Path=None,
                           transform:Callable[[float,float],tuple[float,float]]=lambda x,y: (x,y),
-                          labeller:str = "{x:+d},{y:+d}"):
+                          labeller:str = "{x:+d},{y:+d}", discard_labels:tuple[str]=()):
     """Produces a wafermap (ie set of points for each die) in the formats used by JMP or DataVacuum.
 
     The a-direction is along the notch, increasing away from the notch, and
@@ -40,6 +40,7 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
         save_dir: path where to save the csv or pickle files (defaults to current directory)
         transform: function which takes a tuple (a,b) and returns a user-desired tuple (x,y)
         labeller: label-making template string which takes the x,y of a die and returns a die name
+        discard_labels: labels to discard if present (useful for removing e.g. seats known to be over waferscribe)
 
     Returns:
         (1) A Pandas table of die coordinates for simple mapping and (2) a dictionary of more complete geometric
@@ -94,6 +95,7 @@ def make_fullwafer_diemap(name:str, aindex:float, bindex:float, aoffset:float = 
         # The label
         diex,diey=transform(diea,dieb)
         label=labeller(diex,diey)
+        if label in discard_labels: continue
 
         # The a,b of the bottom left corner
         a,b=(diea)*aindex+aoffset,(dieb)*bindex+boffset

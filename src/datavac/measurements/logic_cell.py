@@ -257,6 +257,10 @@ def fine_freq_of_signal(binary_signal:np.ndarray[bool], dt:float, expected_inter
     fine_freq=[]
     for row,flps in enumerate(flipmat):
         iflips=arng[flps]
+        if len(iflips)<2:
+            glitch_free.append(False)
+            fine_freq.append(np.nan)
+            continue
         try:
             if np.allclose(np.diff(iflips),expected_interval[row], rtol=.1, atol=2.5) \
                     and iflips[0]<expected_interval[row]*1.2 \

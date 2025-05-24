@@ -1198,7 +1198,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
             # Assume column names of form X, fY1@SWVR=val, fY2@SWVR=val ...
             possible_xs=[k for k in headers if '@' not in k]
             x=only(possible_xs,f"None or multiple possible x values in {possible_xs}")
-            swvs=list(set([k.split("@")[1].split("=")[0] for k in headers if '@' in k]))
+            #swvs=list(set([k.split("@")[1].split("=")[0] for k in headers if '@' in k]))
+            swvs=list(set([eq.split("=")[0] for k in headers if '@' in k for eq in k.split("@")[1].split(",")]))
             ys_withdir=[k.split("@")[0] for k in headers if '@' in k]
         directed=all(y[0] in ('f','r') for y in ys_withdir)
         ys=list(set([y[1:] for y in ys_withdir] if directed else ys_withdir))
@@ -1217,8 +1218,12 @@ class PostgreSQLDatabase(AlchemyDatabase):
         # of the same length as the independent variable.
         data=data.where(data.notna(),pd.Series([np.full(len(c),np.nan) for c in data[x]]),axis=0)
         print(x,ys)
-        data = data.explode([x,*ys],ignore_index=True)\
-            [['loadid','measid',*[k for k in data.columns if k not in ['loadid','measid']]]]
+        try:
+            data = data.explode([x,*ys],ignore_index=True)\
+                [['loadid','measid',*[k for k in data.columns if k not in ['loadid','measid']]]]
+        except:
+            print({y:len(data.iloc[0][y]) for y in ys})
+            raise
         #print(data)
         #print(data.columns)
         return data
@@ -1379,6 +1384,25 @@ class PostgreSQLDatabase(AlchemyDatabase):
         with (returner_context(conn) if conn else self.engine_connect()) as conn:
             result=pd.read_sql(query,conn)
         return result
+
+def cli_sql(*args):
+    parser=argparse.ArgumentParser(description='Runs a SQL query')
+    #parser.add_argument('query',help='SQL query to run')
+    #parser.add_argument('-c','--commit',action='store_true',help='Commit the transaction')
+    namespace=parser.parse_args(args)
+
+    db=get_database(metadata_source='reflect')
+    inp=input("Query?: ").strip()
+    while inp!='q':
+        if inp!='':
+            try:
+                result=db.read_sql(inp)#,commit=namespace.commit)
+            except:
+                # print stack trace
+                traceback.print_exc()
+            else:
+                print(result)
+        inp=input("Query?: ").strip()
 
 ##### NOT FUNCTIONAL
 ####class SQLiteDatabase(AlchemyDatabase):
@@ -1892,4 +1916,5 @@ cli_database=cli_helper(cli_funcs={
     'heal': 'datavac.io.database:cli_heal',
     'test_db_connect':'datavac.io.database:cli_test_db_connection_speed',
     'quick_read_filename (qrf)':'datavac.io.meta_reader:cli_quick_read_filename',
+    'sql':'datavac.io.database:cli_sql',
 })

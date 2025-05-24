@@ -76,6 +76,8 @@ dv:PySub = Function( {code, ret=0, pc=0}, {Default Local},
 //
 dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0}, {Default Local},
 	dt = If( dt!=0, dt, Current Data Table());
+	If( N Rows(dt)==0,
+        Throw("No rows in the table to pull sweeps for"));
 	
 	If(db_table_name==0,
 		// Get the info from the view data table's Modify Query script needed for query
