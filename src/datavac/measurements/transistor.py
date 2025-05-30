@@ -149,6 +149,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements[f'Ronstop [ohm]']=np.abs(VDlin)/(measurements['Ion_lin [A]']+tol)
         measurements[f'RonWstop [ohm.um]']=measurements[f'Ronstop [ohm]']*W*1e6
         measurements['VGstop [V]']=VG1d[-1]
+        measurements['VGstart [V]']=VG1d[0]
         for k,v in self.Iccs.items():
             measurements[f'VTcc{k}_lin']=VTCC((IDlin.T/W).T,VG,v,itol=tol)
             measurements[f'VTcc{k}_sat']=VTCC((IDsat.T/W).T,VG,v,itol=tol)
@@ -158,6 +159,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
+        measurements['SSstart_lin [mV/dec]']=1e3/invswing_lin[:,0]
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
         measurements['Igonstop [A]']=np.abs(IGsat[:,-1])

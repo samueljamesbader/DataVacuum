@@ -20,6 +20,7 @@ dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0},{Default
 		CustomSQL("select distinct \!"Lot\!" from \!"jmp\!".\!""||dbtable||"\!";")
 	) << Run Foreground(Invisible);
 	potential_lots=Sort Descending(Column(dt,"Lot")<<Get Values());
+	Try(Close(DataTable(qname),NoSave), "No issue");
 	If(single,
 		win=Eval(Eval Expr(New Window(dbtable,<<modal,<<return result,
 			HListBox(
