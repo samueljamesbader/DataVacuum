@@ -1900,6 +1900,30 @@ def cli_dump_material(*args):
     with db.engine_begin() as conn:
         db.dump_material(only_material,conn,only_meas_group=namespace.group)
 
+def cli_rerun_higher_analysis(*args):
+    parser=argparse.ArgumentParser(description='Reruns higher analysis')
+    parser.add_argument('-a','--analysis',action='append',help='Analysis to rerun, eg -a ANALYSIS1 -a ANALYSIS2')
+    namespace=parser.parse_args(args)
+
+    self=get_database(metadata_source='reflect')
+    with self.engine_begin() as conn:
+        for an in (namespace.analysis if namespace.analysis else CONFIG.higher_analyses):
+            print(f"Adding '{an}' to re-analyze list")
+            # Get the relevant identifiers for the first measurement group that this analysis depends on
+            full_name_col=CONFIG['database']['materials']['full_name']
+            lead_meas_group=list(CONFIG['higher_analyses'][an]['required_dependencies'].keys())[0]
+            mgt=self._mgt(lead_meas_group,'Meas')
+            #matnames=self.get_factors(,[full_name_col])[full_name_col]
+            #matids=self.get_factors(list(CONFIG['higher_analyses'][an]['required_dependencies'].keys())[0],[full_name_col])[full_name_col]
+            # Insert into the re-analyze table all at once
+            #conn.execute(pgsql_insert(self._reatab).values(matid=matids,analysis=[an]*len(matids)))
+            conn.execute(pgsql_insert(self._reatab)\
+                         .from_select(["matid","analysis"],
+                                      select(self._mattab.c.matid,literal(an))
+                                          .select_from(mgt.join(self._loadtab).join(self._mattab))).on_conflict_do_nothing())
+        conn.commit()
+    heal(self)
+
 cli_database=cli_helper(cli_funcs={
     'clear': 'datavac.io.database:cli_clear_database',
     'upload_data (ud)': 'datavac.io.database:cli_upload_data',
@@ -1917,4 +1941,5 @@ cli_database=cli_helper(cli_funcs={
     'test_db_connect':'datavac.io.database:cli_test_db_connection_speed',
     'quick_read_filename (qrf)':'datavac.io.meta_reader:cli_quick_read_filename',
     'sql':'datavac.io.database:cli_sql',
+    'rerun_analysis (ra)': 'datavac.io.database:cli_rerun_higher_analysis',
 })

@@ -242,22 +242,26 @@ def read_folder_nonrecursive(folder: Union[Path,str],
     return matname_to_mg_to_data, matname_to_matload_info
 
 def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='raise', just_extraction=False):
-    add_meas_groups1=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
-    missing=[mg for mg in add_meas_groups1 if mg not in meas_groups]
-    if on_error=='raise':
-        assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
-                                (" to be checked." if not required_only else ".")
-    if just_extraction:
-        return list(set(meas_groups).union(set(add_meas_groups1)))
+    meas_groups_prev=meas_groups
+    while True:
+        add_meas_groups1=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
+        missing=[mg for mg in add_meas_groups1 if mg not in meas_groups]
+        if on_error=='raise':
+            assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
+                                    (" to be checked." if not required_only else ".")
+        if just_extraction:
+            return list(set(meas_groups).union(set(add_meas_groups1)))
 
-    ans=CONFIG.get_dependent_analyses(meas_groups)
-    add_meas_groups2=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
-    missing=[mg for mg in add_meas_groups2 if mg not in meas_groups]
-    if on_error=='raise':
-        assert len(missing)==0, f"Measurements groups {meas_groups} affect analyses {ans}, "\
-                                f"which require {missing}"+\
-                                (" to be checked." if not required_only else ".")
-    return list(set(meas_groups).union(set(add_meas_groups1).union(add_meas_groups2)))
+        ans=CONFIG.get_dependent_analyses(meas_groups)
+        add_meas_groups2=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
+        missing=[mg for mg in add_meas_groups2 if mg not in meas_groups]
+        if on_error=='raise':
+            assert len(missing)==0, f"Measurements groups {meas_groups} affect analyses {ans}, "\
+                                    f"which require {missing}"+\
+                                    (" to be checked." if not required_only else ".")
+        meas_groups=list(set(meas_groups).union(set(add_meas_groups1).union(add_meas_groups2)))
+        if sorted(meas_groups_prev)==sorted(meas_groups): return meas_groups
+        else: meas_groups_prev=meas_groups
 
 def perform_extraction(matname_to_mg_to_data):
     for matname, mg_to_data in matname_to_mg_to_data.items():
