@@ -1,5 +1,5 @@
 from functools import reduce
-from typing import Union
+from typing import Optional, Sequence, Union
 
 import panel as pn
 from panel.io import hold
@@ -13,11 +13,9 @@ from datavac.gui.panel_util.selectors import VerticalCrossSelector
 from datavac.io.database import get_database
 
 class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
-    hose_source: str
-    hose_analysis: str
     lot_prefetch_measgroup: Union[str,list]
     _need_to_update_lot_filter=hvparam.Event()
-    def __init__(self, plotters: dict[str, FilterPlotter],*args,**kwargs):
+    def __init__(self, plotters: dict[str, FilterPlotter],initial_prefilter_lots:Optional[Sequence[str]]=None,*args,**kwargs):
         super().__init__()
         hvparam.Parameterized.__init__(self,*args,**kwargs)
         self.database=get_database()
@@ -28,6 +26,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
             if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
         for (name, pltr),pfmg in zip(self._plotters.items(),lot_prefetch_measgroup):
             pltr.add_prefilters({'Lot':self.lots_preselector},pfmg)
+        self._initial_prefilter_lots=initial_prefilter_lots
         self.param.watch(self._populate_lots,['_need_to_update_lot_filter'])
         self.param.trigger('_need_to_update_lot_filter')
 
@@ -36,6 +35,9 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters) \
             if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
         self.lots_preselector.options=sorted(self.database.get_factors(lot_prefetch_measgroup[0],factor_names=['Lot'])['Lot'],reverse=True)
+        if self._initial_prefilter_lots is not None:
+            self.lots_preselector.value=self._initial_prefilter_lots
+
 
     def get_page(self) -> BasicTemplate:
         self.page.sidebar.append(pn.panel("## Lot pre-filter"))

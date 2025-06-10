@@ -16,7 +16,7 @@ def last(it):
 def first(it):
     return next(iter(it))
 def only(seq,message=None):
-    assert len(seq)==1, (message if message else f"This list should have exactly one element: {seq}.")
+    assert len(seq)==1, (message.replace('{seq}',str(seq)) if message else f"This list should have exactly one element: {seq}.")
     return list(seq)[0]
 def only_row(df,message=None):
     assert len(df)==1, (message if message else f"This table should have only one row \n{str(df)}")

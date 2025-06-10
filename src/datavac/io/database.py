@@ -20,7 +20,7 @@ from datavac.io.meta_reader import ensure_meas_group_sufficiency, ALL_MATERIAL_C
     ALL_MATLOAD_COLUMNS
 from datavac.io.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
 from sqlalchemy import text, Engine, create_engine, ForeignKey, UniqueConstraint, PrimaryKeyConstraint, \
-    ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert, Connection, label, join
+    ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert, Connection, label, join, Select
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
 from sqlalchemy import INTEGER, VARCHAR, BOOLEAN, Column, Table, MetaData
 import numpy as np
@@ -234,6 +234,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
         DOUBLE_PRECISION:'float64',
         TIMESTAMP:'datetime64[ns]'
     }
+    _viewcols={}
 
 
     def clear_excess_tables(self, conn, on_mismatch='raise',check_for_wasteful_layout_tables=False):
@@ -545,15 +546,16 @@ class PostgreSQLDatabase(AlchemyDatabase):
     def dump_higher_analysis(self, analysis, conn):
         if analysis not in CONFIG.higher_analyses: raise ValueError(f"Unknown analysis '{analysis}'")
         if (an_tab:=self._hat(analysis)) is None: return
-        mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
-        conn.execute(
-            pgsql_insert(self._reatab) \
-                .from_select(["matid","analysis"],
-                             select(self._loadtab.c.matid,literal(analysis)) \
-                             .select_from(an_tab.join(self._loadtab,
-                                                      onclause=(an_tab.c[f"loadid - {mg}"]==self._loadtab.c.loadid))) \
-                             .distinct()) \
-                .on_conflict_do_nothing())
+        if len(CONFIG.higher_analyses[analysis]['required_dependencies']):
+            mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
+            conn.execute(
+                pgsql_insert(self._reatab) \
+                    .from_select(["matid","analysis"],
+                                 select(self._loadtab.c.matid,literal(analysis)) \
+                                 .select_from(an_tab.join(self._loadtab,
+                                                          onclause=(an_tab.c[f"loadid - {mg}"]==self._loadtab.c.loadid))) \
+                                 .distinct()) \
+                    .on_conflict_do_nothing())
         conn.execute(delete(an_tab))
 
     def update_layout_parameters(self, layout_params, measurement_group, conn, dump_extractions=True):
@@ -661,22 +663,23 @@ class PostgreSQLDatabase(AlchemyDatabase):
             on_mismatch=(sweep_replacement_callback if on_mismatch=='replace' else on_mismatch), just_metadata=just_metadata)
 
         # TODO: Replace this with SQLAlchemy select like in get_where
+        layout_params=get_layout_params(conn=conn)
+        view_cols=[
+            CONFIG['database']['materials']['full_name'],
+            *(f'Materials"."{i}' for i in CONFIG['database']['materials'].get('info_columns',{})),
+            *(f'Loads"."{i}' for i in CONFIG['database'].get('loads',{}).get('info_columns',{})),
+            *([f'Meas -- {mg}"."Structure'] if conlay else []),
+            *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]',f'Dies"."DieComplete'] if condie else []),
+            *mg_info['analysis_columns'].keys(),
+            *mg_info['meas_columns'].keys(),
+            *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]
+                  if mg in layout_params._tables_by_meas else []),
+            f'Meas -- {mg}"."loadid',
+            f'Meas -- {mg}"."measid',
+        ]
+        self._viewcols[mg]=[v.split('"."')[1] if '\".\"' in v else v for v in view_cols]
         if do_recreate_view:
-            layout_params=get_layout_params(conn=conn)
             logger.debug(f"(Re)-creating view for {mg}")
-            view_cols=[
-                CONFIG['database']['materials']['full_name'],
-                *(f'Materials"."{i}' for i in CONFIG['database']['materials'].get('info_columns',{})),
-                *(f'Loads"."{i}' for i in CONFIG['database'].get('loads',{}).get('info_columns',{})),
-                *([f'Meas -- {mg}"."Structure'] if conlay else []),
-                *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]',f'Dies"."DieComplete'] if condie else []),
-                *mg_info['analysis_columns'].keys(),
-                *mg_info['meas_columns'].keys(),
-                *([c for c in layout_params._tables_by_meas[mg].columns if not c.startswith("PAD")]
-                      if mg in layout_params._tables_by_meas else []),
-                f'Meas -- {mg}"."loadid',
-                f'Meas -- {mg}"."measid',
-            ]
             view_cols=",".join([f'"{c}"' for c in view_cols])
             conn.commit()
             conn.execute(text(f'DROP VIEW IF EXISTS jmp."{mg}"; CREATE VIEW jmp."{mg}" AS SELECT {view_cols} from '\
@@ -695,7 +698,10 @@ class PostgreSQLDatabase(AlchemyDatabase):
                  for mg in CONFIG.higher_analyses[analysis].get('attempt_dependencies',{})]
         condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
         conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
+        if (hasdep:=len(CONFIG.higher_analyses[analysis]['required_dependencies'])):
+            mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
         layout_params=get_layout_params(conn=conn)
+        fullname_col = CONFIG['database']['materials']['full_name']
         def replacement_callback(conn,schema,table_name,*args,**kwargs):
             logger.warning(f"Dumping and replacing {table_name}")
             tab=self._metadata.tables[f'{schema}.{table_name}']
@@ -706,6 +712,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
             nonlocal do_recreate_view
             do_recreate_view=True
         self._ensure_table_exists(conn,self.int_schema,f'Analysis -- {analysis}',
+                  *([Column(fullname_col,VARCHAR,primary_key=True,nullable=False)] if (not hasdep) else []),
                   *reqlids,*attlids,
                   *([Column('Structure',VARCHAR,ForeignKey(f'Layout -- {analysis}.Structure',
                        name=f'fk_struct -- {analysis}',**_CASC),nullable=False)] if conlay else []),
@@ -720,8 +727,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         if do_recreate_view:
             view_cols=[
                 CONFIG['database']['materials']['full_name'],
-                *(f'Materials"."{i}' for i in CONFIG['database']['materials'].get('info_columns',{})),
-                *(f'Loads"."{i}' for i in CONFIG['database'].get('loads',{}).get('info_columns',{})),
+                *([f'Materials"."{i}' for i in CONFIG['database']['materials'].get('info_columns',{})] if hasdep else []),
+                *([f'Loads"."{i}' for i in CONFIG['database'].get('loads',{}).get('info_columns',{})] if hasdep else []),
                 *([f'Analysis -- {analysis}"."Structure'] if conlay else []),
                 *([f'Dies"."DieXY',f'Dies"."DieRadius [mm]'] if condie else []),
                 *(CONFIG.higher_analyses[analysis]['analysis_columns'].keys()),
@@ -729,13 +736,14 @@ class PostgreSQLDatabase(AlchemyDatabase):
                   if analysis in layout_params._tables_by_meas else []),
             ]
             view_cols=",".join([f'"{c}"' for c in view_cols])
-            an=analysis; mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
+            an=analysis;
             conn.execute(text(f'DROP VIEW IF EXISTS jmp."{an}"; CREATE VIEW jmp."{an}" AS SELECT {view_cols} from ' \
-                              f'"Analysis -- {an}" ' \
-                              f'JOIN "Loads" ON "Loads".loadid="Analysis -- {an}"."loadid - {mg}"' + \
+                              f'"Analysis -- {an}" ' +\
+                              (f'JOIN "Loads" ON "Loads".loadid="Analysis -- {an}"."loadid - {mg}"' if hasdep else '')+ \
                               (f'JOIN "Layout -- {an}" ON "Analysis -- {an}"."Structure"="Layout -- {an}"."Structure" ' if conlay else '')+\
                               (f'JOIN "Dies" ON "Analysis -- {an}".dieid="Dies".dieid ' if condie else '') +\
-                              f'JOIN "Materials" ON "Loads".matid="Materials".matid;'))
+                              (f'JOIN "Materials" ON "Loads".matid="Materials".matid;' if hasdep else ''))
+                      )
 
     def _ensure_table_exists(self, conn, schema, table_name, *args,
                              on_mismatch:Union[str,Callable]='raise',
@@ -901,11 +909,13 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     meas_type=CONFIG.get_meas_type(meas_group)
                     sweepconv=(pd_to_pg_converters['STRING']) \
                         if (hasattr(meas_type,'ONESTRING') and meas_type.ONESTRING) else lambda s: s.tobytes()
-                    self._upload_binary(
-                        mt.get_stacked_sweeps().assign(loadid=loadid)[['loadid','measid','sweep','header']],
-                        conn,self.int_schema,self._mgt(meas_group,'sweep').name,
-                        override_converters={'sweep':sweepconv,'header':pd_to_pg_converters['STRING']}
-                    )
+                    sstab=mt.get_stacked_sweeps()
+                    if len(sstab):
+                        self._upload_binary(
+                            sstab.assign(loadid=loadid)[['loadid','measid','sweep','header']],
+                            conn,self.int_schema,self._mgt(meas_group,'sweep').name,
+                            override_converters={'sweep':sweepconv,'header':pd_to_pg_converters['STRING']}
+                        )
 
                 # Upload the extracted values
                 if not re_extraction:
@@ -919,6 +929,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
                     raise e
                 loadid=int(ulid[0])
                 try:
+                    #if len(analysis_cols):
                     self._upload_csv(
                         df,
                         conn,self.int_schema,self._mgt(meas_group,'extr').name
@@ -949,7 +960,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
     def perform_analyses(self, conn, analyses,
                          precollected_data_by_meas_group={}, precollected_loadids={}, precollected_matid=None):
-        mg_to_data=precollected_data_by_meas_group
+        mg_to_data={k:v.restricted_to_columns([vc for vc in self._viewcols[k] if vc in v]) for k,v in precollected_data_by_meas_group.items()}
         matid=precollected_matid
         mask=conn.execute(select(self._mattab.c.Mask).where(self._mattab.c.matid==matid)).all()[0][0]
         diem=pd.DataFrame.from_records(conn.execute(
@@ -1059,64 +1070,82 @@ class PostgreSQLDatabase(AlchemyDatabase):
         return MultiUniformMeasurementTable(umts)
 
     def get_data(self,meas_group,scalar_columns=None,include_sweeps=False,
-                         unstack_headers=False,raw_only=False,conn=None,**factors) -> pd.DataFrame:
+                         unstack_headers=False,raw_only=False,conn=None,fnc_tables=[],other_tables=[],**factors) -> pd.DataFrame:
         if meas_group in CONFIG.higher_analyses:
             assert (include_sweeps==False or include_sweeps==[]), f"For analysis (eg {meas_group}), include_sweeps must be False or [], not {include_sweeps}"
             #assert unstack_headers==False
             assert raw_only==False
-            return self.get_data_from_analysis(meas_group,scalar_columns=scalar_columns,conn=conn,**factors)
+            return self.get_data_from_analysis(meas_group,scalar_columns=scalar_columns,conn=conn,
+                                               fnc_tables=fnc_tables,other_tables=other_tables,**factors)
         elif meas_group in CONFIG.measurement_groups:
             return self.get_data_from_meas_group(meas_group,scalar_columns=scalar_columns,include_sweeps=include_sweeps,
-                 unstack_headers=unstack_headers,raw_only=raw_only,conn=conn,**factors)
+                 unstack_headers=unstack_headers,raw_only=raw_only,conn=conn,fnc_tables=fnc_tables,other_tables=other_tables,**factors)
         else:
             raise Exception(f"What is '{meas_group}'?")
 
 
-    def get_data_from_analysis(self,analysis,scalar_columns=None, conn=None, **factors):
+    def get_data_from_analysis(self,analysis,scalar_columns=None, conn=None, fnc_tables=[], other_tables=[], **factors):
         conlay=CONFIG['higher_analyses'][analysis].get('connect_to_layout_table',False)
         condie=CONFIG['higher_analyses'][analysis].get('connect_to_die_table',True)
         anlytab=self._hat(analysis)
         if conlay: layotab=self._mgt(analysis,'layout')
-        involved_tables=([anlytab]+ \
-                         [*([self._diemtab] if condie else []),self._loadtab,self._mattab]+ \
-                         ([layotab] if conlay else []))
-        all_cols=[c for tab in involved_tables for c in tab.columns]
-        def get_col(cname):
-            try: return next(c for c in all_cols if c.name==cname)
-            except StopIteration:
-                raise Exception(f"Couldn't find column {cname} among {[c.name for c in all_cols]}")
-        if scalar_columns:
-            selcols=[get_col(sc) for sc in scalar_columns]
-        else:
-            selcols=list(set([get_col(sc.name) for sc in all_cols]))
+        hasdep=len(CONFIG.higher_analyses[analysis]['required_dependencies'])
+        fnc_tables=[self._hat(fnct) for fnct in fnc_tables]
+        other_tables=[self._hat(ot) for ot in other_tables]
+        
+        # Define table dependencies for joined_table
+        table_depends = {}
+        table_depends[anlytab] = []
+        if hasdep:
+            table_depends[self._loadtab] = [anlytab]
+            table_depends[self._mattab] = [self._loadtab]
+        if condie: table_depends[self._diemtab] = [anlytab]
+        if conlay: table_depends[layotab] = [anlytab]
+        for fnct in fnc_tables: table_depends[fnct] = [self._mattab]
+        for ot in other_tables: table_depends[ot] = [self._mattab]
+            
+        # Define join hints if needed
+        join_hints = {}
+        if hasdep:
+            mg = list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
+            join_hints[self._loadtab] = (anlytab.c[f"loadid - {mg}"] == self._loadtab.c.loadid)
+        for fnct in fnc_tables:
+            assert hasdep, "fnct tables can only be used with analyses that have dependencies"
+            join_hints[fnct] = (fnct.c[CONFIG.FULL_MATNAME_COL] == self._mattab.c[CONFIG.FULL_MATNAME_COL])
 
-        mg=list(CONFIG.higher_analyses[analysis]['required_dependencies'])[0]
-        thejoin=functools.reduce((lambda x,y: x.join(y)
-                                    if y is not self._loadtab
-                                    else x.join(y,onclause=(anlytab.c[f"loadid - {mg}"]==self._loadtab.c.loadid))),
-                                 involved_tables)
-        sel=select(*selcols).select_from(thejoin)
-        sel=functools.reduce((lambda s, f: s.where(get_col(f).in_(factors[f]))), factors, sel)
+        # If scalar_columns is not provided, use all scalar columns from the analysis table 
+        if not scalar_columns:
+            scalar_columns = [c.name for tab in table_depends for c in tab.columns]
+
+        # Use joined_table to build the query
+        sel, dtypes = self.joined_table(columns=scalar_columns, 
+                                        absolute_needs=[anlytab],
+                                        table_depends=table_depends,
+                                        pre_filters=factors,
+                                        join_hints=join_hints)
+            
         with (returner_context(conn) if conn else self.engine_connect()) as conn:
-            data=pd.read_sql(sel,conn,dtype={c.name:self.sql_to_pd_types[c.type.__class__] for c in selcols
-                                             if c.type.__class__ in self.sql_to_pd_types})
+            data=pd.read_sql(sel,conn,dtype=dtypes)
         return data
 
     def get_data_from_meas_group(self,meas_group,scalar_columns=None,include_sweeps=False,
-                 unstack_headers=False,raw_only=False,conn=None,**factors):
+                 unstack_headers=False,raw_only=False,conn=None,fnc_tables=[],other_tables=[],**factors):
         meastab=self._mgt(meas_group,'meas')
         sweptab=self._mgt(meas_group,'sweep')
         extrtab=self._mgt(meas_group,'extr')
         layotab=self._mgt(meas_group,'layout')
         diemtab=self._diemtab if CONFIG['measurement_groups'][meas_group].get('connect_to_die_table',True) else None
+        fullname_col = CONFIG['database']['materials']['full_name']
 
         if include_sweeps not in [True,False]:
             if len(include_sweeps):
                 factors['header']=include_sweeps
             else:
                 include_sweeps=False
+        fnc_tables=[self._hat(fnct) for fnct in fnc_tables]
+        other_tables=[self._hat(ot) for ot in other_tables]
         involved_tables=(([extrtab] if not raw_only else [])+\
-                            [meastab,diemtab,layotab,self._loadtab,self._mattab]\
+                            [meastab,diemtab,layotab,self._loadtab,self._mattab,*fnc_tables,*other_tables]\
                         +([sweptab] if include_sweeps else []))
         involved_tables=[t for t in involved_tables if t is not None]
         all_cols=[c for tab in involved_tables for c in tab.columns]
@@ -1135,7 +1164,8 @@ class PostgreSQLDatabase(AlchemyDatabase):
         selcols+=([sweptab.c.sweep,sweptab.c.header] if include_sweeps else [])
 
         ## TODO: Be more selective in thejoin
-        thejoin=functools.reduce((lambda x,y: x.join(y)),involved_tables)
+        thejoin=functools.reduce((lambda x,y: x.join(y)),[t for t in involved_tables if t not in fnc_tables]) 
+        thejoin=functools.reduce((lambda x,y: x.join(y,onclause=(y.c[fullname_col]==self._mattab.c[fullname_col]))),fnc_tables,thejoin)
         sel=select(*selcols).select_from(thejoin)
         sel=functools.reduce((lambda s, f: s.where(get_col(f).in_(factors[f]))), factors, sel)
 
@@ -1238,19 +1268,21 @@ class PostgreSQLDatabase(AlchemyDatabase):
         return pd.merge(sweep_part,other_part,how='inner',
                         left_index=True,right_index=True,validate='1:1').reset_index(drop=drop_index)
 
-    @staticmethod
-    def joined_table(factor_names:list[str],absolute_needs:list[Table],
-                     table_depends:dict[Table,list[Table]], pre_filters:dict[str,list]):
+    def joined_table(self, columns:list[str],absolute_needs:list[Table],
+                     table_depends:dict[Table,list[Table]], pre_filters:dict[str,list],
+                     join_hints:dict[Table,str]={}) -> tuple[Select, dict[str, str]]:
         """ Creates an SQL Alchemy Select joining the tables needed to get the desired factors
 
         Args:
-            factor_names: list of column names to be selected
+            columns: list of column names to be selected
             absolute_needs: list of tables which must be included in the join
             table_depends: mapping of dependencies which tables have on other tables to be joined
-            pre_filters: filters (column name to list of allowed values) to apply to the data before joining
+            pre_filters: filters (column name to list of allowed values) to apply to the data 
+            join_hints: mapping of table to join clause to use when joining that table
+                (generally not needed; if tables have foreign keys, sqlalchemy will infer)
 
         Returns:
-            An SQLAlchemy Select
+            An SQLAlchemy Select and a dictionary mapping column names to their intended pandas types
         """
         all_cols=[c for tab in table_depends for c in tab.columns]
         def get_col(cname) -> Column:
@@ -1261,10 +1293,10 @@ class PostgreSQLDatabase(AlchemyDatabase):
             for pf,values in pre_filters.items():
                 s=s.where(get_col(pf).in_(values))
             return s
-        factor_cols:list[Column]=[get_col(f) for f in factor_names]
+        cols:list[Column]=[get_col(f) for f in columns]
         def apply_joins():
             ordered_needed_tables=[]
-            need_queue=set(absolute_needs+[f.table for f in factor_cols]+[get_col(pf).table for pf in pre_filters])
+            need_queue=set(absolute_needs+[f.table for f in cols]+[get_col(pf).table for pf in pre_filters])
             while len(need_queue):
                 for n in need_queue.copy():
                     further_needs=table_depends[n]
@@ -1274,10 +1306,14 @@ class PostgreSQLDatabase(AlchemyDatabase):
                         ordered_needed_tables.append(n)
                         need_queue.remove(n)
                     else: need_queue|=set(further_needs)
-            return functools.reduce((lambda x,y: x.join(y)),ordered_needed_tables)
-        return apply_wheres(select(*factor_cols).select_from(apply_joins()))
+            return functools.reduce((lambda x,y: x.join(y,onclause=join_hints.get(y,None))),ordered_needed_tables)
+        sel=apply_wheres(select(*cols).select_from(apply_joins()))
+        dtypes={c.name:self.sql_to_pd_types[c.type.__class__] for c in cols
+                                                 if c.type.__class__ in self.sql_to_pd_types}
+        return sel, dtypes
 
-    def get_factors(self,meas_group_or_analysis,factor_names,pre_filters={}):
+
+    def get_factors(self,meas_group_or_analysis,factor_names,pre_filters={},fnc_tables=[],other_tables=[]):
 
         # Assess inputs
         if (mgoa:=meas_group_or_analysis) in CONFIG['measurement_groups']: which='measurement_groups'
@@ -1286,6 +1322,7 @@ class PostgreSQLDatabase(AlchemyDatabase):
 
         condie=CONFIG[which][mgoa].get('connect_to_die_table',True)
         conlay=CONFIG[which][mgoa].get('connect_to_layout_table',(False if which=='higher_analyses' else True))
+        fullname_col=CONFIG['database']['materials']['full_name']
 
         # Tables we may need
         table_depends={}
@@ -1295,15 +1332,25 @@ class PostgreSQLDatabase(AlchemyDatabase):
             #sweptab=self._mgt(mgoa,'sweep'); table_depends
         if which == 'higher_analyses':
             table_depends[coretab:=(anlstab:=self._hat(mgoa))]=[]
-        table_depends[self._loadtab]=[]
+        table_depends[self._loadtab]=[coretab]
         table_depends[self._mattab]=[self._loadtab]
+        fnc_tables=[self._hat(fnct) for fnct in fnc_tables]
+        other_tables=[self._hat(ot) for ot in other_tables]
+        for fnct in fnc_tables: table_depends[fnct]=[self._mattab]
+        for ot in other_tables: table_depends[ot]=[self._mattab]
         if condie: table_depends[self._diemtab]=[self._mattab]
         if conlay: table_depends[layotab:=self._mgt(mgoa,'layout')]=[coretab]
         assert not any(t is None for t in table_depends)
 
+        # Join hints
+        join_hints={fnct:(fnct.c[fullname_col]==self._mattab.c[fullname_col]) for fnct in fnc_tables}
+        if which == 'higher_analyses':
+            join_hints[self._loadtab]=(anlstab.c[f"loadid - {list(CONFIG.higher_analyses[mgoa]['required_dependencies'])[0]}"]==self._loadtab.c.loadid)
+
         # Define a select with the pre_filtered data and set it up as a CTE named tmp
-        bigtable=self.joined_table(factor_names=factor_names,absolute_needs=[coretab],
-                                   table_depends=table_depends,pre_filters=pre_filters)\
+        bigtable=self.joined_table(columns=factor_names,absolute_needs=[coretab],
+                                   table_depends=table_depends,pre_filters=pre_filters,
+                                   join_hints=join_hints)[0]\
             .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
         query="WITH tmp AS ("+str(bigtable)+")\n"
 
@@ -1318,6 +1365,9 @@ class PostgreSQLDatabase(AlchemyDatabase):
         # ignoring rows where the index for that factor is NULL
         query+="SELECT * FROM \n"
         for i,f in enumerate(factor_names):
+            # Note: by the time we get here, self.joined_table has already validated that f is the name
+            # of a column in the joined table, so these names are guaranteed to be valid
+            f=f.replace('%','%%') # escape % in case it's in the name
             query+=f"""(SELECT ROW_NUMBER() over (order by  null) as "ind___{f}", tmp."{f}" """\
                                                             f""" FROM tmp GROUP BY tmp."{f}") t{i}\n"""
             if i!=0: query+=f""" ON t0."ind___{factor_names[0]}"=t{i}."ind___{f}" """
@@ -1923,6 +1973,7 @@ def cli_rerun_higher_analysis(*args):
                                           .select_from(mgt.join(self._loadtab).join(self._mattab))).on_conflict_do_nothing())
         conn.commit()
     heal(self)
+
 
 cli_database=cli_helper(cli_funcs={
     'clear': 'datavac.io.database:cli_clear_database',

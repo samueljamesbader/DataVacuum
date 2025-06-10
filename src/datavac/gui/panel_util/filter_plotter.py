@@ -1,11 +1,12 @@
 from enum import Enum
 from io import StringIO
-from typing import Any
+from typing import Any, Callable, Optional, Sequence
 
 import bokeh
 from bokeh.models import ColumnDataSource, LinearColorMapper, LogColorMapper, FactorRange
 from bokeh.plotting import figure
 from bokeh.transform import jitter
+from datavac.util.conf import CONFIG
 from pandas import DataFrame
 from panel import GridBox
 from panel.io import hold
@@ -58,21 +59,21 @@ def listify(x):
         return [x]
 
 class FilterPlotter(CompositeWidgetWithInstanceParameters):
-    _prefilter_measgroup = None
-    _sources:dict[ColumnDataSource] =None
-    _pre_sources:list[DataFrame]=None
+    _prefilter_measgroup: Optional[str] = None
+    _sources:Optional[dict[str,ColumnDataSource]] = None
+    _pre_sources:Optional[list[DataFrame]]=None
 
     _built_in_view_settings=['color_by','norm_by']
-    _prefilter_updated_count=hvparam.Event()
-    _filter_param_updated_count=hvparam.Boolean(False)
-    _need_to_update_data=hvparam.Boolean(False)
-    _need_to_update_saf=hvparam.Boolean(True)
-    _need_to_recreate_figure=hvparam.Event()
-    _is_visible=hvparam.Boolean(False)
+    _prefilter_updated_count: bool = hvparam.Event() # type: ignore
+    _filter_param_updated_count: bool = hvparam.Boolean(False) # type: ignore
+    _need_to_update_data: bool = hvparam.Boolean(False) # type: ignore
+    _need_to_update_saf: bool = hvparam.Boolean(True) # type: ignore
+    _need_to_recreate_figure: bool = hvparam.Event() # type: ignore
+    _is_visible: bool = hvparam.Boolean(False) # type: ignore
     only_update_when_visible=hvparam.Boolean(False)
 
-    filter_settings=hvparam.Parameter()
-    _widget_hints={}
+    filter_settings:dict[str,list[str]]=hvparam.Parameter() # type: ignore
+    _widget_hints: dict = {}
     meas_groups=hvparam.Parameter()
     color_by=hvparam.Selector()
     norm_by=hvparam.Selector()
@@ -80,11 +81,11 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     # Subclasses may decide how to use...
     shownames=hvparam.Parameter()
 
-    normalization_details = hvparam.Parameter(instantiate=True)
+    normalization_details: Optional[dict] = hvparam.Parameter(instantiate=True) # type: ignore
 
-    layout_function = hvparam.Callable(default=make_default_layout)
+    layout_function: Callable = hvparam.Callable(default=make_default_layout) # type: ignore
 
-    def __init__(self, *args, database: Database=None, **kwargs):
+    def __init__(self, *args, database: Optional[Database]=None, **kwargs):
         super().__init__(*args,**kwargs)
         self._pre_filters:dict[str,Any]={}
         self.database=database if database is not None else get_database()
@@ -104,7 +105,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         self.param.watch(self._filter_param_updated,'_filter_param_updated_count')
         self.param.watch((lambda *args,**kwargs:setattr(self,'_filter_param_updated_count',True)),
                          list(self._filter_param_widgets.keys()))
-        self.param.watch(self._view_param_updated, list(self._view_param_widgets.keys()))
+        self.param.watch(self._view_param_updated, list(self._view_param_widgets.keys()),precedence=1)
         self.param.watch(self._on_need_to_update_saf_change, '_need_to_update_saf')
         self.param.watch(self._on_visibility_change,'_is_visible')
 
@@ -143,6 +144,8 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                                 **self._widget_hints.get(param_name,dict(sizing_mode='stretch_both')))
                 elif isinstance(elt,hvparam.Selector):
                     widgets[param_name]=Select.from_param(self.param[param_name], sizing_mode='stretch_width')
+                else:
+                    widgets[param_name]=pn.panel(self.param[param_name], sizing_mode='stretch_width')
             else:
                 raise NotImplementedError
         return widgets
@@ -175,6 +178,12 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                     if item.value!=[]: self.param.trigger('_prefilter_updated_count')
             self._pre_filters.update(pre_filters)
 
+    def get_other_tables(self) -> Sequence[Sequence[str]]:
+        return [[] for _ in self.get_meas_groups()]
+
+    def get_fnc_tables(self) -> Sequence[Sequence[str]]:
+        return [[] for _ in self.get_meas_groups()]
+
     def _prefilter_updated(self, *args, **kwargs):
         # Get all the pre_filters
         pre_filter_params={}
@@ -187,7 +196,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         logger.debug(f"Pre-filter params: {pre_filter_params} for {(self._prefilter_measgroup or self.meas_groups[0])}, in {self.__class__.name}")
         with time_it("Getting factors"):
             all_factors=self.database.get_factors((self._prefilter_measgroup or self.meas_groups[0]),
-                  list(self.filter_settings),pre_filters=pre_filter_params)
+                  list(self.filter_settings),pre_filters=pre_filter_params,fnc_tables=self.get_fnc_tables()[0],other_tables= self.get_other_tables()[0])
         # Get the factors of pre_filtered data
         from panel.io import hold
         with hold():
@@ -263,12 +272,14 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     def get_scalar_column_names(self):
         return [self._normalizer.normalizer_columns()+list(self.filter_settings.keys())]
 
-    def get_meas_groups(self):
+    def get_meas_groups(self) -> list[str]:
         return self.meas_groups
 
     def fetch_data(self, factors, sort_by):
         scalar_columns = self.get_scalar_column_names()
         raw_columns = self.get_raw_column_names()
+        #allowed_factors_by_meas_group = {mg:CONFIG.get_full_columnset(mg) for mg in self.get_meas_groups()}
+        #for f in factors: assert f in sum(allowed_factors_by_meas_group.values(),[]), f"Unknown factor: {f} in {allowed_factors_by_meas_group}"
         if any(v==[] for v in factors.values()):
             logger.info("Skipping DB call and return empty data because some factor is [].")
             #if raw_columns==[False]:
@@ -276,12 +287,16 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             #    self.get_raw_column_names()
             return [pd.DataFrame({k:[] for k in scs+(rcs or [])}) for scs,rcs in zip(scalar_columns,raw_columns)]
         logger.info(f"About to ask hose with {factors}, scalar: {scalar_columns}, raw: {raw_columns}")
-        data: list[DataFrame] = [self.database.get_data(meas_group,
+        data: list[DataFrame] = []
+        for sc, rc, meas_group, fncts, ots\
+                 in zip(scalar_columns, raw_columns, self.get_meas_groups(), self.get_fnc_tables(), self.get_other_tables()):
+            allowed_factors_for_this=CONFIG.get_full_columnset(meas_group)\
+                                        +sum([CONFIG.get_full_columnset(fnct) for fnct in fncts],[])\
+                                        +sum([CONFIG.get_full_columnset(ot) for ot in ots],[])
+            data.append(self.database.get_data(meas_group,
                                                      scalar_columns=sc, include_sweeps=rc,
-                                                     unstack_headers=(rc != False),
-                                                     **factors)
-                                 for sc, rc, meas_group
-                                 in zip(scalar_columns, raw_columns, self.get_meas_groups())]
+                                                     unstack_headers=(rc != False), fnc_tables=fncts, other_tables=ots,
+                                                     **{k:v for k,v in factors.items() if k in allowed_factors_for_this}))
         logger.info(f"Got data from hose, lengths {[len(d) for d in data]}")
 
         for d in data:
@@ -327,7 +342,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         need_to=event.new
         if need_to:
             if (not self.only_update_when_visible) or self._is_visible:
-                logger.debug(f"Update needed for {self.__class__.name}, proceeding")
+                logger.debug(f"Update to sources/figures needed for {self.__class__.name}, proceeding")
                 self._update_sources_and_figures(event)
             else: logger.debug(f"Update needed for {self.__class__.name} but not visible")
 

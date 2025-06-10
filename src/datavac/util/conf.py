@@ -22,6 +22,11 @@ class Config():
             self._yaml=yaml.safe_load(f)
             if 'higher_analyses' not in self._yaml: self._yaml['higher_analyses']={}
             if 'array_maps' not in self._yaml: self._yaml['array_maps']={}
+        self.FULL_MATNAME_COL=self._yaml['database']['materials']['full_name']
+        self.ALL_MATERIAL_COLUMNS=[self.FULL_MATNAME_COL]+list(self._yaml['database']['materials'].get('info_columns',{}))
+        self.ALL_LOAD_COLUMNS=list(self._yaml['database'].get('loads',{}).get('info_columns',{}))
+        self.ALL_MATLOAD_COLUMNS=self.ALL_MATERIAL_COLUMNS+self.ALL_LOAD_COLUMNS
+        self.DIE_COLUMNS=['DieXY','DieRadius [mm]','DieComplete']
 
     def __getattr__(self, item):
         return self._yaml[item]
@@ -63,6 +68,33 @@ class Config():
             return dict(set([(mg,dname) for mg_ in meas_groups for mg,dname in
                              list(self.measurement_groups[mg_].get('required_dependencies',{}).items())+ \
                              list(self.measurement_groups[mg_].get('attempt_dependencies',{}).items())]))
+        
+    def get_full_columnset(self, meas_group_or_analysis) -> list[str]:
+        """ Returns the full list of columns for a measurement group or analysis."""
+        
+        if meas_group_or_analysis in self.measurement_groups:
+            conlay=self.measurement_groups[meas_group_or_analysis].get('connect_to_layout_table',True)
+            condie=self.measurement_groups[meas_group_or_analysis].get('connect_to_die_table',True)
+            cols= list(self.measurement_groups[meas_group_or_analysis].get('meas_columns',[]))\
+                   + list(self.measurement_groups[meas_group_or_analysis].get('analysis_columns',[]))
+            cols+=self.ALL_LOAD_COLUMNS
+        elif meas_group_or_analysis in self.higher_analyses:
+            conlay=self.higher_analyses[meas_group_or_analysis].get('connect_to_layout_table',False)
+            condie=self.higher_analyses[meas_group_or_analysis].get('connect_to_die_table',True)
+            cols= list(self.higher_analyses[meas_group_or_analysis].get('analysis_columns',[]))
+            if len(self.higher_analyses[meas_group_or_analysis]['required_dependencies']):
+                cols+=self.ALL_LOAD_COLUMNS
+        else:
+            raise ValueError(f"Unknown measurement group or analysis {meas_group_or_analysis}")
+        if conlay:
+            from datavac.io.layout_params import get_layout_params
+            lp=get_layout_params()
+            cols+=['Structure']+list(lp._tables_by_meas[meas_group_or_analysis].columns)
+        if condie:
+            cols+=self.DIE_COLUMNS
+        cols+=self.ALL_MATERIAL_COLUMNS
+
+        return cols
 
 cli_context=cli_helper(cli_funcs={
     'list':'datavac.util.conf:cli_context_list',

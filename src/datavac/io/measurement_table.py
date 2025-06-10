@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 import pandas as pd
@@ -128,6 +128,15 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
     @property
     def headers(self):
         return self._non_scalar_columns
+    
+    def restricted_to_columns(self, columns: list[str]) -> 'UniformMeasurementTable':
+        """Returns a new UniformMeasurementTable with only the specified (scalar) columns and no header columns."""
+        for c in columns: assert c not in self.headers, \
+            f"Cannot restrict to {columns} as it contains non-scalar columns {self.headers}"
+        new_df = self._dataframe[columns].copy()
+        return self.__class__(dataframe=new_df, headers=[],
+                              meas_type=self.meas_type, meas_group=self.meas_group,
+                              meas_length=self.meas_length)
 
     def __add__(self, other: 'UniformMeasurementTable'):
         assert self.headers==other.headers,\
@@ -143,11 +152,15 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
                            " to produce a MultiUniformMeasurementTable")
             return MultiUniformMeasurementTable([self,other])
 
-    def __getitem__(self, item: str):
+    def __getitem__(self, item: str)->Union[np.ndarray, pd.Series]:
         if item in self.headers:
             return np.vstack(self._dataframe[item])
         else:
-            return self._dataframe[item]
+            try:
+                return self._dataframe[item]
+            except KeyError:
+                logger.debug(f"Column {item} not found, did you mean {self._dataframe.columns.tolist()}?")
+                raise
 
     def __setitem__(self, item: str, value: Any):
         assert item not in self.headers
@@ -297,6 +310,13 @@ class MultiUniformMeasurementTable(MeasurementTable):
 
     def __contains__(self, item):
         return item in self._umts[0]
+    
+    def restricted_to_columns(self, columns: list[str]) -> 'MultiUniformMeasurementTable':
+        """Returns a new MultiUniformMeasurementTable with only the specified (scalar) columns."""
+        for c in columns: assert c not in (h for umt in self._umts for h in umt.headers), \
+            f"Cannot restrict to {columns} as it contains non-scalar columns {[h for umt in self._umts for h in umt.headers]}"
+        new_umts = [umt.restricted_to_columns(columns) for umt in self._umts]
+        return MultiUniformMeasurementTable(umts=new_umts)
 
     @property
     def _dataframe(self):

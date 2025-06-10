@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ from .measurement_type import MeasurementType
 from datavac.util.maths import VTCC, YatX
 from datavac.util.util import only
 from datavac.util.logging import logger
-from ..io.measurement_table import MeasurementTable
+from ..io.measurement_table import MeasurementTable, UniformMeasurementTable
 
 @dataclasses.dataclass
 class MeasurementWithLinearNormColumn(MeasurementType):
@@ -159,7 +159,8 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
-        measurements['SSstart_lin [mV/dec]']=1e3/invswing_lin[:,0]
+        sstartlin=1e3/invswing_lin[:,0]; sstartlin[sstartlin<0]=np.NaN
+        measurements['SSstart_lin [mV/dec]']=sstartlin
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
         measurements['Igonstop [A]']=np.abs(IGsat[:,-1])
@@ -190,15 +191,20 @@ class IdVd(MeasurementType):
     def get_preferred_dtype(self,header):
         return np.float32
 
-    def analyze(self, measurements):
+    def analyze(self, measurements:UniformMeasurementTable):
         has_ig=any('IG' in k for k in measurements.headers)
         VGstrs=[k.split("=")[-1] for k in measurements.headers if k.startswith('fID')]
-        for VDDlabel,VDD in self.VDDs.items():
-            for VGofflabel,VGoff in self.VGoffs.items():
-                try: VGoffstr=only([k for k in VGstrs if np.isclose(float(k),VGoff)])
-                except: measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= np.NaN
-                else: measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= \
-                        YatX(X=measurements['VD'],Y=measurements[f'fID@VG={VGoffstr}'],x=VDD)
+        for VGofflabel,VGoff in self.VGoffs.items():
+            try: VGoffstr=only([k for k in VGstrs if np.isclose(float(k),VGoff)])
+            except:
+                for VDDlabel,VDD in self.VDDs.items():
+                    measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= np.NaN
+                measurements[f'Idmax{VGofflabel} [A]']=np.NaN
+            else:
+                for VDDlabel,VDD in self.VDDs.items():
+                    measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= \
+                        YatX(X=cast(np.ndarray,measurements['VD']),Y=cast(np.ndarray,measurements[f'fID@VG={VGoffstr}']),x=VDD)
+                measurements[f'Idmax{VGofflabel} [A]']=np.max(np.abs(measurements[f'fID@VG={VGoffstr}']),axis=1)
         if has_ig:
             Igmax=np.max(np.vstack([np.max(np.abs(measurements[f'fIG@VG={vgs}']),axis=1) for vgs in VGstrs]).T,axis=1)
         else: Igmax=np.NaN
@@ -285,7 +291,10 @@ class KelvinRon(MeasurementWithLinearNormColumn):
     def VTRon(VG:np.ndarray,Ron:np.ndarray):
         # Compute the effective on-state VT from the slope of the conductance at peak transconductance
         dVG=VG[0,1]-VG[0,0] # Assumes uniform and regular VG
+        Ron=Ron.copy()
+        Ron[Ron==0]=1e12
         G=np.clip(1/Ron,1e-12,1e6)
+        G[np.isnan(G)]=1e-12
         dG_dVG=savgol_filter(G,3,1,deriv=1)/dVG
         ind_peak=np.nanargmax(dG_dVG,axis=-1)
         dG_dVG_peak=dG_dVG[np.arange(len(ind_peak)),ind_peak]
