@@ -1,0 +1,48 @@
+Names Default To Here(1); dv=::dv;
+
+dv:_open_split_tables={};
+dv:EnsureOpenExcelSplitTable=Function({xlsx_name=0},{Default Local},
+	fmnc=dv:PySub("from datavac.util.conf import CONFIG; fmnc=CONFIG['database']['materials']['full_name']",ret="fmnc");
+	Show(fmnc);
+	If(xlsx_name==0,
+		xlsx=ConvertFilePath(Pick File("Select Split Table",dv:DATAVACUUM_SPLIT_DIR,{"Split Tables|xlsx"}),windows);
+		path_parts=Words(xlsx,"\");
+		fname=path_parts[NItems(path_parts)];
+		xlsx_name=Words(fname,".")[1];
+	,
+		xlsx=dv:DATAVACUUM_SPLIT_DIR||"\"||xlsx_name||".xlsx";
+	);
+	Show(xlsx_name);
+	path="$temp/"||(xlsx_name) || ".jmp";
+	Try(
+		sp=Data Table(xlsx_name);
+	,//Except
+		sp=Open(
+			xlsx,
+			//Worksheets( "1" ),
+			Use for all sheets( 1 ),
+			Concatenate Worksheets( 0 ),
+			Create Concatenation Column( 0 ),
+			Worksheet Settings(
+				1,
+				Has Column Headers( 1 ), Number of Rows in Headers( 1 ), Headers Start on Row( 2 ),
+				Data Starts on Row( 3 ), Data Starts on Column( 1 ), Data Ends on Row( 0 ), Data Ends on Column( 0 ),
+				Replicated Spanned Rows( 1 ), Replicated Spanned Headers( 0 ),
+				Suppress Hidden Rows( 0 ), Suppress Hidden Columns( 0 ), Suppress Empty Columns( 1 ),
+				Treat as Hierarchy( 0 ), Multiple Series Stack( 0 ),
+				Import Cell Colors( 0 ), Limit Column Detect( 0 ), Column Separator String( "-" )
+			)
+		);
+		sp << Set Name(xlsx_name);
+		Column(sp,fmnc) << Set Property( "Link ID", 1);
+		sp << Save(path);
+	);
+	Eval Expr({Expr(fmnc),Expr(sp),Expr(path)});
+);
+
+dv:AttachExcelSplitTable=Function({dt=0,xlsx_name=0},{Default Local},
+	dt = If( dt!=0, dt, Current Data Table());
+	{fmnc, sp, path}=dv:EnsureOpenExcelSplitTable(xlsx_name);
+	Column(dt, fmnc) << Delete Property("Link Reference");
+	Column(dt, fmnc) << Set Property( "Link Reference", Reference Table(path) );
+);

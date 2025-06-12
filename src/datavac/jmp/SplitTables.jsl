@@ -31,4 +31,6 @@ dv:AttachSplitTable=Function({dt=0,flow_name=0},{Default Local},
 
 	Column(dt, fmnc) << Delete Property("Link Reference");
 	Column(dt, fmnc) << Set Property( "Link Reference", Reference Table(path) );
+
+	sp
 );

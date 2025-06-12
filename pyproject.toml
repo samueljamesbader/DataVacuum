@@ -22,6 +22,11 @@ dependencies = [
     # TODO: pandas 2.2 leads to some odd warnings about chained assignment when loading data
     #pandas >= 2.1.0
     "pandas == 2.2.3",
+
+    # BSD-3-Clause license, need to avoid exposing to untrusted data
+    # https://www.cve.org/CVERecord/SearchResults?query=scikit-learn
+    "scikit-learn ~= 1.6.1",
+
     # BSD-3-Clause license, no CVE risk as of 11/16/2023 (searched "holoviz")
     "param ~= 2.2.0",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
