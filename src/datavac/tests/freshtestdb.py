@@ -51,7 +51,8 @@ def make_fresh_testdb(dbname):
 
     logger.debug("Created or cleared test database.  Populating skeleton tables")
 
-    from datavac.io.database import get_database
+    from datavac.io.database import get_database, unget_database
+    unget_database()  # Clear any existing database connection
     db = get_database(metadata_source='reflect')
     db.validate(on_mismatch='replace')
     logger.debug(f"Fresh test database {dbname} ready for data.")
