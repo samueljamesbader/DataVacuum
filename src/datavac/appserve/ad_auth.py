@@ -144,13 +144,20 @@ def monkeypatch_authstaticroutes():
     panel.io.server.get_static_routes=authed_get_static_routes
     logger.debug("Extra static routes monkey-patched")
 
-from tornado.web import RequestHandler
-class SimpleSecretShare(RequestHandler):
-    def initialize(self, callers:dict[str,Callable[[],str]]):
-        self._callers=callers
-    def get(self):
-        self.write(f"Should be using POST")
-    def post(self):
+
+def with_validated_access_key(func:Callable) -> Callable:
+    """ Decorator to validate access key before calling the function.
+    
+    This decorator can be used to wrap any function that requires access key validation.
+    """
+    def wrapper(self, *args, **kwargs):
+        """ Wrapper function that validates the access key before calling the original function.
+        
+        Args:
+            self: The instance of the class where the function is defined.
+            *args: Positional arguments for the original function.
+            **kwargs: Keyword arguments for the original function.
+        """
         accesskey=self.get_argument('access_key',default=None)
         if not accesskey:
             self.set_status(400)
@@ -173,6 +180,23 @@ class SimpleSecretShare(RequestHandler):
             self.set_status(403)
             self.write(f"Access key expired.  Its age is {age}.")
             return
+        # Call the original function after validation
+        return func(self, *args, validated=validated, **kwargs)
+    
+    return wrapper
+
+from tornado.web import RequestHandler
+class SimpleSecretShare(RequestHandler):
+    def get(self):
+        self.write(f"Should be using POST")
+
+    def initialize(self, callers:dict[str,Callable[[],str]]):
+        self._callers=callers
+
+    @with_validated_access_key
+    def post(self, validated:dict[str,str]):
+        """ Handles POST requests to retrieve secrets."""
+        
         secretname=self.get_argument('secretname',default=None)
         if not secretname:
             self.set_status(400)
@@ -183,8 +207,8 @@ class SimpleSecretShare(RequestHandler):
             self.write(f"Secret '{secretname}' not recognized, options include {list(self._callers)}")
             return
         self.set_status(200)
-        #self.write(f"You are {validated}.\n")
         self.write(self._callers[secretname]())
+
 
 from datavac.appserve.app import PanelApp
 import panel as pn
