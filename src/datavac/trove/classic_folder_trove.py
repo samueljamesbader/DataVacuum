@@ -1,9 +1,11 @@
 import argparse
+from dataclasses import dataclass, field
 import os
 import re
 from fnmatch import fnmatch
-from typing import Union
+from typing import Callable, Union
 
+from datavac.trove import ReaderCard, Trove
 import pandas as pd
 from functools import lru_cache, cache
 from pathlib import Path
@@ -19,6 +21,30 @@ ALL_MATERIAL_COLUMNS=[CONFIG['database']['materials']['full_name'],
                       *CONFIG['database']['materials'].get('info_columns',{})]
 ALL_LOAD_COLUMNS=CONFIG['database'].get('loads',{}).get('info_columns',[])
 ALL_MATLOAD_COLUMNS=[*ALL_MATERIAL_COLUMNS,*ALL_LOAD_COLUMNS]
+
+
+@dataclass
+class ClassicFolderTroveReaderCard(ReaderCard):
+    glob: str
+    reader_function: Callable
+    read_so_far_args: dict[str, str] = field(default_factory=dict)
+
+@dataclass
+class ClassicFolderTrove(Trove):
+
+    read_dir: Path = None # type: ignore
+    """The root directory to read from.  If not specified, will default to the environment variable DATAVACUUM_READ_DIR."""
+
+    ignore_folder_regex: str = r'.*IGNORE.*'
+    """A regex to match folder names which should be ignored.  If not specified, will default to '.*IGNORE.*'."""
+
+    def __post_init__(self):
+        if self.read_dir is None:
+            if 'DATAVACUUM_READ_DIR' not in os.environ:
+                raise Exception("read_dir not specified for ClassicFolderTrove, "\
+                                "and no environment variable DATAVACUUM_READ_DIR to default to.")
+            else: self.read_dir = Path(os.environ['DATAVACUUM_READ_DIR'])
+    
 
 if os.environ.get('DATAVACUUM_READ_DIR'):
     READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])

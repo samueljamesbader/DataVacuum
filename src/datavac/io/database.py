@@ -14,11 +14,11 @@ import requests
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import SQLAlchemyError
 
-from datavac.appserve.dvsecrets import get_db_connection_info
+from datavac.appserve.secrets.db_secrets import get_db_connection_info
 from datavac.io.layout_params import get_layout_params
-from datavac.io.meta_reader import ensure_meas_group_sufficiency, ALL_MATERIAL_COLUMNS, ALL_LOAD_COLUMNS, \
+from datavac.trove.classic_folder_trove import ensure_meas_group_sufficiency, ALL_MATERIAL_COLUMNS, ALL_LOAD_COLUMNS, \
     ALL_MATLOAD_COLUMNS
-from datavac.io.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
+from datavac.database.postgresql_binary_format import df_to_pgbin, pd_to_pg_converters
 from sqlalchemy import text, Engine, create_engine, ForeignKey, UniqueConstraint, PrimaryKeyConstraint, \
     ForeignKeyConstraint, DOUBLE_PRECISION, delete, select, literal, union_all, insert, Connection, label, join, Select
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
@@ -218,22 +218,6 @@ class AlchemyDatabase:
 
 class PostgreSQLDatabase(AlchemyDatabase):
 
-    pd_to_sql_types={
-        'int64':INTEGER,'Int64':INTEGER,
-        'int32':INTEGER,'Int32':INTEGER,
-        'string':VARCHAR,
-        'str':VARCHAR,
-        'float32':DOUBLE_PRECISION,'Float32':DOUBLE_PRECISION,
-        'float64':DOUBLE_PRECISION,'Float64':DOUBLE_PRECISION,
-        'bool':BOOLEAN,'boolean':BOOLEAN,
-        'datetime64[ns]':TIMESTAMP}
-    sql_to_pd_types={
-        INTEGER:'Int32',
-        VARCHAR:'string',
-        BOOLEAN: 'bool',
-        DOUBLE_PRECISION:'float64',
-        TIMESTAMP:'datetime64[ns]'
-    }
     _viewcols={}
 
 
@@ -1559,7 +1543,7 @@ def cli_force_database(*args):
     db.validate(on_mismatch=('warn' if namespace.dry_run else 'replace'),force_recreate_views=namespace.force_recreate_views)
 
 def cli_upload_data(*args):
-    from datavac.io.meta_reader import ALL_MATLOAD_COLUMNS
+    from datavac.trove.classic_folder_trove import ALL_MATLOAD_COLUMNS
 
     parser=argparse.ArgumentParser(description='Extracts and uploads data')
     for col in ALL_MATLOAD_COLUMNS:
@@ -1591,7 +1575,7 @@ def cli_upload_data(*args):
 def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
                          clear_all_from_material=True, user_called=True, cached_glob=None,
                          yes=False, isolate_errors=False, only_file_names=None):
-    from datavac.io.meta_reader import read_and_analyze_folders
+    from datavac.trove.classic_folder_trove import read_and_analyze_folders
 
     if folders is None:
         if ((connected:=CONFIG.meta_reader.get('connect_toplevel_folder_to',None)) and (connected in only_material)):
@@ -1643,7 +1627,7 @@ def read_and_upload_data(db,folders=None,only_material={},only_meas_groups=None,
                          clear_all_from_material=clear_all_from_material, user_called=user_called)
 def heal(db: PostgreSQLDatabase,force_all_meas_groups=False):
     """ Goes in order of most recent material first, and within that, reloads first than re-extractions."""
-    from datavac.io.meta_reader import perform_extraction, get_cached_glob
+    from datavac.trove.classic_folder_trove import perform_extraction, get_cached_glob
     cached_glob=get_cached_glob()
     fullname=CONFIG['database']['materials']['full_name']
     matcolnames=[*CONFIG['database']['materials'].get('info_columns',{})]

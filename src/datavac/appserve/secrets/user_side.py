@@ -2,7 +2,7 @@ import argparse
 
 import requests
 
-from datavac.appserve.dvsecrets import get_ssl_rootcert_for_ak
+from datavac.appserve.secrets.db_secrets import get_ssl_rootcert_for_ak
 from datavac.util.logging import logger, time_it
 import webbrowser
 import os

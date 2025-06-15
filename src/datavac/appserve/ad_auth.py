@@ -12,7 +12,7 @@ from nacl.encoding import Base64Encoder
 from nacl.exceptions import BadSignatureError
 from panel.auth import AzureAdLoginHandler, OAuthProvider
 
-from datavac.appserve.dvsecrets import get_access_key_sign_seed, get_auth_info
+from datavac.appserve.secrets.db_secrets import get_access_key_sign_seed, get_auth_info
 from datavac.util.logging import logger
 
 # TODO: Check if any recent Panel updates provide a way to not require this anymore

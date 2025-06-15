@@ -4,9 +4,6 @@ import numpy as np
 import pandas as pd
 from scipy.constants import epsilon_0, Boltzmann, elementary_charge
 
-from datavac.examples.demo1.mock_logic import DFlipFlop
-
-
 # Implements a simple model from http://dx.doi.org/10.1109/ted.2009.2024022
 # Plus some arbitrary BTI content and entirely made up noise options
 @dataclass

@@ -1,6 +1,6 @@
 import numpy as np
 
-from datavac.io.meta_reader import quick_read_filename
+from datavac.trove.classic_folder_trove import quick_read_filename
 from datavac.tests.freshtestdb import example_data
 
 def test_IdVg(example_data):

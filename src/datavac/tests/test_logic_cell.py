@@ -1,7 +1,7 @@
 import numpy as np
 
 from datavac.examples.demo1.example_data import get_ring, get_inverter
-from datavac.io.meta_reader import quick_read_filename
+from datavac.trove.classic_folder_trove import quick_read_filename
 
 from datavac.tests.freshtestdb import example_data
 
