@@ -1963,6 +1963,7 @@ def cli_rerun_higher_analysis(*args):
             full_name_col=CONFIG['database']['materials']['full_name']
             lead_meas_group=list(CONFIG['higher_analyses'][an]['required_dependencies'].keys())[0]
             mgt=self._mgt(lead_meas_group,'Meas')
+            assert mgt is not None
             #matnames=self.get_factors(,[full_name_col])[full_name_col]
             #matids=self.get_factors(list(CONFIG['higher_analyses'][an]['required_dependencies'].keys())[0],[full_name_col])[full_name_col]
             # Insert into the re-analyze table all at once

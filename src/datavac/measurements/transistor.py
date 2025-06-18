@@ -79,10 +79,10 @@ class IdVg(MeasurementWithLinearNormColumn):
 
         W=self.get_norm(measurements)
         VG=measurements['VG']
-        IDsat=measurements[f'fID@VD={VDsat_str}'] if (has_idsat:=(f'fID@VD={VDsat_str}' in measurements)) else VG*np.NaN
-        IDlin=measurements[f'fID@VD={VDlin_str}'] if (has_idlin:=(f'fID@VD={VDlin_str}' in measurements)) else VG*np.NaN
-        IGsat=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.NaN
-        IGlin=measurements[f'fIG@VD={VDlin_str}'] if (has_iglin:=(f'fIG@VD={VDlin_str}' in measurements)) else VG*np.NaN
+        IDsat:np.ndarray[float]=measurements[f'fID@VD={VDsat_str}'] if (has_idsat:=(f'fID@VD={VDsat_str}' in measurements)) else VG*np.NaN # type: ignore
+        IDlin:np.ndarray[float]=measurements[f'fID@VD={VDlin_str}'] if (has_idlin:=(f'fID@VD={VDlin_str}' in measurements)) else VG*np.NaN # type: ignore
+        IGsat:np.ndarray[float]=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.NaN # type: ignore
+        IGlin:np.ndarray[float]=measurements[f'fIG@VD={VDlin_str}'] if (has_iglin:=(f'fIG@VD={VDlin_str}' in measurements)) else VG*np.NaN # type: ignore
         if IDsat.shape[1]==1 and np.isnan(IDsat[0]): has_idsat=False
         if IDlin.shape[1]==1 and np.isnan(IDlin[0]): has_idlin=False
         if IGsat.shape[1]==1 and np.isnan(IGsat[0]): has_igsat=False
@@ -167,6 +167,10 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Igonstop_lin [A]']=np.abs(IGlin[:,-1])
         measurements['Igmax_lin [A]']=np.max(np.abs(IGlin),axis=1)
         measurements['Igmax_sat [A]']=np.max(np.abs(IGsat),axis=1)
+
+        fwd=VG1d>0
+        measurements['Igfwdmax_lin [A]']=np.max(np.abs(IGlin[:,fwd]),axis=1)
+
         if has_iglin == has_igsat:
             measurements['Igmax [A]']=np.maximum(measurements['Igmax_lin [A]'],measurements['Igmax_sat [A]'])
         elif has_iglin: measurements['Igmax [A]']=measurements['Igmax_lin [A]']
