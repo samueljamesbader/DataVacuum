@@ -114,7 +114,7 @@ def cli_compile_jmp_addin(*args):
             #          'DATAVACUUM_DBSTRING','DATAVACUUM_CACHE_DIR','DATAVACUUM_LAYOUT_PARAMS_DIR']:
             for x in ['DATAVACUUM_CONTEXT','DATAVACUUM_CONTEXT_DIR','DATAVACUUM_DB_DRIVERNAME',
                       'DATAVACUUM_JMP_DEFER_INIT',*jmp_conf.get("capture_variables",{})]:
-                f.write(f"os.environ['{x}']=r"{env_values.get(x,None)}"\n" if env_values.get(x,None) else "")
+                f.write(f"os.environ['{x}']=r\"{env_values.get(x,None)}\"\n" if env_values.get(x,None) else "")
             f.write(dedent("""
                 os.environ['DATAVACUUM_FROM_JMP']='YES'
                 import numpy as np
