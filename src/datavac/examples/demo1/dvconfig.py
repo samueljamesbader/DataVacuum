@@ -1,0 +1,51 @@
+import os
+from pathlib import Path
+from typing import Mapping
+from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
+from datavac.config.project_config import ProjectConfiguration
+from datavac.appserve.secrets.vault.demo_vault import DemoVault
+from datavac.examples.demo1.example_data import read_csv
+from datavac.measurements.transistor import IdVg
+from datavac.trove.classic_folder_trove import ClassicFolderTrove, ClassicFolderTroveReaderCard
+from datavac.util.util import asnamedict
+from datavac.examples.demo1 import EXAMPLE_DATA_DIR, dbname
+
+
+def get_project_config() -> ProjectConfiguration:
+    def make_reader_cards(glob) -> Mapping[str, list[ClassicFolderTroveReaderCard]]:
+        rc=ClassicFolderTroveReaderCard(glob=glob,reader_function=read_csv)
+        return {'':[rc]}
+
+    measurement_groups=asnamedict(
+        IdVg(name='nMOS_IdVg',
+            description='nMOS Id-Vg measurements',
+            meas_columns=[DVColumn('FileName','str','File name of the measurement'),],
+            extr_column_names=['SS [mV/dec]', 'RonW [ohm.um]', 'Ron [ohm]'],
+            reader_cards=make_reader_cards('*_nMOS_IdVg.csv'),
+            layout_param_group='IdVg'
+        )
+    )
+    trove=ClassicFolderTrove(
+        load_info_columns=[DVColumn('Lot', 'string', 'Lot ID of the sample'),
+                           DVColumn('Sample', 'string', 'Sample ID of the sample')],
+        read_dir=Path(EXAMPLE_DATA_DIR),
+    )
+        
+    return ProjectConfiguration(
+        deployment_name='demo1',
+        data_definition=SemiDeviceDataDefinition(
+            measurement_groups=measurement_groups,
+            troves={'':trove},
+            # TODO: Remove this once the layout params are properly set up
+            layout_params_dir=Path(__file__).parent / 'layout_params',
+            layout_params_yaml=Path(__file__).parent / 'layout_params.yaml',
+        ),
+        vault=DemoVault(dbname=dbname),
+    )
+
+
+
+#def complete_matload_info(matload_info:dict):
+#    matload_info=matload_info.copy()
+#    matload_info['Mask']=matload_info.get('Mask','Mask1')
+#    return matload_info

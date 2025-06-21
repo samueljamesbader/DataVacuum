@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 import os
@@ -5,22 +6,22 @@ import re
 from fnmatch import fnmatch
 from typing import Callable, Union
 
-from datavac.trove import ReaderCard, Trove
-import pandas as pd
+#import pandas as pd
 from functools import lru_cache, cache
 from pathlib import Path
 
-from datavac.io.measurement_table import MultiUniformMeasurementTable
-from datavac.util.logging import logger
-from datavac.util.util import import_modfunc, only
-from datavac.util.tables import check_dtypes
-from datavac.util.conf import CONFIG
-
-FULLNAME_COL=CONFIG['database']['materials']['full_name']
-ALL_MATERIAL_COLUMNS=[CONFIG['database']['materials']['full_name'],
-                      *CONFIG['database']['materials'].get('info_columns',{})]
-ALL_LOAD_COLUMNS=CONFIG['database'].get('loads',{}).get('info_columns',[])
-ALL_MATLOAD_COLUMNS=[*ALL_MATERIAL_COLUMNS,*ALL_LOAD_COLUMNS]
+from datavac.trove import ReaderCard, Trove
+#from datavac.io.measurement_table import MultiUniformMeasurementTable
+#from datavac.util.logging import logger
+#from datavac.util.util import import_modfunc, only
+#from datavac.util.tables import check_dtypes
+#from datavac.util.conf import CONFIG
+#
+#FULLNAME_COL=CONFIG['database']['materials']['full_name']
+#ALL_MATERIAL_COLUMNS=[CONFIG['database']['materials']['full_name'],
+#                      *CONFIG['database']['materials'].get('info_columns',{})]
+#ALL_LOAD_COLUMNS=CONFIG['database'].get('loads',{}).get('info_columns',[])
+#ALL_MATLOAD_COLUMNS=[*ALL_MATERIAL_COLUMNS,*ALL_LOAD_COLUMNS]
 
 
 @dataclass
@@ -46,8 +47,8 @@ class ClassicFolderTrove(Trove):
             else: self.read_dir = Path(os.environ['DATAVACUUM_READ_DIR'])
     
 
-if os.environ.get('DATAVACUUM_READ_DIR'):
-    READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])
+#if os.environ.get('DATAVACUUM_READ_DIR'):
+#    READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])
 
 class MissingFolderInfoException(Exception): pass
 class NoDataFromFileException(Exception): pass
@@ -64,6 +65,8 @@ def get_cached_glob():
     return cached_glob
 
 def quick_read_filename(filename:Union[Path,str],extract=True,**kwargs) -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
+    from datavac.config.project_config import PCONF
+    READ_DIR=PCONF().data_definition.troves[''].read_dir
     if not (filename:=Path(filename)).is_absolute():
         filename=READ_DIR/filename
     assert filename.exists(), f"Can't find file {str(filename)}"

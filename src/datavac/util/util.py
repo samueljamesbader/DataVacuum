@@ -9,6 +9,7 @@ from importlib import import_module
 
 from collections import deque
 from contextlib import contextmanager
+from typing import Any
 
 
 def last(it):
@@ -27,12 +28,12 @@ def run_subprocess_with_live_output(cmd_and_args, live_output=True, cwd=None):
 
     caught_output=io.StringIO()
     p = subprocess.Popen(cmd_and_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
-    for line in iter(lambda : p.stdout.readline(), b''):
+    for line in iter(lambda : p.stdout.readline(), b''): # type: ignore
         line=line.decode('utf-8')
         if live_output:
             print('>>>',line.strip(),flush=True)
         caught_output.write(line)
-    p.stdout.close()
+    p.stdout.close() # type: ignore
     p.wait()
     caught_output.seek(0)
     return caught_output.read(), p.returncode
@@ -76,3 +77,16 @@ def cli_b64rand(*args):
     namespace=parser.parse_args(args)
     random_bytes = secrets.token_bytes(32)
     print(base64.b64encode(random_bytes).decode())
+
+
+def asnamedict(*dvcol_list: Any) -> dict[str, Any]:
+    """Converts a list of objects to a dictionary with object.name as keys.
+
+    Example:
+        >>> asnamedict([DVColumn('col1', 'int32', 'description1'),
+                        DVColumn('col2', 'str',   'description2')])
+        {'col1': DVColumn('col1', 'int32', 'description1'),
+         'col2': DVColumn('col2', 'str',   'description2')}
+    
+    """
+    return {col.name: col for col in dvcol_list}

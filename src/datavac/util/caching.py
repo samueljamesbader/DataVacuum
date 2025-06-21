@@ -1,14 +1,20 @@
+from __future__ import annotations
 import argparse
+from datetime import datetime
+import functools
 import pickle
 import shutil
 from functools import wraps
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable, Optional, Union
 
-from datavac.util.paths import USER_CACHE
+from datavac.util.logging import time_it, logger
+
+if TYPE_CHECKING:
+    from sqlalchemy import Connection
 
 
-def pickle_cached(cache_dir:Path, namer: Callable):
+def pickle_cached(cache_dir:str|Path, namer: Callable):
     """
 
     Example
@@ -21,6 +27,13 @@ def pickle_cached(cache_dir:Path, namer: Callable):
         cached_getter=pickle_cached(CACHE,lambda key,**kwargs: f"{key}.pkl")(expensive_getter)
 
     """
+    cache_dir=Path(cache_dir)
+    if not cache_dir.is_absolute():
+        from datavac.config.project_config import PCONF
+        cache_dir = PCONF().USER_CACHE/cache_dir
+    assert 'cache' in str(cache_dir).lower(), \
+        f"Cache directory {cache_dir} should contain 'cache' in its name"\
+            " to avoid accidental overwrite of important directories."
     def wrapper(func):
         if not cache_dir.exists(): cache_dir.mkdir()
         @wraps(func)
@@ -39,8 +52,96 @@ def pickle_cached(cache_dir:Path, namer: Callable):
     return wrapper
 
 
-def cli_clear_cache(*args):
+def pickle_db_cached(namer: Union[Callable[[],str],str], namespace:str, conn:Optional[Connection]=None):
+    def wrapper(func):
+        from datavac.config.project_config import PCONF
+        cache_dir = PCONF().USER_CACHE/namespace
+        if not cache_dir.exists(): cache_dir.mkdir()
+        from datavac.database import blob_store 
+
+        @functools.wraps(func)
+        def wrapped(*args,force=False,**kwargs):
+            name: str =namer if type(namer) is str else namer(*args,**kwargs) # type: ignore
+            cfile=cache_dir/name
+            blob_name=f'{namespace}.{name}'
+            import numpy as np
+            if not force:
+                from sqlalchemy.exc import SQLAlchemyError
+                with time_it(f"Get DB cache time for {name}",threshold_time=.005):
+                    try: db_cached_time:float= blob_store.get_obj_date(blob_name,conn=conn).timestamp()
+                    # If it's an SQLAlchemyError, the transaction might be aborted so have to raise this
+                    # Silently aborted transations could cause some downstream use of this connection to fail
+                    except SQLAlchemyError as e: raise e
+                    # Otherwise, we'll just try to fix it
+                    except Exception as e:
+                        logger.debug("Couldn't get DB cache time: "+str(e));
+                        db_cached_time:float= -np.inf
+                with time_it(f"Get local cache time for {name}",threshold_time=.005):
+                    try: lc_cached_time=cfile.stat().st_mtime
+                    except Exception as e:
+                        logger.debug("Couldn't get local cache time: "+str(e));
+                        lc_cached_time:float= -np.inf
+                if (not np.isfinite(db_cached_time)) and (not np.isfinite(lc_cached_time)):
+                    logger.debug(f"Couldn't get local or DB cache time for {name}")
+                    force=True
+            if not force:
+                if db_cached_time<lc_cached_time: # type: ignore
+                    try:
+                        with time_it(f"Reading local cache for {name}",threshold_time=.005):
+                            with open(cfile,'rb') as f: return pickle.load(f),lc_cached_time
+                    except Exception as e:
+                        logger.debug(f"Couldn't read local cache for {name}: {str(e)}")
+                try:
+                    with time_it(f"Reading DB cache for {name}",threshold_time=.025):
+                        res,cached_time=blob_store.get_obj(f'{namespace}.{name}',conn=conn),db_cached_time
+                except Exception as e:
+                    logger.debug(f"Couldn't read DB cache for {name}: {str(e)}")
+                    force=True
+                else:
+                    with time_it(f"Storing local cache for {name}",threshold_time=.005):
+                        with open(cfile,'wb') as f: pickle.dump(res,f)
+                    return res,cached_time
+            with time_it(f"Generating {name}"):
+                res=func(*args,**kwargs)
+
+            with time_it(f"Storing DB cache for {name}",threshold_time=.025):
+                blob_store.store_obj(blob_name,res,conn=conn)
+            with time_it(f"Storing local cache for {name}",threshold_time=.005):
+                with open(cfile,'wb') as f: pickle.dump(res,f)
+            return res,datetime.now().timestamp()
+        return wrapped
+    return wrapper
+
+
+def clear_local_cache(cache_dir: Optional[str | Path]):
+    """
+    Clears the cache directory by removing it and creating a new empty one.
+    
+    Parameters
+    ----------
+    cache_dir : str | Path, optional
+        The path to the cache directory to clear. Defaults to 'cache'.
+    """
+    if cache_dir is None:
+        from datavac.config.project_config import PCONF
+        cache_dir = PCONF().USER_CACHE
+    else:
+        cache_dir = Path(cache_dir)
+        if not cache_dir.is_absolute():
+            from datavac.config.project_config import PCONF
+            cache_dir = PCONF().USER_CACHE / cache_dir
+    assert 'cache' in str(cache_dir).lower(), \
+        f"Cache directory {cache_dir} should contain 'cache' in its name"\
+            " to avoid accidental deletion of important directories."
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir)
+    cache_dir.mkdir()
+
+def cli_clear_local_cache(*args):
     parser=argparse.ArgumentParser(description='Clears the user cache')
+    parser.add_argument(
+        '--cache-dir', type=str, default=None,
+        help='The path to the cache directory to clear. Defaults to the user cache directory.'
+    )
     namespace=parser.parse_args(args)
-    shutil.rmtree(USER_CACHE)
-    USER_CACHE.mkdir()
+    clear_local_cache(namespace.cache_dir)

@@ -30,7 +30,7 @@ def level_context(level):
         set_level(_level)
 
 @contextmanager
-def time_it(message, threshold_time=0):
+def time_it(message, threshold_time:float=0):
     start_time=time.time()
     yield
     took_time=time.time()-start_time

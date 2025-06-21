@@ -4,24 +4,31 @@ from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 
-from datavac.util.cli import cli_helper
+#from datavac.util.cli import cli_helper
 from datavac.util.logging import logger, time_it
 import pandas as pd
 import numpy as np
 import pickle
 import traceback
 import yaml
+from typing import TYPE_CHECKING, Optional, cast
 
-LAYOUT_PARAMS_DIR=Path(os.environ.get("DATAVACUUM_LAYOUT_PARAMS_DIR"))
+if TYPE_CHECKING:
+    from sqlalchemy import Connection
+    from datavac.config.data_definition import SemiDeviceDataDefinition
+
 
 # TODO: remove the LayoutParameters gotcha below and change this _LayoutParameters back to LayoutParameters
-class _LayoutParameters:
+class LayoutParameters:
 
     def __init__(self):
         self.regenerate_from_excel()
 
     def timestamp_still_valid(self):
-        yaml_path = Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"layout_params.yaml"
+
+        from datavac.config.project_config import PCONF
+        LAYOUT_PARAMS_DIR=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_dir
+        yaml_path=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_yaml
         with open(yaml_path,'r') as f:
             current_yaml_str=f.read()
 
@@ -39,7 +46,9 @@ class _LayoutParameters:
             return not outofdate_found
 
     def regenerate_from_excel(self):
-        yaml_path = Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"layout_params.yaml"
+        from datavac.config.project_config import PCONF
+        LAYOUT_PARAMS_DIR=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_dir
+        yaml_path=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_yaml
         with open(yaml_path,'r') as f:
             self._yaml_str=f.read()
             self._yaml=yaml.safe_load(self._yaml_str)
@@ -125,11 +134,11 @@ class _LayoutParameters:
                 if self._tables_by_meas[meas_key][c].dtype==np.dtype('O'):
                     logger.debug(f"Stringifying '{c}' in '{meas_key}'")
                     self._tables_by_meas[meas_key][c]=self._tables_by_meas[meas_key][c].astype('string')
-            if 'names' in by_meas_group[meas_key]:
-                tab_to_rename=self._tables_by_meas[meas_key]
-                del self._tables_by_meas[meas_key]
-                for altname in by_meas_group[meas_key]['names']:
-                    self._tables_by_meas[altname]=tab_to_rename
+            #if 'names' in by_meas_group[meas_key]:
+            #    tab_to_rename=self._tables_by_meas[meas_key]
+            #    del self._tables_by_meas[meas_key]
+            #    for altname in by_meas_group[meas_key]['names']:
+            #        self._tables_by_meas[altname]=tab_to_rename
 
     #def __getitem__(self,item):
     #    raise Exception("Didn't update this when I changed get_params to require mask")
@@ -248,31 +257,29 @@ class _LayoutParameters:
         #import pdb; pdb.set_trace()
         return merged
 
-class LayoutParameters(_LayoutParameters):
-    def __init__(self,*args,**kwargs):
-        raise Exception("USE get_layout_parameters()")
-
 _layout_params:'LayoutParameters'=None
 _layout_params_timestamp:float=None
-def get_layout_params(force_regenerate=False, conn=None):
+def get_layout_params(force_regenerate=False, conn:'Optional[Connection]'=None):
     global _layout_params
     if force_regenerate or (_layout_params is None):
-        from datavac.io.database import pickle_db_cached
-        _layout_params,_layout_params_timestamp=pickle_db_cached('LayoutParams',namespace='vac',conn=conn)(_LayoutParameters)(force=force_regenerate)
+        from datavac.util.caching import pickle_db_cached
+        _layout_params,_layout_params_timestamp=\
+            pickle_db_cached('LayoutParams',namespace='vac',conn=conn)(LayoutParameters)(force=force_regenerate)
     return _layout_params
 def unget_layout_params():
     global _layout_params
     _layout_params=None
 
-def cli_layout_params_valid():
-    from datavac.io.database import get_database
-    db=get_database(populate_metadata=False)
-    if get_layout_params().timestamp_still_valid():
-        print("Layout params are valid")
-    else:
-        print("Layout params need to be regenerated (use 'datavac update_layout_params').")
-
-cli_layout_params=cli_helper(cli_funcs={
-    'check_layout_params_valid (clpv)': 'datavac.io.layout_params:cli_layout_params_valid',
-    'update_layout_params (ulp)': 'datavac.io.database:cli_update_layout_params',
-})
+#def cli_layout_params_valid():
+#    from datavac.io.database import get_database
+#    db=get_database(populate_metadata=False)
+#    if get_layout_params().timestamp_still_valid():
+#        print("Layout params are valid")
+#    else:
+#        print("Layout params need to be regenerated (use 'datavac update_layout_params').")
+#
+#cli_layout_params=cli_helper(cli_funcs={
+#    'check_layout_params_valid (clpv)': 'datavac.io.layout_params:cli_layout_params_valid',
+#    'update_layout_params (ulp)': 'datavac.io.database:cli_update_layout_params',
+#})
+#

@@ -1,7 +1,8 @@
 from typing import TypedDict
 from datavac.util.util import only
 from sqlalchemy import BOOLEAN, DOUBLE_PRECISION, ForeignKeyConstraint, Table, Column, ForeignKey,\
-    PrimaryKeyConstraint, INTEGER, VARCHAR, MetaData, TypeEngine, UniqueConstraint
+    PrimaryKeyConstraint, INTEGER, VARCHAR, MetaData, UniqueConstraint
+from sqlalchemy.types import TypeEngine
 from sqlalchemy.dialects.postgresql import BYTEA, TIMESTAMP
 
 from datavac.config.data_definition import DataDefinition
@@ -16,16 +17,16 @@ def DBSTRUCT() -> 'DBStructure':
     return _dbs
 
 # Default mappings between pandas and SQLAlchemy types.
-pd_to_sql_types: dict[str,TypeEngine]={
+pd_to_sql_types: dict[str,TypeEngine]={ # type: ignore
     'int64':INTEGER,'Int64':INTEGER,
-    'int32':INTEGER,'Int32':INTEGER,
+    'int32':INTEGER,'Int32':INTEGER, 'int':INTEGER,
     'string':VARCHAR,
-    'str':VARCHAR,
+    'str':VARCHAR,'float':DOUBLE_PRECISION,
     'float32':DOUBLE_PRECISION,'Float32':DOUBLE_PRECISION,
     'float64':DOUBLE_PRECISION,'Float64':DOUBLE_PRECISION,
     'bool':BOOLEAN,'boolean':BOOLEAN,
     'datetime64[ns]':TIMESTAMP, 'object':BYTEA}
-sql_to_pd_types: dict[TypeEngine, str]={
+sql_to_pd_types: dict[TypeEngine, str]={ # type: ignore
     INTEGER:'Int32',
     VARCHAR:'string',
     BOOLEAN: 'bool',
@@ -44,42 +45,61 @@ class DBStructure():
     metadata: MetaData 
     datadef: DataDefinition
     int_schema: str = 'vac'
+    jmp_schema: str = 'jmp'
 
     
     def __init__(self):
-        self.metadata = MetaData()
+        self.metadata = MetaData()#schema=self.int_schema)
         self.datadef = PCONF().data_definition
 
     def get_sample_dbtable(self) -> Table:
         """Returns an SQLAlchemy Table object for the sample info."""
         sample_identifier = self.datadef.sample_identifier_column
-        return self.metadata.tables.get(self.int_schema + '.Samples') or \
+        t= self.metadata.tables.get(self.int_schema + '.Samples')
+        return t if (t is not None) else \
             Table('Samples', self.metadata,
                   Column('sampleid', INTEGER, primary_key=True, autoincrement=True),
                   Column(sample_identifier.name,sample_identifier.sql_dtype,unique=True, nullable=False),
-                  *[Column(sd.key_column.name, sd.key_column.sql_dtype,
-                           ForeignKey(self.get_sample_descriptor_dbtable(sd.name).c[sd.key_column.name], **_CASC),
+                  *[Column(sr.key_column.name, sr.key_column.sql_dtype,
+                           ForeignKey(self.get_sample_reference_dbtable(sr_name).c[sr.key_column.name], **_CASC),
                            nullable=False)
-                        for sd_name in self.datadef.sample_reference_names()
-                            for sd in [self.datadef.sample_reference(sd_name)]],
-                  *[Column(c.name, c.sql_dtype, nullable=False) for c in self.datadef.sample_info_columns])
+                        for sr_name, sr in self.datadef.sample_references.items()],
+                  *[Column(c.name, c.sql_dtype, nullable=False) for c in self.datadef.sample_info_columns],
+                  schema=self.int_schema)
 
-    def get_trove_load_dbtable(self, trove_name: str) -> Table:
+    def get_trove_dbtables(self, trove_name: str) -> dict[str,Table]:
         """Returns an SQLAlchemy Table object for the given trove's Loads table."""
-        trove = self.datadef.trove(trove_name)
-        return self.metadata.tables.get(self.int_schema+f'.Loads_{trove_name}') or \
-            Table('Loads_{trove_name}', self.metadata,
+        trove = self.datadef.troves[trove_name]
+        t= self.metadata.tables.get(self.int_schema+f'.Loads_{trove_name}')
+        load_tab= t if (t is not None) else \
+            Table(f'Loads_{trove_name}', self.metadata,
                   Column('loadid',INTEGER,primary_key=True,autoincrement=True),
-                  Column('matid',INTEGER,ForeignKey(self.get_sample_dbtable().c.matid,**_CASC),nullable=False),
+                  Column('sampleid',INTEGER,ForeignKey(self.get_sample_dbtable().c.sampleid,**_CASC),nullable=False),
                   Column('MeasGroup',VARCHAR,nullable=False),
                   *[Column(c.name,c.sql_dtype,nullable=False) for c in trove.load_info_columns],
-                  UniqueConstraint('matid','MeasGroup'),
+                  UniqueConstraint('sampleid','MeasGroup'),
                   schema=self.int_schema)
+        t= self.metadata.tables.get(self.int_schema+f'.ReLoad_{trove_name}')
+        reload_tab= t if (t is not None) else \
+            Table(f'ReLoad_{trove_name}', self.metadata,
+                    Column('sampleid',INTEGER,ForeignKey(self.get_sample_dbtable().c.sampleid,**_CASC),nullable=False),
+                    Column('MeasGroup',VARCHAR,primary_key=True,nullable=False),
+                    *[Column(c.name,c.sql_dtype,nullable=False) for c in trove.load_info_columns],
+                    schema=self.int_schema)
+        t= self.metadata.tables.get(self.int_schema+f'.ReExtr_{trove_name}')
+        reextr_tab= t if (t is not None) else \
+            Table(f'ReExtr_{trove_name}', self.metadata,
+                    Column('loadid', INTEGER, ForeignKey(load_tab.c.loadid, **_CASC), nullable=False),
+                    Column('MeasGroup',VARCHAR,primary_key=True,nullable=False),
+                    schema=self.int_schema)
+        return {'loads': load_tab, 'reload': reload_tab, 'reextr': reextr_tab}
+                    
     
     def get_sample_reference_dbtable(self, sr_name: str) -> Table:
         """Returns an SQLAlchemy Table object for the given sample reference."""
-        sr = self.datadef.sample_reference(sr_name)
-        return self.metadata.tables.get(self.int_schema + f'.{sr.name}') or \
+        sr = self.datadef.sample_references[sr_name]
+        t= self.metadata.tables.get(self.int_schema + f'.{sr.name}')
+        return t if (t is not None) else \
             Table(sr.name, self.metadata,
                   Column(sr.key_column.name, sr.key_column.sql_dtype,
                          primary_key=True, nullable=False),
@@ -88,8 +108,9 @@ class DBStructure():
     
     def get_subsample_reference_dbtable(self, ssr_name: str) -> Table:
         """Returns an SQLAlchemy Table object for the given subsample reference."""
-        ssr = self.datadef.subsample_reference(ssr_name)
-        return self.metadata.tables.get(self.int_schema + f'.{ssr.name}') or \
+        ssr = self.datadef.subsample_references[ssr_name]
+        t= self.metadata.tables.get(self.int_schema + f'.{ssr.name}')
+        return t if (t is not None) else \
             Table(ssr.name, self.metadata,
                   Column(ssr.key_column.name, ssr.key_column.sql_dtype, primary_key=True, nullable=False),
                   *[Column(c.name, c.sql_dtype, nullable=False) for c in ssr.info_columns],
@@ -97,41 +118,63 @@ class DBStructure():
     
     def get_sample_descriptor_dbtable(self, sd_name: str) -> Table:
         """Returns an SQLAlchemy Table object for the given sample descriptor."""
-        sd = self.datadef.sample_descriptor(sd_name)
-        return self.metadata.tables.get(self.int_schema + f'.{sd.name}') or \
+        sd = self.datadef.sample_descriptors[sd_name]
+        t= self.metadata.tables.get(self.int_schema + f'.{sd.name}')
+        return t if (t is not None) else \
             Table(sd.name, self.metadata,
                   Column('sampleid', INTEGER, ForeignKey(self.get_sample_dbtable().c.sampleid, **_CASC), nullable=False),
                     *[Column(c.name, c.sql_dtype, nullable=False) for c in sd.info_columns],
                     schema=self.int_schema)
-                    
+    
     def get_measurement_group_dbtables(self, mg_name: str) -> dict[str,Table]:
         """Returns a dictionary of SQLAlchemy Table objects for the given measurement group."""
 
-        mg=self.datadef.measurement_group(mg_name)
-        trove_name= only(mg.reader_cards.keys())
+        mg=self.datadef.measurement_groups[mg_name]
 
-        meas_tab = self.metadata.tables.get(self.int_schema+f'.Meas -- {mg_name}') or \
-            Table(
-                f'Meas -- {mg_name}', self.metadata,
-                Column('loadid',INTEGER,ForeignKey(self.get_trove_load_dbtable(trove_name).c.loadid,**_CASC),nullable=False),
-                Column('measid',INTEGER,nullable=False),
-                *[Column(sd.key_column.name, sd.key_column.sql_dtype,
-                         ForeignKey(f'{sd.name}.{sd.key_column.name}',name=f'fk_{sd.name}',**_CASC),nullable=False)
-                         for sd_name in mg.subsample_reference_names for sd in [self.datadef.subsample_reference(sd_name)]],
-                Column('rawgroup',INTEGER,nullable=False),
-                *[Column(c.name,c.sql_dtype) for c in mg.meas_columns],
-                PrimaryKeyConstraint('loadid','measid'),
-                schema=self.int_schema)
-        extr_tab = self.metadata.tables.get(self.int_schema+f'.Extr -- {mg_name}') or \
-            Table(
+        meas_tab = self.metadata.tables.get(self.int_schema+f'.Meas -- {mg_name}')
+        if meas_tab is None:
+            trove_name= only(mg.reader_cards.keys())
+            try:
+                subsample_references={ssr_name: self.datadef.subsample_references[ssr_name]
+                                        for ssr_name in mg.subsample_reference_names}
+            except KeyError as e:
+                raise KeyError(f"Measurement group '{mg_name}' requested subsample references {mg.subsample_reference_names}, "
+                               f"but only the following are available: {list(self.datadef.subsample_references.keys())}, "
+                               f"errored on {str(e)}") from e
+            subsample_reference_columns = \
+                [Column(ssr.key_column.name, ssr.key_column.sql_dtype,
+                             ForeignKey(self.get_subsample_reference_dbtable(ssr_name).c[ssr.key_column.name],
+                                        name=f'fk_{ssr.name}',**_CASC),nullable=False)
+                         for ssr_name, ssr in subsample_references.items()]
+            meas_tab=Table(
+                    f'Meas -- {mg_name}', self.metadata,
+                    Column('loadid',INTEGER,ForeignKey(self.get_trove_dbtables(trove_name)['loads'].c.loadid,**_CASC),nullable=False),
+                    Column('measid',INTEGER,nullable=False),
+                    *subsample_reference_columns,
+                    Column('rawgroup',INTEGER,nullable=False),
+                    *[Column(c.name,c.sql_dtype) for c in mg.meas_columns],
+                    PrimaryKeyConstraint('loadid','measid'),
+                    schema=self.int_schema)
+        
+        extr_tab = self.metadata.tables.get(self.int_schema+f'.Extr -- {mg_name}')
+        if extr_tab is None:
+            avail=mg.available_extr_columns()
+            extr_column_names= mg.extr_column_names
+            try:
+                extr_columns = [Column(avail[c].name, avail[c].sql_dtype) for c in extr_column_names]
+            except KeyError as e:
+                raise KeyError(f"Measurement group '{mg_name}' requested extraction columns {extr_column_names}, "
+                               f"but only the following are available: {list(avail.keys())}, errored on {str(e)}") from e
+            extr_tab = Table(
                 f'Extr -- {mg_name}', self.metadata,
                 Column('loadid',INTEGER,nullable=False),
                 Column('measid',INTEGER,nullable=False),
                 ForeignKeyConstraint(columns=['loadid','measid'],**_CASC,
                                      refcolumns=[meas_tab.c.loadid, meas_tab.c.measid]),
-                *[Column(c.name, c.sql_dtype) for c in mg.extr_columns])
+                *extr_columns, schema=self.int_schema)
         
-        sweep_tab = self.metadata.tables.get(self.int_schema+f'.Sweep -- {mg_name}') or \
+        sweep_tab = self.metadata.tables.get(self.int_schema+f'.Sweep -- {mg_name}')
+        if sweep_tab is None: sweep_tab = \
             Table(
                 f'Sweep -- {mg_name}', self.metadata,
                 Column('loadid', INTEGER, nullable=False),
@@ -140,6 +183,16 @@ class DBStructure():
                 Column('header', VARCHAR, nullable=False),
                 PrimaryKeyConstraint('loadid', 'measid', 'header'),
                 ForeignKeyConstraint(columns=['loadid', 'measid'], **_CASC,
-                                     refcolumns=[meas_tab.c.loadid, meas_tab.c.measid]))
+                                     refcolumns=[meas_tab.c.loadid, meas_tab.c.measid]),
+                schema=self.int_schema)
 
         return {'meas': meas_tab, 'extr': extr_tab, 'sweep': sweep_tab}
+
+    def get_blob_store_dbtable(self) -> Table:
+        t=self.metadata.tables.get(self.int_schema+f'.Blob Store')
+        return t if (t is not None) else \
+            Table('Blob Store', self.metadata,
+                    Column('name', VARCHAR, primary_key=True),
+                    Column('blob', BYTEA, nullable=False),
+                    Column('date_stored', TIMESTAMP, nullable=False),
+                    schema=self.int_schema)

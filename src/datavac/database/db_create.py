@@ -1,0 +1,95 @@
+from datavac.config.project_config import PCONF
+from datavac.database.db_connect import DBConnectionMode, get_engine_so, raw_psycopg2_connection_do, raw_psycopg2_connection_so
+from datavac.database.db_structure import DBSTRUCT
+from datavac.util.logging import logger
+from sqlalchemy import Connection, text
+
+
+def ensure_database_existence():
+    """Ensure the database exists.
+
+    If database owner credentials are available and the database does not exist, it will be created.
+
+    Returns:
+        bool: True if the database pre-existed, False if it was freshly created.
+    """
+    # If we have database owner credentials, use them to ensure database existence
+    # Otherwise, we can only assume it exists (and will error out if it fails)
+    from datavac.config.project_config import PCONF
+    if PCONF().vault.have_do_creds():
+        with raw_psycopg2_connection_do(override_db='postgres') as con:
+            con.autocommit = True
+
+            with con.cursor() as cur:
+
+                # Check if the database exists
+                dbname=PCONF().vault.get_db_connection_info(DBConnectionMode.DATABASE_OWNER).database
+                cur.execute(f"SELECT 1 FROM pg_database WHERE datname = '{dbname}'")
+                pre_exists = cur.fetchone()
+
+                # If not, create the database
+                if not pre_exists:
+                    from psycopg2 import sql
+                    logger.debug("Database does not exist, creating it.")
+                    cur.execute(sql.SQL('CREATE DATABASE {};').format(sql.Identifier(dbname)))
+    else:
+        with raw_psycopg2_connection_so() as con:
+            try:
+                cur.execute(f"SELECT 1").fetchone()
+                pre_exists = True
+            except Exception as e:
+                logger.critical("Failure to ensure database existence.")
+                raise
+    return pre_exists
+
+def ensure_clear_database():
+    """Ensure the database exists and is clear."""
+    pre_exists = ensure_database_existence()
+
+    # If it pre-existed, clear it
+    if pre_exists:
+        with raw_psycopg2_connection_so() as con:
+            con.autocommit = True
+            with con.cursor() as cur:
+                logger.debug("Database exists, clearing it.")
+
+                # Drop all schemas except 'pg_catalog' and 'information_schema'
+                cur.execute("""
+                DO $$
+                DECLARE
+                    schema_name_var text;
+                BEGIN
+                    FOR schema_name_var IN
+                        SELECT schema_name FROM information_schema.schemata
+                        WHERE schema_name NOT IN ('pg_catalog', 'information_schema','pg_toast')
+                    LOOP
+                        EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_name_var);
+                    END LOOP;
+                END $$;
+                """)
+
+
+def _setup_foundation(conn:Connection):
+    """Set up the foundation of the database, including schemas and the blob store table."""
+    make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema}; " \
+                           f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO PUBLIC; " \
+                           f"GRANT USAGE ON SCHEMA {schema} TO PUBLIC; " \
+                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO PUBLIC; "
+                           for schema in [DBSTRUCT().int_schema,DBSTRUCT().jmp_schema]])
+    set_search_path = f"SET SEARCH_PATH={DBSTRUCT().int_schema};"
+    from sqlalchemy.schema import CreateTable
+    create_blob_store = str(CreateTable(DBSTRUCT().get_blob_store_dbtable()).compile(conn))\
+        .replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")
+
+    conn.execute(text(make_schemas+set_search_path+create_blob_store))
+
+
+def create_all():
+    """Create all database tables and schemas."""
+    with get_engine_so().begin() as conn:
+        _setup_foundation(conn)
+
+    for mg in PCONF().data_definition.measurement_groups:
+        DBSTRUCT().get_measurement_group_dbtables(mg)
+
+    DBSTRUCT().metadata.create_all(get_engine_so(), checkfirst=True)

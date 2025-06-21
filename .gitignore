@@ -1,4 +1,6 @@
 example_data/
+**/OLD*/
+**/OLD*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

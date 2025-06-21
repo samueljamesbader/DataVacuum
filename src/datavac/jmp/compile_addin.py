@@ -159,6 +159,8 @@ def cli_compile_jmp_addin(*args):
                 f'dv:addin_home=Get Path Variable("ADDIN_HOME({addin_id})");\n',
                 f'Include( "$ADDIN_HOME({addin_id})/env_vars.jsl" );\n',
                 f'If((dv:DATAVACUUM_JMP_DEFER_INIT!="YES")|force_init,\n',
+                # TODO:  Change ::dv to :::dv here and everywhere so that add-ins work inside of JMP projects
+                # See https://community.jmp.com/t5/Discussions/Unable-to-run-addins-within-Project/td-p/383815
                 f'::dv=dv;\n',
                 *[f'  Include( "$ADDIN_HOME({addin_id})/{Path(filename).name}" );\n'
                     for filename in inc_files],

@@ -1,18 +1,18 @@
 import dataclasses
 from typing import Optional, Union, cast
 
+from datavac.config.data_definition import DVColumn
+from datavac.gui.bokeh_util.util import named_list_to_dict
+from datavac.measurements import SemiDevMeasurementGroup
 import numpy as np
-import pandas as pd
-from scipy.signal import savgol_filter
 
-from .measurement_type import MeasurementType
 from datavac.util.maths import VTCC, YatX
 from datavac.util.util import only
 from datavac.util.logging import logger
-from ..io.measurement_table import MeasurementTable, UniformMeasurementTable
+from datavac.io.measurement_table import MeasurementTable, UniformMeasurementTable
 
 @dataclasses.dataclass
-class MeasurementWithLinearNormColumn(MeasurementType):
+class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
     norm_column: str = None
     def __post_init__(self):
         if self.norm_column is not None:
@@ -48,8 +48,17 @@ class IdVg(MeasurementWithLinearNormColumn):
     abs_vdlin: float = None
     abs_vdsat: float = None
 
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        extr_columns=[*super().available_extr_columns().values(),
+                      DVColumn('SS [mV/dec]','float64','Subthreshold swing')]
+        for k,v in self.Vgons.items():
+            extr_columns.append(DVColumn(f'Ron{k} [ohm]','float64',f'Ron at VG={v} V'))
+            extr_columns.append(DVColumn(f'RonW{k} [ohm.um]','float64',f'Normalized Ron*W at VG={v} V'))
+        return named_list_to_dict(extr_columns)
 
-    def analyze(self, measurements):
+
+    def extract(self, measurements):
+        from scipy.signal import savgol_filter
 
         # Properties of the Sav-Gol filter to apply to gm
         gmsavgol=(5,1)
@@ -178,8 +187,8 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Igmax/W [A/m]']=measurements['Igmax [A]']/W
 
 
-@dataclasses.dataclass
-class IdVd(MeasurementType):
+@dataclasses.dataclass(kw_only=True)
+class IdVd(SemiDevMeasurementGroup):
     norm_column: str
     pol: str = 'n'
     VGoffs: dict[str,float] = dataclasses.field(default_factory=lambda:{'':0})
@@ -240,6 +249,7 @@ class KelvinRon(MeasurementWithLinearNormColumn):
         return np.float32
 
     def analyze(self, measurements,rexts=None):
+        import pandas as pd
 
         W=self.get_norm(measurements)
 

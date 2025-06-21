@@ -1,9 +1,9 @@
 import numpy as np
 
-from datavac.trove.classic_folder_trove import quick_read_filename
-from datavac.tests.freshtestdb import example_data
+from tests.test_demo1 import mock_env_dem1, example_data
 
-def test_IdVg(example_data):
+def test_IdVg():
+    from datavac.trove.classic_folder_trove import quick_read_filename
     from datavac.examples.demo1.example_data import get_transistor
 
     mt2mg2dat,mg2ml=quick_read_filename('lot1/lot1_sample1_nMOS_IdVg.csv')

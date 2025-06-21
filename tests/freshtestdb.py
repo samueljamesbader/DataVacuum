@@ -3,7 +3,6 @@ import time
 import psycopg2
 import pytest
 from psycopg2 import sql
-from datavac.util.caching import cli_clear_cache
 from datavac.util.logging import logger
 
 
@@ -56,14 +55,3 @@ def make_fresh_testdb(dbname):
     db = get_database(metadata_source='reflect')
     db.validate(on_mismatch='replace')
     logger.debug(f"Fresh test database {dbname} ready for data.")
-
-@pytest.fixture(scope='session',autouse=True)
-def clear_cache():
-    cli_clear_cache()
-
-@pytest.fixture(scope='session')
-def example_data():
-    from datavac.examples.demo1 import dbname
-    from datavac.examples.demo1.example_data import make_example_data
-    make_fresh_testdb(dbname)
-    make_example_data()

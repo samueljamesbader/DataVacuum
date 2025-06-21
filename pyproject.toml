@@ -92,7 +92,7 @@ test = [
 ]
 
 [project.scripts]
-datavac = "datavac.util.cli:datavac_cli_main"
+datavac = "datavac.util.cli:entrypoint_datavac_cli"
 datavac_with_context = "datavac.util.conf:cli_datavac_with_context"
 
 [tool.setuptools.packages.find]

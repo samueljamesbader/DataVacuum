@@ -1,13 +1,13 @@
 import sys
 from dotenv import load_dotenv as _load_dotenv
 
-from datavac.util.conf import config_datavacuum
+from datavac.config.contexts import load_environment_from_context
 import datavac.util.logging
 
 __version__='0.0.2'
 
 _load_dotenv()
-config_datavacuum()
+load_environment_from_context()
 
 
 def unload_my_imports(imports=['datavac','bokeh_transform_utils']):

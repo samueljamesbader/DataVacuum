@@ -1,6 +1,10 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Mapping, Optional, Callable
+
+from datavac.util.lazydict import FunctionLazyDict
 
 
 if TYPE_CHECKING:
@@ -23,11 +27,11 @@ class DVColumn:
     name: str
     """The name of the column."""
 
-    description: str
-    """A description of the column."""
-
     pd_dtype: str
     """The pandas dtype as a string, e.g. 'float64', 'int32', 'string'."""
+
+    description: str
+    """A description of the column."""
 
     default_modeling_type: Optional[ModelingType] = None
     """The default modeling type for this column"""
@@ -104,28 +108,29 @@ class HigherAnalysis():
 @dataclass
 class DataDefinition():
 
-    _measurement_groups: dict[str, MeasurementGroup] = field(default_factory=dict)
-    """ Dictionary of measurement groups by name."""
+    measurement_groups: Mapping[str, MeasurementGroup] = field(default_factory=dict)
+    """ Mapping of measurement groups by name (often dict or CategorizedLazyDict)."""
 
-    higher_analyses: dict[str, HigherAnalysis] = field(default_factory=dict)
-    """ Dictionary of higher analyses by name."""
+    higher_analyses: Mapping[str, HigherAnalysis] = field(default_factory=dict)
+    """ Mapping of higher analyses by name (often dict or CategorizedLazyDict)."""
 
-    sample_identifier_column: DVColumn = field(default_factory=lambda: DVColumn('SampleName', 'Unique identifier for each sample', pd_dtype='string'))
+    sample_identifier_column: DVColumn = field(default_factory=lambda:\
+               DVColumn('SampleName', 'string', 'Unique identifier for each sample'))
     """ Column that uniquely identifies each sample."""
 
     sample_info_columns: list[DVColumn] = field(default_factory=list)
     """ List of sample info columns (ie potentially non-unique sample information)."""
 
-    _sample_references: dict[str,SampleReference] = field(default_factory=dict)
-    """ Dictionary of sample references by name."""
+    sample_references: Mapping[str,SampleReference] = field(default_factory=dict)
+    """ Mapping of sample references by name (often dict or CategorizedLazyDict)."""
     
-    _sample_descriptors: dict[str,SampleDescriptor] = field(default_factory=dict)
-    """ Dictionary of sample descriptors by name."""
+    sample_descriptors: Mapping[str,SampleDescriptor] = field(default_factory=dict)
+    """ Mapping of sample descriptors by name. (often dict or CategorizedLazyDict)."""
 
-    _subsample_references: dict[str,SubSampleReference] = field(default_factory=dict)
-    """ Dictionary of subsample references by name."""
+    subsample_references: Mapping[str,SubSampleReference] = field(default_factory=dict)
+    """ Mapping of subsample references by name (often dict or CategorizedLazyDict)."""
 
-    _troves: dict[str, Trove] = None # type: ignore
+    troves: dict[str, Trove] = None # type: ignore
     """ Dictionary of Troves by name. If not provided, defaults to a single ClassicFolderTrove named 'all'."""
 
     def __post_init__(self):
@@ -133,99 +138,42 @@ class DataDefinition():
             from datavac.trove.classic_folder_trove import ClassicFolderTrove
             self.troves = {'all': ClassicFolderTrove()}
 
-    def measurement_group(self, name: str) -> MeasurementGroup:
-        """Returns the MeasurementGroup with the given name.
-         
-        The default behavior is to reference self._measurement_groups, but subclasses can override,
-        e.g., if the preference is to lazily generate measurement groups to avoid import times.
-        """
-        if name not in self._measurement_groups:
-            raise ValueError(f"Measurement group '{name}' not found in data definition.")
-        return self._measurement_groups[name]
-    
-    def measurement_group_names(self) -> list[str]:
-        """Returns a list of all measurement group names.
-        
-        The default behavior is to reference self._measurement_groups, but subclasses can override,
-        e.g., if the preference is to lazily generate measurement groups to avoid import times.
-        """
-        return list(self._measurement_groups.keys())
-    
-    def sample_reference(self, name: str) -> SampleReference:
-        """Returns the SampleReference with the given name.
-        
-        The default behavior is to reference self._sample_references, but subclasses can override,
-        e.g., if the preference is to lazily generate sample references to avoid import times.
-        """
-        if name not in self._sample_references:
-            raise ValueError(f"Sample reference '{name}' not found in data definition.")
-        return self._sample_references[name]
 
-    def sample_reference_names(self) -> list[str]:
-        return ['MaskSet']
-    
-    def sample_descriptor(self,name: str) -> SampleDescriptor:
-        """Returns the SampleDescriptor with the given name.
-
-        The default behavior is to reference self._sample_descriptors, but subclasses can override, 
-        e.g., if the preference is to lazily generate sample descriptors to avoid import times.
-        """
-        if name not in self._sample_descriptors:
-            raise ValueError(f"Sample descriptor '{name}' not found in data definition.")
-        return self._sample_descriptors[name]
-
-    def sample_descriptor_names(self) -> list[str]:
-        """Returns a list of all sample descriptor names.
-
-        The default behavior is to reference self._sample_descriptors, but subclasses can override,
-        e.g., if the preference is to lazily generate sample descriptors to avoid import times.
-        """
-        return list(self._sample_descriptors.keys())
-
-    def subsample_reference(self, name: str) -> SubSampleReference:
-        """Returns the SubSampleReference with the given name.
-
-        The default behavior is to reference self._subsample_references, but subclasses can override,
-        e.g., if the preference is to lazily generate subsample references to avoid import times.
-        """
-        if name not in self._subsample_references:
-            raise ValueError(f"Subsample reference '{name}' not found in data definition.")
-        return self._subsample_references[name]
-
-    def subsample_reference_names(self) -> list[str]:
-        """Returns a list of all subsample reference names.
-
-        The default behavior is to reference self._subsample_references, but subclasses can override,
-        e.g., if the preference is to lazily generate subsample references to avoid import times."""
-        return list(self._subsample_references.keys())
-
-    def trove(self, name: str) -> Trove:
-        """Returns the Trove with the given name.
-        
-        The default behavior is to reference self._troves, but subclasses can override,
-        e.g., if the preference is to lazily generate troves to avoid import times.
-        """
-        if name not in self.troves:
-            raise ValueError(f"Trove '{name}' not found in data definition.")
-        return self.troves[name]
-
-@dataclass
+@dataclass(kw_only=True)
 class SemiDeviceDataDefinition(DataDefinition):
 
-    _sample_references = {'MaskSet':
+    layout_params_dir: Path 
+    layout_params_yaml: Path
+
+    sample_references: dict[str,SampleReference]\
+                    = field(default_factory=lambda: {'MaskSet':
                           SampleReference(
                             name='MaskSet',
                             description='The mask set used for the sample.',
-                            key_column=DVColumn('MaskSet', 'The mask set used for the sample.', pd_dtype='string'),
-                            info_columns=[DVColumn('info_pickle', 'MaskSet geometric info', pd_dtype='object')])
-                        }
+                            key_column=DVColumn('MaskSet', 'string', 'The mask set used for the sample.'),
+                            info_columns=[DVColumn('info_pickle', 'object', 'MaskSet geometric info')])
+                        },init=False)
     
+    def __post_init__(self):
+        super().__post_init__()
+        self.sample_descriptors=FunctionLazyDict(
+            getter=lambda name: SampleDescriptor(
+                name=name,
+                description=f'Sample descriptor for flow {name.split(maxsplit=1)[1]}.',
+                info_columns=self.get_split_table_columns(name.split(maxsplit=1)[1])),
+            keylister=lambda: [f'SplitTable {f}' for f in self.get_flow_names()])
+        self.subsample_references = FunctionLazyDict(
+            getter=lambda name: self._subsample_reference(name),
+            keylister=lambda: self._subsample_reference_names())
+            
     def get_layout_params_table(self, lp_group) -> pd.DataFrame:
         """Returns the layout parameters for the given layout parameter group."""
+        # TODO: Don't need to load all of them here
         from datavac.io.layout_params import get_layout_params
         return get_layout_params()._tables_by_meas[lp_group]
     def get_layout_params_table_names(self) -> list[str]:
         """Returns a list of all layout parameter group names."""
+        # TODO: Don't need to load all of them here
         from datavac.io.layout_params import get_layout_params
         return list(get_layout_params()._tables_by_meas.keys())
     
@@ -235,39 +183,28 @@ class SemiDeviceDataDefinition(DataDefinition):
     def get_flow_names(self) -> list[str]:
         """Returns a list of all flow names (each flow name will correspond to a split table)."""
         raise NotImplementedError("This method should be implemented in subclasses to return the flow names.")
-
-    def sample_descriptor(self, name: str) -> SampleDescriptor:
-        if 'SplitTable' in name:
-            return SampleDescriptor(
-                name=name,
-                description='A sample descriptor for a flow split experiment.',
-                info_columns=self.get_split_table_columns(name))
-        else: raise ValueError(f"Sample descriptor '{name}' not found in data definition.")
-
-    def sample_descriptor_names(self) -> list[str]:
-        return [f'SplitTable_{flow_name}' for flow_name in self.get_flow_names()]
     
-    def subsample_reference(self, name: str) -> SubSampleReference:
+    def _subsample_reference(self, name: str) -> SubSampleReference:
         if name == 'Dies':
             return SubSampleReference(
                 name='Dies',
                 description='A subsample reference for dies in a semiconductor sample.',
-                key_column=DVColumn('dieid', 'The unique identifier for each die.', pd_dtype='string'),
-                info_columns=[DVColumn('DieX', 'The X coordinate of the die.', pd_dtype='int32'),
-                              DVColumn('DieY', 'The Y coordinate of the die.', pd_dtype='int32'),
-                              DVColumn('DieRadius [mm]', 'The radius of the die from wafer center in mm', pd_dtype='float64'),
-                              DVColumn('DieComplete', 'Whether the die is complete or partial', pd_dtype='boolean')])
+                key_column=DVColumn('dieid', 'string', 'The unique identifier for each die.'),
+                info_columns=[DVColumn('DieX', 'int32', 'The X coordinate of the die.'),
+                              DVColumn('DieY', 'int32','The Y coordinate of the die.'),
+                              DVColumn('DieRadius [mm]', 'float64', 'The radius of the die from wafer center in mm'),
+                              DVColumn('DieComplete', 'boolean', 'Whether the die is complete or partial')])
         elif 'LayoutParams -- ' in name:
             lpg=name.split(" -- ")[-1]
             lpt=self.get_layout_params_table(lpg)
             return SubSampleReference(
                 name=name,
                 description=f'Layout parameters for "{lpg}".',
-                key_column=DVColumn('Structure', 'The structure measureed', pd_dtype='string'),
-                info_columns=[DVColumn(c,c,lpt[c].dtype.name) for c in lpt.columns
+                key_column=DVColumn('Structure', 'string', 'The structure measured'),
+                info_columns=[DVColumn(c,lpt[c].dtype.name,description=c) for c in lpt.columns
                               if c not in ['Structure','Site']])
         else:
             raise ValueError(f"Subsample reference '{name}' not found in data definition.")
-    def subsample_reference_names(self) -> list[str]:
+    def _subsample_reference_names(self) -> list[str]:
         """Returns a list of all subsample reference names."""
         return ['Dies'] + [f'LayoutParams -- {lp_group}' for lp_group in self.get_layout_params_table_names()]

@@ -1,52 +1,70 @@
-import sys
-from functools import partial
 from pathlib import Path
-from typing import Optional, List, Callable
+import sys
+from dataclasses import dataclass
+from typing import Any, Callable, Union
 
-from datavac.util.util import import_modfunc
 
-def cli_helper(cli_funcs) -> Callable[[Optional[List[str]]],None]:
-    cli_func_longhand={k.split("(")[0].strip():v for k,v in cli_funcs.items()}
-    cli_func_abbrevs={k.split("(")[1].strip()[:-1]:k.split("(")[0].strip() for k in cli_funcs if '(' in k}
-    assert all(k not in cli_func_longhand for k in cli_func_abbrevs), "Abbreviations must not overlap with longhand names"
 
-    def do_cli(override_sysargs=None):
-        args=override_sysargs if override_sysargs is not None else sys.argv.copy()
+class CLIIndex():
+
+    _cli_func_lookup: dict[str, Callable]
+    _cli_subcommands: list[str]
+
+    def __init__(self, cli_funcs: dict[str,Callable]| Callable[[],dict[str,Callable]]):
+        self._generate_cli_funcs= (cli_funcs if callable(cli_funcs) else lambda: cli_funcs)
+        self._is_setup = False
+
+    def _setup(self) -> None:
+        if self._is_setup: return
+        cli_funcs = self._generate_cli_funcs()
+        self._cli_func_lookup={k.split("(")[0].strip():v for k,v in cli_funcs.items()}
+        self._cli_subcommands = list(cli_funcs)
+        for k,f in cli_funcs.items():
+            if '(' in k:
+                shorthand=k.split("(")[1].split(")")[0]
+                assert shorthand not in self._cli_func_lookup
+                self._cli_func_lookup[shorthand]=f
+        self._is_setup = True
+
+    def __call__(self, *args) -> None:
+        self._setup()
+
+        next_args = [' '.join(args[:2]),*args[2:]]
         try:
             sub_call=args[1]
-            if sub_call in cli_func_abbrevs: sub_call=cli_func_abbrevs[sub_call]
-            func_dotpath=cli_func_longhand[sub_call]
+            func=self._cli_func_lookup[sub_call]
         except:
             print(f'Call like "{Path(args[0]).name} COMMAND" where COMMAND options are:')
-            for name in sorted(cli_funcs):
+            for name in sorted(self._cli_subcommands):
                 print(f"- {name}")
             print(f'Run "{Path(args[0]).name} COMMAND -h" for more info about any command')
             exit()
+    
+        # If the callable is a CLIIndex, we call it with all the arguments including the command name.
+        if isinstance(func, CLIIndex):
+            func(*next_args)
 
-        func_dotpath,nest=(func_dotpath[2:],True) if func_dotpath.startswith("->") else (func_dotpath,False)
-        func=import_modfunc(func_dotpath)
+        # Otherwise, we supply all arguments except the command name, and but we temporarily store the
+        # compounded command name in sys.argv[0] so that, eg, help messages from argparse can be printed correctly.
+        else:
+            try:
+                stored_sys_argv=sys.argv.copy()
+                sys.argv=next_args
+                func(*next_args[1:])
+            finally:
+                sys.argv=stored_sys_argv
 
-        initial_sys_argv=sys.argv.copy()
-        try:
-            sys.argv=[(args[0]+' '+args[1]),*args[2:]]
-            if nest: return func(override_sysargs=sys.argv)
-            else: return func(*args[2:])
-        finally: sys.argv=initial_sys_argv
-    return do_cli
+def util_cli_funcs():
+    from datavac.util.caching import cli_clear_local_cache
+    return {
+        'clear_cache': cli_clear_local_cache,
+    }
 
-
-datavac_cli_funcs={
-    'compile_jmp (cj)': 'datavac.jmp.compile_addin:cli_compile_jmp_addin',
-    'launch_apps (la)':  'datavac.appserve.panel_serve:launch',
-    'context (cn)':'->datavac.util.conf:cli_context',
-    'database (db)':'->datavac.io.database:cli_database',
-    'layout_params (lp)':'->datavac.io.layout_params:cli_layout_params',
-    'util (ut)':'->datavac.util.cli:cli_util',
-}
-datavac_cli_main=cli_helper(cli_funcs=datavac_cli_funcs)
-cli_util=cli_helper(cli_funcs={
-    'base64encode': 'datavac.util.util:cli_base64encode',
-    'generate_secret': 'datavac.util.util:cli_b64rand',
-    'ensure_valid_access_key (evak)': 'datavac.appserve.user_side:cli_ensure_valid_access_key',
-    'rerun_data (rd)': 'datavac.tests.rerun_data:cli_rerun_data',
-})
+def entrypoint_datavac_cli():
+    from datavac.database.db_cli import DB_CLI
+    from datavac.config.contexts import CONTEXT_CLI
+    CLIIndex({
+        'database (db)': DB_CLI,
+        'context (cn)': CONTEXT_CLI,
+        'util (ut)': CLIIndex(util_cli_funcs)
+    })(*sys.argv)

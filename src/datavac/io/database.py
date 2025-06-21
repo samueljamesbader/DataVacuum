@@ -1834,62 +1834,6 @@ class DDFDatabase(Database):
         return {fn:list(df[fn].unique()) for fn in factor_names}
 
 
-def pickle_db_cached(namer: Union[Callable,str], namespace:Optional[str]=None, conn:Connection=None):
-    def wrapper(func):
-        cache_dir=USER_CACHE/namespace
-        if not cache_dir.exists(): cache_dir.mkdir()
-
-        @functools.wraps(func)
-        def wrapped(*args,force=False,**kwargs):
-            name=namer if type(namer) is str else namer(*args,**kwargs)
-            cfile=cache_dir/name
-            blob_name=f'{namespace}.{name}'
-            if not force:
-                with time_it(f"Get DB cache time for {name}",threshold_time=.005):
-                    try: db_cached_time:float= get_blob_store().get_obj_date(blob_name,conn=conn).timestamp()
-                    # If it's an SQLAlchemyError, the transaction might be aborted so have to raise this
-                    # Silently aborted transations could cause some downstream use of this connection to fail
-                    except SQLAlchemyError as e: raise e
-                    # Otherwise, we'll just try to fix it
-                    except Exception as e:
-                        logger.debug("Couldn't get DB cache time: "+str(e));
-                        db_cached_time:float= -np.inf
-                with time_it(f"Get local cache time for {name}",threshold_time=.005):
-                    try: lc_cached_time=cfile.stat().st_mtime
-                    except Exception as e:
-                        logger.debug("Couldn't get local cache time: "+str(e));
-                        lc_cached_time:float= -np.inf
-                if (not np.isfinite(db_cached_time)) and (not np.isfinite(lc_cached_time)):
-                    logger.debug(f"Couldn't get local or DB cache time for {name}")
-                    force=True
-            if not force:
-                if db_cached_time<lc_cached_time:
-                    try:
-                        with time_it(f"Reading local cache for {name}",threshold_time=.005):
-                            with open(cfile,'rb') as f: return pickle.load(f),lc_cached_time
-                    except Exception as e:
-                        logger.debug(f"Couldn't read local cache for {name}: {str(e)}")
-                try:
-                    with time_it(f"Reading DB cache for {name}",threshold_time=.025):
-                        res,cached_time=get_blob_store().get_obj(f'{namespace}.{name}',conn=conn),db_cached_time
-                except Exception as e:
-                    logger.debug(f"Couldn't read DB cache for {name}: {str(e)}")
-                    force=True
-                else:
-                    with time_it(f"Storing local cache for {name}",threshold_time=.005):
-                        with open(cfile,'wb') as f: pickle.dump(res,f)
-                    return res,cached_time
-            with time_it(f"Generating {name}"):
-                res=func(*args,**kwargs)
-
-            with time_it(f"Storing DB cache for {name}",threshold_time=.025):
-                get_blob_store().store_obj(blob_name,res,conn=conn)
-            with time_it(f"Storing local cache for {name}",threshold_time=.005):
-                with open(cfile,'wb') as f: pickle.dump(res,f)
-            return res,datetime.now().timestamp()
-        return wrapped
-    return wrapper
-
 
 def cli_test_db_connection_speed(*args):
     parser=argparse.ArgumentParser(description='Tests the speed of the database connection')

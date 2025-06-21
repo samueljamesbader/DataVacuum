@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import platformdirs
 
-from datavac.examples.demo1 import READ_DIR
+from datavac.examples.demo1 import EXAMPLE_DATA_DIR
 from datavac.examples.demo1.mock_devices import Transistor4T
 from datavac.examples.demo1.mock_logic import AndGate, OrGate, DFlipFlop, TieHi, TieLo, RingOscillator, Divider, \
     InverterDC
@@ -54,12 +54,14 @@ def make_KelvinRon(transistor:Transistor4T,IDs,VGrange, do_plot=False) -> dict:
         data[f'fVDS@ID={ID}']
 
 def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np.ndarray]]):
+    from datavac.examples.demo1.dvconfig import EXAMPLE_DATA_DIR
     data=pd.concat([pd.DataFrame(subdata).assign(**{'Site':site,'MeasNo':i}) for i,(site,subdata) in enumerate(data_dicts.items())])
-    (READ_DIR/lot).mkdir(parents=True,exist_ok=True)
-    data.to_csv(READ_DIR/lot/f"{lot}_{sample}_{meas_name}.csv",index=False)
+    (EXAMPLE_DATA_DIR/lot).mkdir(parents=True,exist_ok=True)
+    data.to_csv(EXAMPLE_DATA_DIR/lot/f"{lot}_{sample}_{meas_name}.csv",index=False)
 
 def read_csv(file,meas_type,meas_group,only_matload_info=None):
-    rawcsv=pd.read_csv(READ_DIR/file)
+    from datavac.examples.demo1.dvconfig import EXAMPLE_DATA_DIR
+    rawcsv=pd.read_csv(EXAMPLE_DATA_DIR/file)
     data=[{'RawData':grp.drop(columns=['Site','MeasNo']).to_dict('list'),
            'Site':grp['Site'].iloc[0],
            'MeasLength':len(grp),}
@@ -88,8 +90,8 @@ def get_ring(mask,structure) -> RingOscillator:
 def make_example_data():
 
     # Clear the directory if it exists and remake it
-    if READ_DIR.exists(): shutil.rmtree(READ_DIR)
-    READ_DIR.mkdir(parents=True,exist_ok=True)
+    if EXAMPLE_DATA_DIR.exists(): shutil.rmtree(EXAMPLE_DATA_DIR)
+    EXAMPLE_DATA_DIR.mkdir(parents=True,exist_ok=True)
 
     ###
     # nMOS Id-Vgs

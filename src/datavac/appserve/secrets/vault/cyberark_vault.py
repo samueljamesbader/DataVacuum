@@ -22,10 +22,12 @@ class CyberArkVault():
 
     _getter: Callable = field(init=False, repr=False)
     def __post_init__(self):
-        func = _raw_get_vault_response_text
-        if self.cache_on_disk:
-            func= pickle_cached(cache_dir=USER_CACHE/"vault",namer=lambda api_url,appid,safe,account_name: f"{appid}_{safe}_{account_name}.pkl")(func)
-        self._getter = cache(func)
+        def make_getter():
+            func = _raw_get_vault_response_text
+            if self.cache_on_disk:
+                func= pickle_cached(cache_dir="vault",namer=lambda api_url,appid,safe,account_name: f"{appid}_{safe}_{account_name}.pkl")(func)
+            return cache(func)
+        setattr(self,'_getter',cache(make_getter))
 
     def get_db_connection_info(self, usermode: str = 'ro') -> 'PostgreSQLConnectionInfo':
         """Fetches the connection information for the database from the CyberArk vault.
