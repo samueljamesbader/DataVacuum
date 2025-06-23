@@ -5,6 +5,8 @@ from enum import Enum
 from functools import cache
 from typing import TYPE_CHECKING, Any, Generator, Optional
 
+from datavac.util.logging import logger
+
 if TYPE_CHECKING:
     from sqlalchemy import Engine
     import psycopg2
@@ -43,9 +45,10 @@ class PostgreSQLConnectionInfo():
     def from_connection_string(conn_str: str, sslargs: dict[str, str] = {}) -> 'PostgreSQLConnectionInfo':
         """Creates a PostgreSQLConnectionInfo from a connection string."""
         parts: dict[str,Any] = {
-            part.split('=')[0].lower().replace("uid","username").replace("server","host"):part.split('=')[1]
-                 for part in conn_str.split(';') if '=' in part}
-        parts['port'] = int(parts['port'])
+            part.split('=')[0].strip().lower()\
+                        .replace("uid","username").replace("server","host")
+                    :part.split('=')[1].strip()
+                for part in conn_str.split(';') if '=' in part}
         return PostgreSQLConnectionInfo(**parts)
     
     def __str__(self) -> str:
@@ -54,24 +57,20 @@ class PostgreSQLConnectionInfo():
 
 @cache 
 def get_engine_ro():
-    from datavac.config.project_config import PCONF
-    return _make_engine(PCONF().vault.get_db_connection_info(DBConnectionMode.READ_ONLY))
+    return _make_engine(get_db_connection_info(DBConnectionMode.READ_ONLY))
 
 @cache 
 def get_engine_so():
-    from datavac.config.project_config import PCONF
-    return _make_engine(PCONF().vault.get_db_connection_info(DBConnectionMode.SCHEMA_OWNER))
+    return _make_engine(get_db_connection_info(DBConnectionMode.SCHEMA_OWNER))
 
 @contextmanager
 def raw_psycopg2_connection_so() -> Generator['psycopg2.extensions.connection',None, None]:
-    from datavac.config.project_config import PCONF
-    connection_info = PCONF().vault.get_db_connection_info(DBConnectionMode.SCHEMA_OWNER)
+    connection_info = get_db_connection_info(DBConnectionMode.SCHEMA_OWNER)
     with _raw_psycopg2_connection(connection_info) as conn: yield conn
 
 @contextmanager
 def raw_psycopg2_connection_do(override_db:Optional[str]=None) -> Generator['psycopg2.extensions.connection',None, None]:
-    from datavac.config.project_config import PCONF
-    connection_info = PCONF().vault.get_db_connection_info(DBConnectionMode.DATABASE_OWNER)
+    connection_info = get_db_connection_info(DBConnectionMode.DATABASE_OWNER)
     if override_db is not None:
         connection_info = deepcopy(connection_info)
         connection_info.database = override_db
@@ -104,3 +103,84 @@ def _raw_psycopg2_connection(connection_info: PostgreSQLConnectionInfo) -> Gener
     )
     try: yield conn
     finally: conn.close()
+
+def get_db_connection_info(min_usermode: DBConnectionMode = DBConnectionMode.READ_ONLY) -> 'PostgreSQLConnectionInfo':
+    """Fetches the connection information for the database, ensuring it is at least the specified usermode.
+    
+    Args:
+        min_usermode: The minimum user mode required for the connection.
+    
+    """
+    at_least=False
+    for usermode in DBConnectionMode: # iterate in order of usermode
+        if usermode == min_usermode: at_least=True
+        if at_least:
+            try: 
+                ci = get_specific_db_connection_info(usermode)
+                if usermode != min_usermode:
+                    logger.warning(f"Couldn't find connection info for {min_usermode.name}, using {usermode.name} instead.")
+                return ci
+            except Exception as e:
+                logger.warning(f"Failed to get connection info for {usermode.name}: {e}, escalating...")
+    raise PermissionError(
+        f"Failed to get database connection info for any usermode >= {min_usermode.name}. "
+        "Check your environment variables or project configuration."
+    )
+
+@cache
+def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMode.READ_ONLY) -> 'PostgreSQLConnectionInfo':
+    """Fetches the connection information for the database.
+    
+    The search order is as follows:
+    1. Environment variable `DATAVACUUM_DB_{usermode}_CONNECTION_STRING` if set
+    2. Project configuration vault if configured
+    (If the context name contains 'local', the search stops here, otherwise...)
+    3. Asking the deployment server (if this code is not already in server mode)
+
+    Args:
+        usermode: which set of credentials to use
+    """
+    last_error: Optional[Exception] = None
+
+    try: return _get_db_connection_info_from_environment(usermode)
+    except KeyError as e: last_error = e
+
+    from datavac.config.project_config import PCONF, is_server
+    from datavac.config.contexts import get_current_context_name
+    
+    try: return PCONF().vault.get_db_connection_info(usermode)
+    except NotImplementedError as e: pass
+    except Exception as e: last_error = e
+    
+    if ('local' in (get_current_context_name() or '')): raise last_error
+    if not is_server():
+        from datavac.appserve.secrets.user_side import get_secret_from_deployment
+        try:
+            conn_str=get_secret_from_deployment({DBConnectionMode.READ_ONLY:'readonly_dbstring',
+                                                 DBConnectionMode.READ_WRITE: 'readwrite_dbstring',
+                                                 DBConnectionMode.SCHEMA_OWNER: 'super_dbstring'}[usermode])
+            return PostgreSQLConnectionInfo.from_connection_string(conn_str)
+        except Exception as e: last_error = e
+
+    logger.error(f"Failed to fetch database connection info for usermode '{usermode}': {last_error}")
+    raise last_error
+
+def _get_db_connection_info_from_environment(usermode: DBConnectionMode) -> 'PostgreSQLConnectionInfo':
+    """Fetches the connection information for the database from the environment.
+    Args:
+        usermode (str): The user mode, one of ['ro', 'rw', 'so']. Defaults to 'ro'.
+    """
+    import os
+    envvar=f'DATAVACUUM_DB_{usermode.value.upper()}_CONNECTION_STRING'    
+    if (conn_str:=os.environ.get(envvar)) is None:
+        raise KeyError(f"Environment variable {envvar} not found.")
+    return PostgreSQLConnectionInfo.from_connection_string(conn_str)
+
+
+def have_do_creds() -> bool:
+    """Checks if we have credentials for the database owner (do) user."""
+    try:
+        connection_info=get_db_connection_info(DBConnectionMode.DATABASE_OWNER)
+        return connection_info is not None
+    except KeyError: return False
+    except NotImplementedError: return False

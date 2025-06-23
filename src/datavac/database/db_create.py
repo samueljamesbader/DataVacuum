@@ -1,5 +1,6 @@
 from datavac.config.project_config import PCONF
-from datavac.database.db_connect import DBConnectionMode, get_engine_so, raw_psycopg2_connection_do, raw_psycopg2_connection_so
+from datavac.database.db_connect import DBConnectionMode, get_db_connection_info,\
+      get_engine_so, raw_psycopg2_connection_do, raw_psycopg2_connection_so, have_do_creds
 from datavac.database.db_structure import DBSTRUCT
 from datavac.util.logging import logger
 from sqlalchemy import Connection, text
@@ -15,14 +16,14 @@ def ensure_database_existence():
     # If we have database owner credentials, use them to ensure database existence
     # Otherwise, we can only assume it exists (and will error out if it fails)
     from datavac.config.project_config import PCONF
-    if PCONF().vault.have_do_creds():
+    if have_do_creds():
         with raw_psycopg2_connection_do(override_db='postgres') as con:
             con.autocommit = True
 
             with con.cursor() as cur:
 
                 # Check if the database exists
-                dbname=PCONF().vault.get_db_connection_info(DBConnectionMode.DATABASE_OWNER).database
+                dbname=get_db_connection_info(DBConnectionMode.DATABASE_OWNER).database
                 cur.execute(f"SELECT 1 FROM pg_database WHERE datname = '{dbname}'")
                 pre_exists = cur.fetchone()
 

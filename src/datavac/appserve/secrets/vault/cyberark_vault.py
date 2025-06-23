@@ -3,12 +3,9 @@ from functools import cache
 from typing import TYPE_CHECKING, Callable, Optional
 from datavac.appserve.secrets.vault import Vault
 from datavac.config.project_config import PCONF
+from datavac.database.db_connect import DBConnectionMode, PostgreSQLConnectionInfo
 from datavac.util.caching import pickle_cached
 from datavac.util.logging import time_it
-
-
-if TYPE_CHECKING:
-    from datavac.database.db_connect import PostgreSQLConnectionInfo
 
 @dataclass
 class CyberArkVault(Vault):
@@ -32,7 +29,7 @@ class CyberArkVault(Vault):
         from datavac.util.caching import clear_local_cache
         clear_local_cache("vault")
 
-    def get_db_connection_info(self, usermode: str = 'ro') -> 'PostgreSQLConnectionInfo':
+    def get_db_connection_info(self, usermode: DBConnectionMode = DBConnectionMode.READ_ONLY) -> 'PostgreSQLConnectionInfo':
         """Fetches the connection information for the database from the CyberArk vault.
         
         # TODO: This assumption should be removed or simplified
@@ -40,8 +37,10 @@ class CyberArkVault(Vault):
         """
         deployment_name=PCONF().deployment_name
         return PostgreSQLConnectionInfo(**dict(zip(
-            ['Uid','Password','Server','Port','Database'],
-            self.get_from_vault(f'{deployment_name}-{ {"ro":"read","so":"super"}[usermode]}',
+            ['username','password','host','port','database'],
+            self.get_from_vault(f'{deployment_name}-{ {DBConnectionMode.READ_ONLY:"read",
+                                                       DBConnectionMode.READ_WRITE:"rw",
+                                                       DBConnectionMode.SCHEMA_OWNER:"super"}[usermode]}',
                                 ['UserName','Content','Address','Port','Database'])))) # type: ignore
     
     

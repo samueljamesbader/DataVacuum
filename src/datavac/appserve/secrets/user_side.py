@@ -1,8 +1,6 @@
 import argparse
 
-import requests
 
-from datavac.appserve.secrets.db_secrets import get_ssl_rootcert_for_ak
 from datavac.util.logging import logger, time_it
 import webbrowser
 import os
@@ -68,8 +66,11 @@ def get_secret_from_deployment(secret_name):
         have_user_download_access_key()
         access_key=get_saved_access_key()
     with time_it("Secret-share request"):
+        import requests
+        from datavac.config.project_config import PCONF
+        rootcert=PCONF().cert_depo.get_ssl_rootcert_path_for_deployment()
         response=requests.post(os.environ['DATAVACUUM_DEPLOYMENT_URI'] +"/secretshare",
                                data={"secretname":secret_name,"access_key":access_key},
-                               verify=str(get_ssl_rootcert_for_ak()))
+                               verify=str(rootcert))
     assert response.status_code==200, f"Failed to get {secret_name} from deployment: {response.text}"
     return response.text
