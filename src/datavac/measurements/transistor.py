@@ -168,7 +168,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Igmax_lin [A]']=np.max(np.abs(IGlin),axis=1)
         measurements['Igmax_sat [A]']=np.max(np.abs(IGsat),axis=1)
 
-        fwd=VG1d>0
+        fwd=(VG1d>0) if (self.pol=='n') else (VG1d<0)
         measurements['Igfwdmax_lin [A]']=np.max(np.abs(IGlin[:,fwd]),axis=1)
 
         if has_iglin == has_igsat:
