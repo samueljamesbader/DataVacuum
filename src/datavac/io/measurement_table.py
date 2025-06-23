@@ -1,4 +1,5 @@
-from typing import Any, Union
+from __future__ import annotations
+from typing import TYPE_CHECKING, Any, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -8,12 +9,13 @@ from datavac.util.logging import logger
 from datavac.measurements.measurement_type import MeasurementType
 from datavac.util.util import only
 
+if TYPE_CHECKING:
+    from datavac.measurements.measurement_group import MeasurementGroup
 
 class MeasurementTable:
 
-    def __init__(self, meas_type: MeasurementType, meas_group: str):
-        self.meas_type: MeasurementType = meas_type
-        self.meas_group: str = meas_group
+    def __init__(self, meas_group: MeasurementGroup):
+        self.meas_group: MeasurementGroup = meas_group
 
     def __add__(self, other):
         raise NotImplementedError()
@@ -42,9 +44,9 @@ class MeasurementTable:
 
 class DataFrameBackedMeasurementTable(MeasurementTable):
 
-    def __init__(self, dataframe: pd.DataFrame, meas_type: MeasurementType,
-                 meas_group: str, non_scalar_columns: list[str] = ()):
-        super().__init__(meas_type,meas_group)
+    def __init__(self, dataframe: pd.DataFrame, 
+                 meas_group: MeasurementGroup, non_scalar_columns: Sequence[str] = ()):
+        super().__init__(meas_group=meas_group)
         self._the_dataframe: pd.DataFrame = dataframe.copy()
         self._non_scalar_columns: list[str] = list(non_scalar_columns)
 
@@ -91,31 +93,31 @@ class DataFrameBackedMeasurementTable(MeasurementTable):
 
 
 class NonUniformMeasurementTable(DataFrameBackedMeasurementTable):
-    def __init__(self, dataframe, meas_type, meas_group):
+    def __init__(self, dataframe: pd.DataFrame, meas_group: MeasurementGroup):
         super().__init__(dataframe=dataframe,non_scalar_columns=['RawData'],
-                         meas_type=meas_type,meas_group=meas_group)
+                         meas_group=meas_group)
 
     @staticmethod
-    def from_read_data(read_dfs,meas_type,meas_group=None):
+    def from_read_data(read_dfs: Sequence[pd.DataFrame], meas_group: MeasurementGroup):
         assert len(read_dfs)==1, "I guess if I wanted I could merge these here..."
         return NonUniformMeasurementTable(dataframe=read_dfs[0],
-            meas_type=meas_type, meas_group=meas_group)
+            meas_group=meas_group)
 
     def __add__(self, other: 'NonUniformMeasurementTable'):
         assert isinstance(other, NonUniformMeasurementTable),\
             "NonUniformMeasurementTable can only be added to other NonUniformMeasurementTable"
-        assert self.meas_type==other.meas_type,\
-            f"Meas type mismatch {self.meas_type} != {other.meas_type}"
+        assert self.meas_group==other.meas_group,\
+            f"Meas group mismatch {self.meas_group} != {other.meas_group}"
         return NonUniformMeasurementTable(
             pd.concat([self._dataframe,other._dataframe],ignore_index=True),
-            self.meas_type,self.meas_group)
+            meas_group=self.meas_group)
 
 class UniformMeasurementTable(DataFrameBackedMeasurementTable):
 
     def __init__(self, dataframe: pd.DataFrame, headers: list[str],
-                 meas_type: MeasurementType, meas_group: str, meas_length: int):
+                 meas_group: MeasurementGroup, meas_length: int):
         super().__init__(dataframe=dataframe, non_scalar_columns=headers,
-                         meas_type=meas_type,meas_group=meas_group)
+                         meas_group=meas_group)
         assert isinstance(dataframe.index,pd.RangeIndex)\
                and dataframe.index.start==0 and dataframe.index.step==1, \
             "Make sure the dataframe has a default index for UniformMeasurementTable"
@@ -136,18 +138,18 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
             f"Cannot restrict to {columns} as it contains non-scalar columns {self.headers}"
         new_df = self._dataframe[columns].copy()
         return self.__class__(dataframe=new_df, headers=[],
-                              meas_type=self.meas_type, meas_group=self.meas_group,
+                              meas_group=self.meas_group,
                               meas_length=self.meas_length)
 
     def __add__(self, other: 'UniformMeasurementTable'):
         assert self.headers==other.headers,\
             f"Header mismatch: {self.headers} != {other.headers}"
-        assert self.meas_type==other.meas_type,\
-            f"Meas type mismatch {self.meas_type} != {other.meas_type}"
+        assert self.meas_group==other.meas_group,\
+            f"Meas group mismatch {self.meas_group} != {other.meas_group}"
         if self.meas_length==other.meas_length:
             return UniformMeasurementTable(
                 dataframe=pd.concat([self._dataframe,other._dataframe],ignore_index=True),
-                headers=self.headers,meas_type=self.meas_type,meas_group=self.meas_group,meas_length=self.meas_length)
+                headers=self.headers,meas_group=self.meas_group,meas_length=self.meas_length)
         else:
             logger.warning("Adding two UniformMeasurementTables of different meas_lengths" 
                            " to produce a MultiUniformMeasurementTable")
@@ -155,7 +157,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
 
     def __getitem__(self, item: str)->Union[np.ndarray, pd.Series]:
         if item in self.headers:
-            return np.vstack(self._dataframe[item])
+            return np.vstack(self._dataframe[item]) # type: ignore
         else:
             try:
                 return self._dataframe[item]
@@ -180,10 +182,10 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         self._non_scalar_columns=[]
 
     def analyze(self,*args,**kwargs):
-        self.meas_type.analyze(self,*args,**kwargs)
+        self.meas_group.extract(self,*args,**kwargs)
 
     @staticmethod
-    def from_read_data(read_dfs,meas_type,meas_group=None):
+    def from_read_data(read_dfs:Sequence[pd.DataFrame],meas_group:MeasurementGroup):
         assert len(read_dfs)==1, "I guess if I wanted I could merge these here..."
         read_df=read_dfs[0]
 
@@ -207,9 +209,10 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
 
         return UniformMeasurementTable(
             dataframe=read_df.drop(columns=['RawData']),headers=list(headers),
-            meas_length=meas_length,meas_type=meas_type,meas_group=meas_group)
+            meas_length=meas_length,meas_group=meas_group)
 
     def __getstate__(self):
+        raise NotImplementedError("Pickling hasn't ben tested/maintained for UniformMeasurementTable")
         super_state=super().__getstate__()
         meas_id_table=self._dataframe.drop(columns=self.headers)
         if len(self.headers):
@@ -222,6 +225,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
                 self.meas_type, self.meas_group, self.headers, self.meas_length)
 
     def __setstate__(self, state):
+        raise NotImplementedError("Pickling hasn't ben tested/maintained for UniformMeasurementTable")
         self._the_dataframe, raw_meas_table,\
             self.meas_type, self.meas_group, self._non_scalar_columns,  self.meas_length = state
         if raw_meas_table is not None:
@@ -265,18 +269,16 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
 
 class MultiUniformMeasurementTable(MeasurementTable):
     def __init__(self, umts: list[UniformMeasurementTable]):
-        meas_type=umts[0].meas_type if len(umts) else MeasurementType
         meas_group=umts[0].meas_group if len(umts) else None
-        super().__init__(meas_type=meas_type, meas_group=meas_group)
+        super().__init__(meas_group=meas_group) # type: ignore # allowing None meas_group for empty umts
 
         self._umts=umts
 
         # TODO: Refine this requirement
-        assert all(umt.meas_type.__class__==self.meas_type.__class__ for umt in self._umts)
         assert all(umt.meas_group==self.meas_group for umt in self._umts)
 
     @staticmethod
-    def from_read_data(read_dfs,meas_type,meas_group=None):
+    def from_read_data(read_dfs,meas_group: MeasurementGroup):
 
         # Could potentially apply some logic to re-combine these into Uniform table iff they are compatible...
         umts=[]
@@ -294,7 +296,7 @@ class MultiUniformMeasurementTable(MeasurementTable):
             read_df=pd.concat([read_df,header_part],axis=1)
 
             umts.append(UniformMeasurementTable.from_read_data(
-                read_dfs=[read_df],meas_type=meas_type,meas_group=meas_group))
+                read_dfs=[read_df],meas_group=meas_group))
         if not len(umts):
             raise Exception(f"No data for {meas_group}")
         return MultiUniformMeasurementTable(umts=umts)
@@ -303,6 +305,7 @@ class MultiUniformMeasurementTable(MeasurementTable):
         return MultiUniformMeasurementTable(self._umts+other._umts)
 
     def analyze(self,*args,**kwargs):
+        raise Exception("This functionality has been moved to MeasurementGroup.extract_by_mumt/umt()")
         for umt in self._umts:
             umt.analyze(*args,**kwargs)
 

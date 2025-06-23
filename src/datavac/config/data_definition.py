@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, Optional, Callable
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Callable
 
 from datavac.util.lazydict import FunctionLazyDict
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.sqltypes import TypeEngine
     from datavac.trove import ReaderCard, Trove
     from datavac.io.measurement_table import UniformMeasurementTable, MeasurementTable
-    from datavac.measurements import MeasurementGroup
+    from datavac.measurements.measurement_group import MeasurementGroup
 
 
 class ModelingType(Enum):
@@ -120,6 +120,9 @@ class DataDefinition():
 
     sample_info_columns: list[DVColumn] = field(default_factory=list)
     """ List of sample info columns (ie potentially non-unique sample information)."""
+
+    sample_info_completer: Callable[[dict[str, Any]], dict[str, Any]] = lambda x: x
+    """ A function that takes a dictionary of sample information and returns a completed dictionary."""
 
     sample_references: Mapping[str,SampleReference] = field(default_factory=dict)
     """ Mapping of sample references by name (often dict or CategorizedLazyDict)."""

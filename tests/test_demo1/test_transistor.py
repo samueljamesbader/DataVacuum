@@ -1,9 +1,7 @@
 import numpy as np
 
-from tests.test_demo1 import mock_env_dem1, example_data
-
 def test_IdVg():
-    from datavac.trove.classic_folder_trove import quick_read_filename
+    from datavac.trove.trove_util import quick_read_filename
     from datavac.examples.demo1.example_data import get_transistor
 
     mt2mg2dat,mg2ml=quick_read_filename('lot1/lot1_sample1_nMOS_IdVg.csv')
@@ -21,3 +19,9 @@ def test_IdVg():
     xtors=[get_transistor(mask='Mask1',structure=s) for s in pmosdat['Site']]
     assert np.allclose(pmosdat['SS [mV/dec]'], [60*xtor.n for xtor in xtors], rtol=0.01)
     assert np.allclose(pmosdat['Ron [ohm]'], [xtor.approximate_Ron([-1])[0] for xtor in xtors], rtol=0.01)
+
+if __name__ == '__main__':
+    
+    import os
+    os.environ["DATAVACUUM_CONTEXT"]="builtin:demo1"
+    test_IdVg()

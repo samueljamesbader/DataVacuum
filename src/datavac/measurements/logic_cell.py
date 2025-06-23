@@ -2,20 +2,22 @@ import ast
 from dataclasses import dataclass
 from typing import Sequence, Optional
 
+from datavac.config.data_definition import DVColumn
+from datavac.measurements.measurement_group import SemiDevMeasurementGroup
+from datavac.util.util import asnamedict
 import numpy as np
 import pandas as pd
 from scipy.fft import rfftfreq, rfft
 
 from datavac.io.measurement_table import UniformMeasurementTable
-from datavac.measurements.measurement_type import MeasurementType
 from datavac.util.maths import YatX
 
 
 @dataclass
-class InverterDC(MeasurementType):
+class InverterDC(SemiDevMeasurementGroup):
     vhi: float = 1.0
     vlo: float = 0.0
-    def analyze(self, measurements: 'UniformMeasurementTable'):
+    def extract_by_umt(self, measurements: 'UniformMeasurementTable'):
         assert self.vlo==0
         Vim=YatX(X=measurements[f'fVout@VDD={self.vhi}'],Y=measurements['Vin'],
                   x=(self.vhi+self.vlo)/2,reverse_crossing=True)
@@ -43,6 +45,18 @@ class InverterDC(MeasurementType):
         measurements['VOH [V]']=YatX(Y=Voutm,X=gainlef,x=-1,reverse_crossing=True)
         measurements['NMH [V]']=measurements['VOH [V]']-measurements['VIH [V]']
         measurements['NML [V]']=measurements['VIL [V]']-measurements['VOL [V]']
+
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        return asnamedict(
+            DVColumn('VIL [V]', 'float', 'Inverter DC VIL'),
+            DVColumn('VIH [V]', 'float', 'Inverter DC VIH'),
+            DVColumn('VOL [V]', 'float', 'Inverter DC VOL'),
+            DVColumn('VOH [V]', 'float', 'Inverter DC VOH'),
+            DVColumn('NML [V]', 'float', 'Inverter DC NML'),
+            DVColumn('NMH [V]', 'float', 'Inverter DC NMH'),
+            DVColumn('max_gain', 'float', 'Maximum gain of the inverter')
+        )
+
 
 def get_digitized_curves(time:np.ndarray[float], curves:dict[str,np.ndarray[float]], vmid: float,
                          tcluster_thresh: Optional[float] = None) -> dict[str,np.ndarray[bool]]:
@@ -80,7 +94,7 @@ def get_digitized_curves(time:np.ndarray[float], curves:dict[str,np.ndarray[floa
     return digitized_curves
 
 @dataclass
-class OscopeFormulaLogic(MeasurementType):
+class OscopeFormulaLogic(SemiDevMeasurementGroup):
     formula_col: str = 'formula'
     time_col: str = 'Time'
     vhi: float = 1
@@ -88,7 +102,7 @@ class OscopeFormulaLogic(MeasurementType):
     channel_mapping:Optional[dict[str,Sequence[str]]]=None
     tcluster_thresh: float = None
 
-    def analyze(self, measurements: UniformMeasurementTable):
+    def extract_by_umt(self, measurements: UniformMeasurementTable):
 
         # Will be populated as we go with correctness evaluations
         truth_table_pass=pd.Series([pd.NA]*len(measurements),dtype='boolean')
@@ -145,10 +159,14 @@ class OscopeFormulaLogic(MeasurementType):
             truth_table_pass[grp.index]=(np.sum(ttfails,axis=0)==0)
 
         measurements['truth_table_pass']=truth_table_pass
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        return asnamedict(
+            DVColumn('truth_table_pass', 'boolean', 'Whether measured curves satisfy the truth table formula')
+        )
 
 
 @dataclass
-class OscopeRingOscillator(MeasurementType):
+class OscopeRingOscillator(SemiDevMeasurementGroup):
     time_col: str = 'Time'
     signal_col: str = 'out'
     enable_col: Optional[str] = 'en'
@@ -164,7 +182,7 @@ class OscopeRingOscillator(MeasurementType):
         return measurements.scalar_table_with_layout_params([self.div_by_col])[self.div_by_col]\
             if self.div_by_col else 1
 
-    def analyze(self, measurements: UniformMeasurementTable):
+    def extract_by_umt(self, measurements: UniformMeasurementTable):
         time: np.ndarray[float]=measurements[self.time_col]
         signal: np.ndarray[float]=measurements[self.signal_col]
         enable: np.ndarray[float]=measurements[self.enable_col]\
@@ -200,8 +218,16 @@ class OscopeRingOscillator(MeasurementType):
             stages=measurements.scalar_table_with_layout_params([self.stages_col])[self.stages_col]
             measurements['t_stage [s]']=1/(2*stages*measurements['f_osc [Hz]'])
             measurements['t_stage [ps]']=measurements['t_stage [s]']*1e12
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        return asnamedict(
+            DVColumn('f_out_fft [Hz]', 'float', 'DUT output signal frequency computed by FFT'),
+            DVColumn('f_out_fine [Hz]', 'float', 'DUT output signal frequency refined by counting transitions, if clean'),
+            DVColumn('f_osc [Hz]', 'float', 'Oscillator frequency (f_out_fine scaled by the divider ratio to get ring oscillator itself)'),
+            DVColumn('t_stage [s]', 'float', 'Delay time per stage (in seconds), based on f_osc'),
+            DVColumn('t_stage [ps]', 'float', 'Delay time per stage (in picoseconds), based on f_osc')
+        )
 
-class OscopeDivider(MeasurementType):
+class OscopeDivider(SemiDevMeasurementGroup):
     time_col: str = 'Time'
     input_col: str = 'a'
     output_col: str = 'o'
@@ -209,7 +235,7 @@ class OscopeDivider(MeasurementType):
     vhi: float = 1.0
     vlo: float = 0.0
 
-    def analyze(self, measurements: 'UniformMeasurementTable'):
+    def extract_by_umt(self, measurements: 'UniformMeasurementTable'):
         correct_division=pd.Series([pd.NA]*len(measurements),dtype='boolean')
         internal_phase  =pd.Series([-1]*len(measurements),dtype='int32')
 
@@ -243,6 +269,12 @@ class OscopeDivider(MeasurementType):
 
         measurements['correct_division']=correct_division
         measurements['internal_phase']=internal_phase
+
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        return asnamedict(
+            DVColumn('correct_division', 'boolean', 'Whether the divider output is correct'),
+            DVColumn('internal_phase', 'int32', 'Internal phase of the divider, -1 if not correct')
+        )
 
 def fft_freq_of_sig(signal: np.ndarray[float], dt: float) -> np.ndarray[float]:
     N = signal.shape[1]

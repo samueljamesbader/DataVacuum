@@ -63,8 +63,10 @@ def util_cli_funcs():
 def entrypoint_datavac_cli():
     from datavac.database.db_cli import DB_CLI
     from datavac.config.contexts import CONTEXT_CLI
+    from datavac.appserve.secrets.vault import VAULT_CLI
     CLIIndex({
         'database (db)': DB_CLI,
         'context (cn)': CONTEXT_CLI,
-        'util (ut)': CLIIndex(util_cli_funcs)
+        'util (ut)': CLIIndex(util_cli_funcs),
+        'vault (v)': VAULT_CLI,
     })(*sys.argv)

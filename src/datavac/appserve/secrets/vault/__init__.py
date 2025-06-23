@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+import argparse
 
 from datavac.database.db_connect import DBConnectionMode
 
@@ -18,3 +19,25 @@ class Vault():
             return connection_info is not None
         except KeyError: return False
         except NotImplementedError: return False
+
+    def clear_vault_cache(self):
+        """Clears any potential local vault cache."""
+        pass
+
+    def _cli_clear_vault_cache(self,*args):
+        parser=argparse.ArgumentParser(description='Clear local vault cache')
+        namespace=parser.parse_args(args)
+        self.clear_vault_cache()
+        print("Cleared vault cache")
+
+    def get_cli_funcs(self) -> dict[str, Callable]:
+        """Returns a dictionary of CLI functions for CyberArk vault operations."""
+        return {
+            'clear_cache': self._cli_clear_vault_cache,
+        }
+
+from datavac.util.cli import CLIIndex
+def _get_CLI_funcs():
+    from datavac.config.project_config import PCONF
+    return PCONF().vault.get_cli_funcs()
+VAULT_CLI = CLIIndex(cli_funcs=_get_CLI_funcs)

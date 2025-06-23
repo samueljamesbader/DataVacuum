@@ -6,7 +6,7 @@ import pickle
 import shutil
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from datavac.util.logging import time_it, logger
 
@@ -14,30 +14,59 @@ if TYPE_CHECKING:
     from sqlalchemy import Connection
 
 
-def pickle_cached(cache_dir:str|Path, namer: Callable):
+def pickle_cached(cache_dir:str|Path, # type: ignore
+                  namer: Callable[..., str])\
+            -> Callable[[Callable], Callable]:
     """
+    A decorator to cache the results of a function using pickle.
+
+    Args:
+        cache_dir (str | Path): The directory where the cache files will be stored.
+            If not absolute, will be interpreted relative to PCONF().USER_CACHE.
+        namer (Callable[[Any], str], optional): A function that takes the wrapped-function's
+            arguments and returns a string to use as the cache file name.
 
     Example
     -------
-        def expensive_getter(key,**kwargs):
-            print(f"I'm expensive {key}")
+        >>> def expensive_getter(key,**kwargs):
+        >>>    print(f"I'm expensive {key}")
+        >>>    return f"Here's {key}!"
+        >>> cached_getter=pickle_cached("example_dir",namer=lambda x: f"{x}.pkl")(expensive_getter)
+        >>> cached_getter("test_key")  
+        I'm expensive test_key
+        Here's test_key!
+        >>> cached_getter("test_key")  
+        Here's test_key!
 
-        from datavac.util.paths import USER_CACHE
-        CACHE=USER_CACHE/"example"
-        cached_getter=pickle_cached(CACHE,lambda key,**kwargs: f"{key}.pkl")(expensive_getter)
+        This expensive result is cached in PCONF().USER_CACHE/'example_dir/test_key.pkl'.
 
     """
-    cache_dir=Path(cache_dir)
-    if not cache_dir.is_absolute():
-        from datavac.config.project_config import PCONF
-        cache_dir = PCONF().USER_CACHE/cache_dir
-    assert 'cache' in str(cache_dir).lower(), \
-        f"Cache directory {cache_dir} should contain 'cache' in its name"\
-            " to avoid accidental overwrite of important directories."
+    cache_dir:Path=Path(cache_dir)
     def wrapper(func):
-        if not cache_dir.exists(): cache_dir.mkdir()
+        nonlocal cache_dir
+
+        # Ensure the cache directory is absolute and exists
+        # but don't do so until the first call to the wrapped function
+        # This allows the cache directory to be set up only when needed
+        # and, crucially, prevents accessing PCONF() until runtime
+        # so pickle_cached can be used in modules that are defined
+        # before the project config is set up.
+        is_setup = False
+        def setup():
+            nonlocal is_setup, cache_dir
+            if not cache_dir.is_absolute():
+                from datavac.config.project_config import PCONF
+                cache_dir = PCONF().USER_CACHE/cache_dir
+            assert 'cache' in str(cache_dir).lower(), \
+                f"Cache directory {cache_dir} should contain 'cache' in its name"\
+                    " to avoid accidental overwrite of important directories."
+            if not cache_dir.exists():
+                cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # The actual wrapper just caching via a pickle in the above-setup-up directory 
         @wraps(func)
         def wrapped(*args,force=False,**kwargs):
+            if not is_setup: setup()
             cfile=cache_dir/namer(*args,**kwargs)
             try:
                 if not force:

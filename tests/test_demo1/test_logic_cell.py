@@ -1,10 +1,8 @@
 import numpy as np
 
-
-
 def test_logic():
     from datavac.examples.demo1.example_data import get_ring, get_inverter
-    from datavac.trove.classic_folder_trove import quick_read_filename
+    from datavac.trove.trove_util import quick_read_filename
 
     mt2mg2dat,mg2ml=quick_read_filename('lot1/lot1_sample1_invs.csv')
     assert list(mt2mg2dat['lot1_sample1']['inverter_DC']['Site'])==['inv1','inv2']
@@ -39,3 +37,9 @@ def test_logic():
     mt2mg2dat,mg2ml=quick_read_filename('lot1/lot1_sample1_divs.csv')
     assert list(mt2mg2dat['lot1_sample1']['divider']['Site'])==['good_div2','bad_div2','good_div4','bad_div4']
     assert list(mt2mg2dat['lot1_sample1']['divider']['correct_division'])==[True,False,True,False]
+    print("passed")
+
+if __name__ == '__main__':
+    import os
+    os.environ["DATAVACUUM_CONTEXT"]="builtin:demo1"
+    test_logic()

@@ -1,19 +1,17 @@
-import argparse
 from dataclasses import dataclass, field
 from functools import cache
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Optional
 from datavac.appserve.secrets.vault import Vault
 from datavac.config.project_config import PCONF
 from datavac.util.caching import pickle_cached
 from datavac.util.logging import time_it
-import requests
 
 
 if TYPE_CHECKING:
     from datavac.database.db_connect import PostgreSQLConnectionInfo
 
 @dataclass
-class CyberArkVault():
+class CyberArkVault(Vault):
 
     api_url: str
     appid: str
@@ -22,12 +20,17 @@ class CyberArkVault():
 
     _getter: Callable = field(init=False, repr=False)
     def __post_init__(self):
-        def make_getter():
-            func = _raw_get_vault_response_text
-            if self.cache_on_disk:
-                func= pickle_cached(cache_dir="vault",namer=lambda api_url,appid,safe,account_name: f"{appid}_{safe}_{account_name}.pkl")(func)
-            return cache(func)
-        setattr(self,'_getter',cache(make_getter))
+        func = _raw_get_vault_response_text
+        if self.cache_on_disk:
+            func= pickle_cached(cache_dir="vault",
+                                namer=lambda api_url,appid,safe,account_name:\
+                                    f"{appid}_{safe}_{account_name}.pkl")(func)
+        setattr(self,'_getter',cache(func))
+    
+    def clear_vault_cache(self):
+        """Clears the vault cache."""
+        from datavac.util.caching import clear_local_cache
+        clear_local_cache("vault")
 
     def get_db_connection_info(self, usermode: str = 'ro') -> 'PostgreSQLConnectionInfo':
         """Fetches the connection information for the database from the CyberArk vault.
@@ -38,10 +41,12 @@ class CyberArkVault():
         deployment_name=PCONF().deployment_name
         return PostgreSQLConnectionInfo(**dict(zip(
             ['Uid','Password','Server','Port','Database'],
-            self.get_from_vault(f'{deployment_name}-{ {"ro":"read","so":"super"}[usermode]}',['UserName','Content','Address','Port','Database']))))
+            self.get_from_vault(f'{deployment_name}-{ {"ro":"read","so":"super"}[usermode]}',
+                                ['UserName','Content','Address','Port','Database'])))) # type: ignore
     
     
-    def get_from_vault(self, account_name,components,cached_vault=None,env=None):
+    def get_from_vault(self, account_name: str, components: Optional[str | list[str]] =None ) \
+            -> dict | str | list[str]:
         import json
         import os
         if os.environ.get("DATAVACUUM_FROM_JMP")=='YES':
@@ -50,26 +55,48 @@ class CyberArkVault():
         result_text=self._getter(self.api_url,self.appid,self.safe,account_name)
         values=json.loads(result_text)
         try:
-            if type(components) is str:
+            if components is None:
+                return values
+            elif type(components) is str:
                 return values[components]
             else:
                 return [values[comp] for comp in components]
         except KeyError:
             raise Exception(f"Failed to find a component among {components} in vault response: {list(values.keys())}")
+        
+    def _cli_print_account(self,*args):
+        """CLI command to get a value from the CyberArk vault."""
+        import argparse
+        parser = argparse.ArgumentParser(description='Get a value from the CyberArk vault')
+        parser.add_argument('account_name', type=str, help='The name of the account in the vault')
+        parser.add_argument('--include_secret','-i', action='store_true',
+                help='Include the password/secret (ie "Content" field) in the output (default: False)')
+        namespace = parser.parse_args(args)
+        
+        result: dict = self.get_from_vault(namespace.account_name) # type: ignore
+        if not namespace.include_secret:
+            result.pop('Content', None)
+        for k, v in result.items():
+            print(f"{k}: {v}")
+
+    def get_cli_funcs(self) -> dict[str, Callable]:
+        """Returns a dictionary of CLI functions for CyberArk vault operations."""
+        return {
+            'clear_cache': self._cli_clear_vault_cache,
+            'print_account': self._cli_print_account,
+        }
+
+        
 
 def _raw_get_vault_response_text(api_url:str, appid:str, safe: str, account_name: str) -> str:
+    import requests
     from requests_kerberos import HTTPKerberosAuth
     req=f"{api_url}/Accounts?AppID={appid}&Safe={safe}&Object={account_name}"
     with time_it(f"Vault request for {account_name}"):
-        result=requests.get(req, auth=HTTPKerberosAuth(), verify=PCONF().cert_depo.get_ssl_rootcert_path_for_vault())
+        result=requests.get(req, auth=HTTPKerberosAuth(),
+                            verify=PCONF().cert_depo.get_ssl_rootcert_path_for_vault())
     if result.status_code!=200:
         raise Exception(f"Failed to get from vault: {result.text}")
     return result.text
 
 
-def cli_clear_vault_cache(*args):
-    parser=argparse.ArgumentParser(description='Clear local vault cache')
-    namespace=parser.parse_args(args)
-    for pth in (USER_CACHE/"vault").glob("*.pkl"):
-        pth.unlink()
-    print("Cleared vault cache")

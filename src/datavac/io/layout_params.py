@@ -187,7 +187,7 @@ class LayoutParameters:
         if drop_pads:
             tab=tab.drop(columns=[c for c in tab.columns if c[:4]=="PAD:"])
         if allow_partial:
-            return tab, correction_map
+            return tab#, correction_map
         else:
             return tab
 
@@ -233,6 +233,9 @@ class LayoutParameters:
     def merge_with_layout_params(self,meas_df,for_measurement_group,param_names=None, on_missing='error'):
         #structures_to_get=meas_df['Structure'].unique()
         #params=self.get_params(structures_to_get,allow_partial=False,for_measurement_group=for_measurement_group)
+        from typing import cast
+        from datavac.measurements.measurement_group import SemiDevMeasurementGroup
+        for_measurement_group=cast(SemiDevMeasurementGroup,for_measurement_group).layout_param_group
         if for_measurement_group not in self._tables_by_meas:
             raise Exception(f"No layout parameters for measurement group {for_measurement_group}")
         params=self._tables_by_meas[for_measurement_group]

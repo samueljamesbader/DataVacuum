@@ -1,6 +1,7 @@
 import os
 import shutil
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -42,16 +43,16 @@ def make_IdVg(transistor,VDs,VGrange, do_plot=False) -> dict:
 
     return data
 
-def make_KelvinRon(transistor:Transistor4T,IDs,VGrange, do_plot=False) -> dict:
-    # Make a simple IdVg curve
-    npoints=51
-    VG=np.linspace(VGrange[0], VGrange[1], npoints)
-    data={'VG':VG}
-    try_ron = transistor.approximate_Ron(VG)
-    for ID in IDs:
-        try_vd=try_ron*ID
-        sweep_data= transistor.DCIV(VG, try_vd, VS=0)
-        data[f'fVDS@ID={ID}']
+#def make_KelvinRon(transistor:Transistor4T,IDs,VGrange, do_plot=False) -> dict:
+#    # Make a simple IdVg curve
+#    npoints=51
+#    VG=np.linspace(VGrange[0], VGrange[1], npoints)
+#    data={'VG':VG}
+#    try_ron = transistor.approximate_Ron(VG)
+#    for ID in IDs:
+#        try_vd=try_ron*ID
+#        sweep_data= transistor.DCIV(VG, try_vd, VS=0)
+#        data[f'fVDS@ID={ID}']
 
 def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np.ndarray]]):
     from datavac.examples.demo1.dvconfig import EXAMPLE_DATA_DIR
@@ -59,7 +60,8 @@ def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np
     (EXAMPLE_DATA_DIR/lot).mkdir(parents=True,exist_ok=True)
     data.to_csv(EXAMPLE_DATA_DIR/lot/f"{lot}_{sample}_{meas_name}.csv",index=False)
 
-def read_csv(file,meas_type,meas_group,only_matload_info=None):
+def read_csv(file:str|Path, mg_name: str, only_sampleload_info: dict = {}):
+    assert len(only_sampleload_info) == 0, "Only sampleload_info is not supported in this example"
     from datavac.examples.demo1.dvconfig import EXAMPLE_DATA_DIR
     rawcsv=pd.read_csv(EXAMPLE_DATA_DIR/file)
     data=[{'RawData':grp.drop(columns=['Site','MeasNo']).to_dict('list'),

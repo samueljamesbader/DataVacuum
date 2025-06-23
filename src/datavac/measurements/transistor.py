@@ -3,7 +3,7 @@ from typing import Optional, Union, cast
 
 from datavac.config.data_definition import DVColumn
 from datavac.gui.bokeh_util.util import named_list_to_dict
-from datavac.measurements import SemiDevMeasurementGroup
+from datavac.measurements.measurement_group import SemiDevMeasurementGroup
 import numpy as np
 
 from datavac.util.maths import VTCC, YatX
@@ -20,8 +20,9 @@ class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
                 [self.norm_column.split("[")[1].split("]")[0]]
 
     def get_norm(self, measurements: MeasurementTable):
-        if self.norm_column is None:
-            return None
+        assert self.norm_column is not None
+        #if self.norm_column is None:
+        #    return None
         return np.array(measurements \
                         .scalar_table_with_layout_params(params=[self.norm_column],on_missing='ignore')[self.norm_column],dtype=np.float32) \
             *self._norm_col_units
@@ -44,9 +45,14 @@ class IdVg(MeasurementWithLinearNormColumn):
     Iswf: float = 1e-6
     pol: str = 'n'
     vgoff: float = 0
-    Vgons: dict[str,float] = dataclasses.field(default_factory=lambda:{'':1})
+    Vgons: dict[str,float] = None #dataclasses.field(default_factory=lambda:{'':1})
     abs_vdlin: float = None
     abs_vdsat: float = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.Vgons is None:
+            self.Vgons={'':(1 if self.pol=='n' else -1)}
 
     def available_extr_columns(self) -> dict[str, DVColumn]:
         extr_columns=[*super().available_extr_columns().values(),
@@ -57,7 +63,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         return named_list_to_dict(extr_columns)
 
 
-    def extract(self, measurements):
+    def extract_by_umt(self, measurements:UniformMeasurementTable) -> None:
         from scipy.signal import savgol_filter
 
         # Properties of the Sav-Gol filter to apply to gm
@@ -177,7 +183,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Igmax_lin [A]']=np.max(np.abs(IGlin),axis=1)
         measurements['Igmax_sat [A]']=np.max(np.abs(IGsat),axis=1)
 
-        fwd=VG1d>0
+        fwd=(VG1d>0) if (self.pol=='n') else (VG1d<0)
         measurements['Igfwdmax_lin [A]']=np.max(np.abs(IGlin[:,fwd]),axis=1)
 
         if has_iglin == has_igsat:

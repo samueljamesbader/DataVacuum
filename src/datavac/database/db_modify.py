@@ -70,10 +70,11 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
                 if force_meas or _table_mismatch(desired_tabs['meas'], db_metadata):
                     need_to_create_meas = True
                     dump_measurements(mg_name, conn)
-                    db_metadata.drop_all(conn,[db_metadata.tables[namews(t)]
-                                                   for t in desired_tabs.values()
-                                                   if namews(t) in db_metadata.tables],
-                                               checkfirst=True)
+                    drops=[db_metadata.tables[namews(t)]
+                               for t in desired_tabs.values()
+                                    if namews(t) in db_metadata.tables]
+                    db_metadata.drop_all(conn,drops,checkfirst=True)
+                    for drop in drops: db_metadata.remove(drop)
                 else: need_to_create_meas = False
             else: need_to_create_meas = True
             if need_to_create_meas: desired_tabs['meas'].create(conn)
@@ -82,7 +83,7 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
                 if force_extr or _table_mismatch(desired_tabs['extr'], db_metadata):
                     need_to_create_extr = True
                     dump_extractions(mg_name, conn)
-                    db_metadata.tables[desired_tabs['extr'].name].drop(conn,checkfirst=True)
+                    db_metadata.tables[namews(desired_tabs['extr'])].drop(conn,checkfirst=True)
                 else: need_to_create_extr = False
             else: need_to_create_extr = True
             if need_to_create_extr: desired_tabs['extr'].create(conn)

@@ -22,7 +22,9 @@ class ProjectConfiguration():
     def __post_init__(self):
         appname=self.deployment_name or 'DEFAULT'
         self.USER_CACHE: Path = (Path(os.environ.get("DATAVACUUM_CACHE_DIR",None) or \
-                                    platformdirs.user_cache_path(appname=appname, appauthor='DataVacuum')))/appname
+                platformdirs.user_cache_path(appname=appname, appauthor='DataVacuum')))/appname
+        self.USER_CERTS: Path = self.USER_CACHE/"certs"
+        self.USER_CERTS.mkdir(parents=True,exist_ok=True)
 
     
 _pconf: ProjectConfiguration | None = None

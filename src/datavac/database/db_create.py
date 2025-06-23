@@ -4,7 +4,6 @@ from datavac.database.db_structure import DBSTRUCT
 from datavac.util.logging import logger
 from sqlalchemy import Connection, text
 
-
 def ensure_database_existence():
     """Ensure the database exists.
 
@@ -35,7 +34,7 @@ def ensure_database_existence():
     else:
         with raw_psycopg2_connection_so() as con:
             try:
-                cur.execute(f"SELECT 1").fetchone()
+                with con.cursor() as cur: cur.execute(f"SELECT 1")
                 pre_exists = True
             except Exception as e:
                 logger.critical("Failure to ensure database existence.")
