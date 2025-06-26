@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import NamedTuple
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
@@ -6,7 +7,7 @@ from datavac.trove.trove_util import get_cached_glob
 
 class MissingFolderInfoException(Exception): pass
 
-class ReadAction:
+class ReadAction(Enum):
     """Enum-like class for read actions."""
     STORE_PATH = 'store_path'
     STORE_BASENAME = 'store_basename'

@@ -1,3 +1,4 @@
+from datavac.config.data_definition import DDEF
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import DBConnectionMode, get_db_connection_info,\
       get_engine_so, raw_psycopg2_connection_do, raw_psycopg2_connection_so, have_do_creds
@@ -83,13 +84,51 @@ def _setup_foundation(conn:Connection):
 
     conn.execute(text(make_schemas+set_search_path+create_blob_store))
 
+def create_meas_group_view(mg_name: str, conn: Connection):
+    from datavac.database.db_get import get_table_depends_and_hints_for_meas_group, joined_select_from_dependencies
+    mg=DDEF().measurement_groups[mg_name]
+    meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
+    td, jh = get_table_depends_and_hints_for_meas_group(mg)
+    sel,_=joined_select_from_dependencies(columns=None, absolute_needs=[meas_tab],
+                                        table_depends=td, pre_filters={},join_hints=jh)
+    seltextl=sel.compile(conn, compile_kwargs={"literal_binds": True})
+    view_namewsq = f'{DBSTRUCT().jmp_schema}."{mg_name}"'
+    conn.execute(text(f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""))
+
+def create_analysis_view(an_name: str, conn: Connection):
+    from datavac.database.db_get import get_table_depends_and_hints_for_analysis, joined_select_from_dependencies
+    an=DDEF().higher_analyses[an_name]
+    td, jh = get_table_depends_and_hints_for_analysis(an)
+    sel,_=joined_select_from_dependencies(columns=None, absolute_needs=[anls_tab],
+                                        table_depends=td, pre_filters={},join_hints=jh)
+    seltextl=sel.compile(conn, compile_kwargs={"literal_binds": True})
+    view_namewsq = f'{DBSTRUCT().jmp_schema}."{an_name}"'
+    conn.execute(text(f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""))
+
 
 def create_all():
     """Create all database tables and schemas."""
     with get_engine_so().begin() as conn:
         _setup_foundation(conn)
 
-    for mg in PCONF().data_definition.measurement_groups:
-        DBSTRUCT().get_measurement_group_dbtables(mg)
+    for sr_name in PCONF().data_definition.sample_references:
+        DBSTRUCT().get_sample_reference_dbtable(sr_name)
+        
+    DBSTRUCT().get_sample_dbtable()
+
+    for sd_name in PCONF().data_definition.sample_descriptors:
+        DBSTRUCT().get_sample_descriptor_dbtable(sd_name)
+
+    for ssr_name in PCONF().data_definition.subsample_references:
+        DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
+
+    for mg_name in PCONF().data_definition.measurement_groups:
+        DBSTRUCT().get_measurement_group_dbtables(mg_name)
 
     DBSTRUCT().metadata.create_all(get_engine_so(), checkfirst=True)
+
+    with get_engine_so().begin() as conn:
+        for mg_name in PCONF().data_definition.measurement_groups:
+             create_meas_group_view(mg_name, conn)
+        for an_name in PCONF().data_definition.higher_analyses:
+            create_analysis_view(an_name, conn)

@@ -1,7 +1,9 @@
+from functools import partial
 import os
 from pathlib import Path
 from typing import Mapping
 from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
+from datavac.config.layout_params.folder_layout_params import get_folder_layout_params
 from datavac.config.project_config import ProjectConfiguration
 from datavac.appserve.secrets.vault.demo_vault import DemoVault
 from datavac.examples.demo1.example_data import read_csv
@@ -17,7 +19,8 @@ def get_project_config() -> ProjectConfiguration:
     def make_reader_cards(glob) -> Mapping[str, list[ClassicFolderTroveReaderCard]]:
         rc=ClassicFolderTroveReaderCard(
             glob=glob, reader_func=read_csv,
-            read_from_filename_regex= r'^(?P<LotSample>(?P<Lot>[A-Za-z0-9]+)_(?P<Sample>[A-Za-z0-9]+))')
+            read_from_filename_regex= r'^(?P<LotSample>(?P<Lot>[A-Za-z0-9]+)_(?P<Sample>[A-Za-z0-9]+))',
+            )
         return {'':[rc]}
 
     measurement_groups=asnamedict(
@@ -85,9 +88,11 @@ def get_project_config() -> ProjectConfiguration:
             measurement_groups=measurement_groups,
             sample_identifier_column=DVColumn('LotSample','string','Lot and Sample ID of the sample'),
             troves={'':trove},
-            # TODO: Remove this once the layout params are properly set up
-            layout_params_dir=Path(__file__).parent / 'layout_params',
-            layout_params_yaml=Path(__file__).parent / 'layout_params.yaml',
+            layout_params_func=partial(
+                get_folder_layout_params,
+                layout_params_dir=Path(__file__).parent / 'layout_params',
+                layout_params_yaml=Path(__file__).parent / 'layout_params.yaml',),
+            sample_info_completer=(lambda d: dict(**d,**(dict(MaskSet='Mask1') if 'MaskSet' not in d else {})))
         ),
         vault=DemoVault(dbname=dbname),
     )

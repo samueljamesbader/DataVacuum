@@ -10,7 +10,8 @@ def mock_env_demo1():
 
 
 @pytest.fixture(scope='package',autouse=True)
-def example_data(mock_env_demo1):
+def example_data(mock_env_demo1): _example_data()
+def _example_data():
     from datavac.examples.demo1.example_data import make_example_data
     from datavac.database.db_create import ensure_clear_database
     from datavac.util.caching import cli_clear_local_cache

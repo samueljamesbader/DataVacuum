@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Any, Callable, Optional, cast
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
 from datavac.util.logging import logger
 from datavac.trove import ReaderCard, Trove
@@ -18,12 +18,12 @@ if TYPE_CHECKING:
 
 class NoDataFromFileException(Exception): pass
 
-@dataclass
+@dataclass(kw_only=True)
 class FolderTroveReaderCard(ReaderCard):
     glob: str
     read_from_filename_regex: str
     read_so_far_args: dict[str, str] = field(default_factory=dict)
-    post_read: Callable[['pd.DataFrame'],None] = (lambda x: None)
+    post_reads: Sequence[Callable[['pd.DataFrame'],None]] = ((lambda x: None),)
 
 @dataclass
 class SingleFolderTrove(Trove):
@@ -117,9 +117,9 @@ class SingleFolderTrove(Trove):
 
                             # Read data
                             try:
-                                read_dfs=reader_card.reader_func(file=f,
+                                read_dfs=reader_card.read(file=f,
                                         mg_name=mg_name,only_sampleload_info=only_sampleload_info,
-                                        **{k:read_info_so_far[v] for k,v in reader_card.read_so_far_args.items()})
+                                        read_info_so_far=read_info_so_far)
                                 if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
                             except NoDataFromFileException as e: continue
 
@@ -129,13 +129,10 @@ class SingleFolderTrove(Trove):
                             # name to a sequence of dataframes. Handle both by converting the former to
                             # the latter, with the assumption we've already garnered the material name
                             # from the folder or filename
-                            SAMPLENAME_COL=PCONF().data_definition.sample_identifier_column.name
-                            ALL_SAMPLE_COLUMNS=[SAMPLENAME_COL,
-                                    *[c.name for c in PCONF().data_definition.sample_info_columns]]
-                            ALL_SAMPLELOAD_COLUMNS=[*ALL_SAMPLE_COLUMNS,
-                                    *[c.name for c in PCONF().data_definition.troves[trove_name].load_info_columns]]
+                            SAMPLE_COLNAME=PCONF().data_definition.SAMPLE_COLNAME
+                            ALL_SAMPLELOAD_COLNAMES=PCONF().data_definition.ALL_SAMPLELOAD_COLNAMES(trove_name)
                             sample_to_read_dfs:dict[str,list[pd.DataFrame]]=\
-                                read_dfs if type(read_dfs) is dict else {read_info_so_far[SAMPLENAME_COL]:read_dfs} # type: ignore
+                                read_dfs if type(read_dfs) is dict else {read_info_so_far[SAMPLE_COLNAME]:read_dfs} # type: ignore
 
                             # For each material and sequence of dataframs
                             for sample,read_dfs in sample_to_read_dfs.items():
@@ -143,17 +140,17 @@ class SingleFolderTrove(Trove):
                                 # If so, check that info for consistency with what we've already gathered
                                 # and add altogether to read_info_so_far_with_data
                                 # Of course the sample is also material/load info, so include that as well
-                                # And for convenience, add the sample to each dataframe so post_read has access to it
+                                # And for convenience, add the sample to each dataframe so post_reads have access to it
                                 read_info_so_far_with_data=read_info_so_far.copy()
-                                for k in ALL_SAMPLELOAD_COLUMNS:
+                                for k in ALL_SAMPLELOAD_COLNAMES:
                                     if any(k in read_df.columns for read_df in read_dfs):
                                         from_data=only(set([read_df[k].iloc[0] for read_df in read_dfs]))
                                     else: from_data=None
-                                    if k==SAMPLENAME_COL:
+                                    if k==SAMPLE_COLNAME:
                                         if from_data is not None: assert sample==from_data
                                         else:
                                             for read_df in read_dfs:
-                                                read_df[SAMPLENAME_COL]=pd.Series([sample]*len(read_df),dtype='string')
+                                                read_df[SAMPLE_COLNAME]=pd.Series([sample]*len(read_df),dtype='string')
                                         from_data=sample
                                     if from_data is not None:
                                         if k in read_info_so_far_with_data:
@@ -167,8 +164,9 @@ class SingleFolderTrove(Trove):
                                        for k in only_sampleload_info if k in read_info_so_far_with_data):
                                     continue
 
-                                # Do the post_read
-                                for read_df in read_dfs: reader_card.post_read(read_df)
+                                # Do the post_reads
+                                for read_df in read_dfs:
+                                    for post_read in reader_card.post_reads: post_read(read_df)
 
                                 # Form MeasurementTable from the data
                                 # And add some useful externally ensured columns
@@ -178,9 +176,9 @@ class SingleFolderTrove(Trove):
                                 read_data['FilePath']=pd.Series([
                                     str(relpath.as_posix())]*len(read_data),dtype='string')
                                 read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
-                                read_data[SAMPLENAME_COL]=pd.Series([sample]*len(read_data),dtype='string')
+                                read_data[SAMPLE_COLNAME]=pd.Series([sample]*len(read_data),dtype='string')
                                 if 'DieXY' in read_data:
-                                    read_data['FQSite']=read_data[SAMPLENAME_COL]+'/'+read_data['DieXY']+'/'+read_data['Site']
+                                    read_data['FQSite']=read_data[SAMPLE_COLNAME]+'/'+read_data['DieXY']+'/'+read_data['Site']
 
                                 # Add any material LUT information to the data
                                 for k,v in read_info_so_far.get('material_lut',{}).get(sample,{}).items():
@@ -199,7 +197,7 @@ class SingleFolderTrove(Trove):
 
                                 # Also collate any material/load information
                                 sample_to_sampleload_info[sample]=sample_to_sampleload_info.get(sample,{})
-                                for k in ALL_SAMPLELOAD_COLUMNS:
+                                for k in ALL_SAMPLELOAD_COLNAMES:
                                     if not (v:=read_info_so_far_with_data.get(k,None)):
                                         raise Exception(f"Missing info to know '{k}' for {str(f)}")
                                     if (existing_value:=sample_to_sampleload_info[sample].get(k,None)):

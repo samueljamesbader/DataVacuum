@@ -11,7 +11,18 @@ if TYPE_CHECKING:
 
 @dataclass
 class ReaderCard():
-    reader_func: Callable[...,list[pd.DataFrame]|dict[str,list[pd.DataFrame]]]
+    reader_func: Optional[Callable[...,list[pd.DataFrame]|dict[str,list[pd.DataFrame]]]] = None
+
+    def read(self, mg_name:str=None, # type: ignore
+             only_sampleload_info:dict[str,Any]={}, read_info_so_far:dict[str,Any]={}, **kwargs)\
+        -> Union[list[pd.DataFrame], dict[str, list[pd.DataFrame]]]:
+
+        assert mg_name is not None, "mg_name must be specified for ReaderCard.read()"
+        if self.reader_func is not None:
+            return self.reader_func(mg_name=mg_name, only_sampleload_info=only_sampleload_info.copy(),
+                                    read_info_so_far=read_info_so_far.copy(), **kwargs)
+        else:
+            raise NotImplementedError("Either implement ReaderCard.read() in a subclass or supply reader_func.")
 
 @dataclass
 class Trove(): 

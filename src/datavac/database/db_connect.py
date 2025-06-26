@@ -60,6 +60,10 @@ def get_engine_ro():
     return _make_engine(get_db_connection_info(DBConnectionMode.READ_ONLY))
 
 @cache 
+def get_engine_rw():
+    return _make_engine(get_db_connection_info(DBConnectionMode.READ_WRITE))
+
+@cache 
 def get_engine_so():
     return _make_engine(get_db_connection_info(DBConnectionMode.SCHEMA_OWNER))
 
@@ -153,6 +157,7 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     except Exception as e: last_error = e
     
     if ('local' in (get_current_context_name() or '')): raise last_error
+    if ('builtin:' in (get_current_context_name() or '')): raise last_error
     if not is_server():
         from datavac.appserve.secrets.user_side import get_secret_from_deployment
         try:

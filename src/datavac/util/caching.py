@@ -6,7 +6,7 @@ import pickle
 import shutil
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 from datavac.util.logging import time_it, logger
 
@@ -80,8 +80,9 @@ def pickle_cached(cache_dir:str|Path, # type: ignore
         return wrapped
     return wrapper
 
-
-def pickle_db_cached(namer: Union[Callable[[],str],str], namespace:str, conn:Optional[Connection]=None):
+T=TypeVar('T')
+def pickle_db_cached(namer: Union[Callable[[],str],str], namespace:str, conn:Optional[Connection]=None)\
+        -> Callable[[Callable[...,T]], Callable[..., tuple[T, float]]]:
     def wrapper(func):
         from datavac.config.project_config import PCONF
         cache_dir = PCONF().USER_CACHE/namespace

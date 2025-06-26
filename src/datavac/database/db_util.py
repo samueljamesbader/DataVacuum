@@ -23,3 +23,6 @@ def read_sql(query,conn=None) -> pd.DataFrame:
 def namews(table:Table) -> str:
     assert table.schema is not None, "Table schema must be set to use namews"
     return f"{table.schema}.{table.name}" if table.schema else table.name
+def namewsq(table:Table) -> str:
+    assert table.schema is not None, "Table schema must be set to use namewsq"
+    return f"{table.schema}.\"{table.name}\"" if table.schema else table.name

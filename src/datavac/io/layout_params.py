@@ -6,6 +6,7 @@ from pathlib import Path
 
 #from datavac.util.cli import cli_helper
 from datavac.util.logging import logger, time_it
+from datavac.config.layout_params import LayoutParameters as GeneralLayoutParameters
 import pandas as pd
 import numpy as np
 import pickle
@@ -18,17 +19,19 @@ if TYPE_CHECKING:
     from datavac.config.data_definition import SemiDeviceDataDefinition
 
 
-# TODO: remove the LayoutParameters gotcha below and change this _LayoutParameters back to LayoutParameters
-class LayoutParameters:
+# TODO: Rename this a FolderParameters and bring into line with the new layout parameters system.
+class LayoutParameters(GeneralLayoutParameters):
 
-    def __init__(self):
+    def __init__(self, params_dir: Path, yaml_path: Path):
+        self.params_dir = params_dir
+        self.yaml_path = yaml_path
         self.regenerate_from_excel()
 
     def timestamp_still_valid(self):
 
         from datavac.config.project_config import PCONF
-        LAYOUT_PARAMS_DIR=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_dir
-        yaml_path=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_yaml
+        LAYOUT_PARAMS_DIR=self.params_dir
+        yaml_path=self.yaml_path
         with open(yaml_path,'r') as f:
             current_yaml_str=f.read()
 
@@ -47,8 +50,8 @@ class LayoutParameters:
 
     def regenerate_from_excel(self):
         from datavac.config.project_config import PCONF
-        LAYOUT_PARAMS_DIR=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_dir
-        yaml_path=cast('SemiDeviceDataDefinition',PCONF().data_definition).layout_params_yaml
+        LAYOUT_PARAMS_DIR=self.params_dir
+        yaml_path=self.yaml_path
         with open(yaml_path,'r') as f:
             self._yaml_str=f.read()
             self._yaml=yaml.safe_load(self._yaml_str)
@@ -230,36 +233,8 @@ class LayoutParameters:
         assert len(rejects)==0, f"Structures {rejects} not in measurement parameter group '{meas_group}'"
 
 
-    def merge_with_layout_params(self,meas_df,for_measurement_group,param_names=None, on_missing='error'):
-        #structures_to_get=meas_df['Structure'].unique()
-        #params=self.get_params(structures_to_get,allow_partial=False,for_measurement_group=for_measurement_group)
-        from typing import cast
-        from datavac.measurements.measurement_group import SemiDevMeasurementGroup
-        for_measurement_group=cast(SemiDevMeasurementGroup,for_measurement_group).layout_param_group
-        if for_measurement_group not in self._tables_by_meas:
-            raise Exception(f"No layout parameters for measurement group {for_measurement_group}")
-        params=self._tables_by_meas[for_measurement_group]
-        if param_names:
-            params=params[[pn for pn in param_names if pn in params.columns]].copy()
-            for param in param_names:
-                if param not in params.columns:
-                    if on_missing=='error':
-                        raise Exception(f"Missing parameter {param}")
-                    elif on_missing=='NA':
-                        params[param]=pd.NA
-                    elif on_missing=='ignore':
-                        continue
-                    else:
-                        raise Exception(f"Unrecognized value for on_missing={on_missing}")
-        else:
-            cols_to_drop=[c for c in ['RowName','DUT'] if c in meas_df]+[c for c in params if c.startswith("PAD:")]
-            params=params.drop(columns=cols_to_drop)
-        left_on='Structure' if 'Structure' in meas_df.columns else 'Site'
-        merged=pd.merge(left=meas_df,right=params,how='left',left_on=[left_on],right_index=True,
-                        suffixes=(None,'_param'))
-        #import pdb; pdb.set_trace()
-        return merged
 
+# TODO: Remove this deprecated way of accessing layout parameters
 _layout_params:'LayoutParameters'=None
 _layout_params_timestamp:float=None
 def get_layout_params(force_regenerate=False, conn:'Optional[Connection]'=None):
@@ -267,7 +242,10 @@ def get_layout_params(force_regenerate=False, conn:'Optional[Connection]'=None):
     if force_regenerate or (_layout_params is None):
         from datavac.util.caching import pickle_db_cached
         _layout_params,_layout_params_timestamp=\
-            pickle_db_cached('LayoutParams',namespace='vac',conn=conn)(LayoutParameters)(force=force_regenerate)
+            pickle_db_cached('LayoutParams',namespace='vac',conn=conn)(LayoutParameters)(
+                params_dir=Path(os.environ['DATAVAC_LAYOUT_PARAMS_DIR']),
+                yaml_path= Path(os.environ['DATAVAC_LAYOUT_PARAMS_YAML']),
+                force=force_regenerate)
     return _layout_params
 def unget_layout_params():
     global _layout_params

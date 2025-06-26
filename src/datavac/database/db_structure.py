@@ -83,14 +83,15 @@ class DBStructure():
         reload_tab= t if (t is not None) else \
             Table(f'ReLoad_{trove_name}', self.metadata,
                     Column('sampleid',INTEGER,ForeignKey(self.get_sample_dbtable().c.sampleid,**_CASC),nullable=False),
-                    Column('MeasGroup',VARCHAR,primary_key=True,nullable=False),
+                    Column('MeasGroup',VARCHAR,nullable=False),
                     *[Column(c.name,c.sql_dtype,nullable=False) for c in trove.load_info_columns],
+                    UniqueConstraint('sampleid','MeasGroup'),
                     schema=self.int_schema)
         t= self.metadata.tables.get(self.int_schema+f'.ReExtr_{trove_name}')
         reextr_tab= t if (t is not None) else \
             Table(f'ReExtr_{trove_name}', self.metadata,
                     Column('loadid', INTEGER, ForeignKey(load_tab.c.loadid, **_CASC), nullable=False),
-                    Column('MeasGroup',VARCHAR,primary_key=True,nullable=False),
+                    #Column('MeasGroup',VARCHAR,primary_key=True,nullable=False),
                     schema=self.int_schema)
         return {'loads': load_tab, 'reload': reload_tab, 'reextr': reextr_tab}
                     
@@ -114,6 +115,7 @@ class DBStructure():
             Table(ssr.name, self.metadata,
                   Column(ssr.key_column.name, ssr.key_column.sql_dtype, primary_key=True, nullable=False),
                   *[Column(c.name, c.sql_dtype, nullable=False) for c in ssr.info_columns],
+                  *ssr.get_constraints(),
                   schema=self.int_schema)
     
     def get_sample_descriptor_dbtable(self, sd_name: str) -> Table:
@@ -144,7 +146,7 @@ class DBStructure():
             subsample_reference_columns = \
                 [Column(ssr.key_column.name, ssr.key_column.sql_dtype,
                              ForeignKey(self.get_subsample_reference_dbtable(ssr_name).c[ssr.key_column.name],
-                                        name=f'fk_{ssr.name}',**_CASC),nullable=False)
+                                        name=f'fk_{ssr.key_column.name} -- {mg_name}',**_CASC),nullable=False)
                          for ssr_name, ssr in subsample_references.items()]
             meas_tab=Table(
                     f'Meas -- {mg_name}', self.metadata,

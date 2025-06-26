@@ -1,15 +1,8 @@
 from dataclasses import dataclass
-from typing import Callable
+
 from datavac import unload_my_imports
-
-
-from datavac.trove import ReaderCard, Trove
-from datavac.config.data_definition import DVColumn
-class MockTrove(Trove):
-    load_info_columns:list[DVColumn] = []
-@dataclass
-class MockReaderCard(ReaderCard):
-    reader_func: Callable = (lambda: [])
+from datavac.trove.mock_trove import MockTrove
+from datavac.trove.mock_trove import MockReaderCard
 
 def make_project_config(num_meas_cols, num_extr_cols):
     from datavac.appserve.secrets.vault.demo_vault import DemoVault
@@ -24,7 +17,7 @@ def make_project_config(num_meas_cols, num_extr_cols):
         def available_extr_columns(self) -> dict[str, DVColumn]:
             return asnamedict(*super().available_extr_columns().values(),* extr_cols)
     
-    return ProjectConfiguration('datavac_dbtest',
+    return ProjectConfiguration(deployment_name='datavac_dbtest',
                                 data_definition=SemiDeviceDataDefinition(
                                     measurement_groups={'test_group': MG(
                                         name ='test_group',
@@ -32,8 +25,6 @@ def make_project_config(num_meas_cols, num_extr_cols):
                                         reader_cards={'': [MockReaderCard()]},
                                         meas_columns=meas_cols,
                                         extr_column_names=[c.name for c in extr_cols],)},
-                                    layout_params_dir=None, # type: ignore
-                                    layout_params_yaml=None, # type: ignore
                                     troves={'': MockTrove()}
                                 ),
                                 vault=DemoVault(dbname='datavac_dbtest')

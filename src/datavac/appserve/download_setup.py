@@ -11,8 +11,8 @@ def get_setup_contents(yesno_code:str='yes', output_buffer: Optional[TextIO]=Non
     """Writes or returns a setup script for the the active DataVacuum deployment.
 
     Args:
-        yesno_code (str): 'yes' for yes-code setup, 'no' for no-code setup.
-        output_buffer (Optional[TextIO]): If provided, writes the script to this buffer.
+        yesno_code: 'yes' for yes-code setup, 'no' for no-code setup.
+        output_buffer: If provided, writes the script to this buffer.
             Otherwise, returns the script as a string.
     """
     assert yesno_code in ['yes','no'], "yesno_code must be 'yes' or 'no'"

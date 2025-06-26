@@ -115,3 +115,32 @@ class Transistor4T:
     def approximate_Ron(self,VG):
         VD=1e-3
         return VD/self.DCIV(VG=np.array(VG),VD=VD,VS=0,VB=0)['ID']
+
+    def generate_potential_idvg(self,VDs,VGrange, do_plot=False) -> dict:
+        # Make a simple IdVg curve
+        npoints=51
+        VG=np.linspace(VGrange[0], VGrange[1], npoints)
+        data={'VG':VG}
+        for VD in VDs:
+            sweep_data = self.DCIV(VG, VD, VS=0)
+            data['fID@VD='+str(VD)]=sweep_data['ID'].to_numpy(dtype='float32')
+            data['fIG@VD='+str(VD)]=sweep_data['IG'].to_numpy(dtype='float32')
+            data['fIS@VD='+str(VD)]=sweep_data['IS'].to_numpy(dtype='float32') 
+
+        if do_plot:
+            # Plotting the IdVg data
+            import matplotlib.pyplot as plt
+
+            plt.figure()
+            for VD in VDs:
+                plt.plot(data['VG'], data[f'fID@VD={VD}'], label=f'VD={VD}V')
+
+            plt.xlabel('VG (V)')
+            plt.ylabel('ID (A)')
+            plt.title('Id-Vg Transfer Curve')
+            plt.legend()
+            plt.grid(True)
+            plt.yscale('log')
+            plt.show()
+
+        return data

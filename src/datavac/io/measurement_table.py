@@ -35,8 +35,8 @@ class MeasurementTable:
 
     def scalar_table_with_layout_params(self, params=None, on_missing='error') -> pd.DataFrame:
         if self.meas_group:
-            from datavac.io.layout_params import get_layout_params
-            return get_layout_params().merge_with_layout_params(
+            from datavac.config.layout_params import LP
+            return LP().merge_with_layout_params(
                 self.scalar_table,self.meas_group,param_names=params,on_missing=on_missing)
         else:
             return self.scalar_table

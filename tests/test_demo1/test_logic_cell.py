@@ -42,4 +42,6 @@ def test_logic():
 if __name__ == '__main__':
     import os
     os.environ["DATAVACUUM_CONTEXT"]="builtin:demo1"
+    from conftest import _example_data
+    _example_data()
     test_logic()

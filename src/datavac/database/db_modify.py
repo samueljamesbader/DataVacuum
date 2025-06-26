@@ -2,10 +2,11 @@ from typing import Optional
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import get_engine_so
 from datavac.database.db_structure import DBSTRUCT
+from datavac.config.data_definition import DDEF
 from datavac.database.db_util import namews
 from datavac.util.logging import logger
 from datavac.util.util import only
-from sqlalchemy import Connection, MetaData, delete, literal, select, Table
+from sqlalchemy import Connection, MetaData, delete, literal, select, Table, text
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert
 
 def _table_mismatch(described_table: Table, db_metadata: MetaData):
@@ -24,34 +25,35 @@ def _table_mismatch(described_table: Table, db_metadata: MetaData):
         logger.warning(f"Currently in DB: { {k:v1 for k,(v1,v2) in type_misses.items()} }")
         logger.warning(f"Should be in DB: { {k:v2 for k,(v1,v2) in type_misses.items()} }")
         return True
-def dump_measurements(mg_name:str, conn:Connection):
-    trove_name= PCONF().data_definition.measurement_groups[mg_name].trove_name()
-    meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
-    load_tab=DBSTRUCT().get_trove_dbtables(trove_name)['loads']
-    reload_tab=DBSTRUCT().get_trove_dbtables(trove_name)['reload']
-    assert [c.name for c in reload_tab.columns][:2]==['sampleid','MeasGroup'] # assumed by below SQL
-    conn.execute(
-        pgsql_insert(reload_tab) \
-            .from_select([c.name for c in reload_tab.columns],
-                         select(load_tab.c.sampleid,literal(mg_name),*[load_tab.c[c.name] for c in reload_tab.columns[2:]]) \
-                         .select_from(meas_tab.join(load_tab)) \
-                         .distinct()) \
-            .on_conflict_do_nothing())
-    conn.execute(delete(meas_tab))
-
-def dump_extractions(mg_name:str, conn:Connection):
-    trove_name= PCONF().data_definition.measurement_groups[mg_name].trove_name()
-    meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
-    extr_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['extr']
-    reextr_tab=DBSTRUCT().get_trove_dbtables(trove_name)['reextr']
-    conn.execute(
-        pgsql_insert(reextr_tab) \
-            .from_select([c.name for c in reextr_tab.columns],
-                         select(meas_tab.c.loadid,literal(mg_name)) \
-                         .select_from(meas_tab) \
-                         .distinct()) \
-            .on_conflict_do_nothing())
-    conn.execute(delete(extr_tab))
+    
+#def dump_measurements(mg_name:str, conn:Connection):
+#    trove_name= PCONF().data_definition.measurement_groups[mg_name].trove_name()
+#    meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
+#    load_tab=DBSTRUCT().get_trove_dbtables(trove_name)['loads']
+#    reload_tab=DBSTRUCT().get_trove_dbtables(trove_name)['reload']
+#    assert [c.name for c in reload_tab.columns][:2]==['sampleid','MeasGroup'] # assumed by below SQL
+#    conn.execute(
+#        pgsql_insert(reload_tab) \
+#            .from_select([c.name for c in reload_tab.columns],
+#                         select(load_tab.c.sampleid,literal(mg_name),*[load_tab.c[c.name] for c in reload_tab.columns[2:]]) \
+#                         .select_from(meas_tab.join(load_tab)) \
+#                         .distinct()) \
+#            .on_conflict_do_nothing())
+#    conn.execute(delete(meas_tab))
+#
+#def dump_extractions(mg_name:str, conn:Connection):
+#    trove_name= PCONF().data_definition.measurement_groups[mg_name].trove_name()
+#    meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
+#    extr_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['extr']
+#    reextr_tab=DBSTRUCT().get_trove_dbtables(trove_name)['reextr']
+#    conn.execute(
+#        pgsql_insert(reextr_tab) \
+#            .from_select([c.name for c in reextr_tab.columns],
+#                         select(meas_tab.c.loadid) \
+#                         .select_from(meas_tab) \
+#                         .distinct()) \
+#            .on_conflict_do_nothing())
+#    conn.execute(delete(extr_tab))
     
 
 def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # type: ignore
@@ -69,10 +71,13 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
             if namews(desired_tabs['meas']) in db_metadata.tables:
                 if force_meas or _table_mismatch(desired_tabs['meas'], db_metadata):
                     need_to_create_meas = True
-                    dump_measurements(mg_name, conn)
+                    from datavac.database.db_upload import delete_prior_loads
+                    delete_prior_loads(trove=DDEF().troves[only(DDEF().measurement_groups[mg_name].reader_cards)],
+                                       sample_info=None,only_meas_groups=[mg_name], conn=conn)
                     drops=[db_metadata.tables[namews(t)]
                                for t in desired_tabs.values()
                                     if namews(t) in db_metadata.tables]
+                    conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{mg_name}" """))
                     db_metadata.drop_all(conn,drops,checkfirst=True)
                     for drop in drops: db_metadata.remove(drop)
                 else: need_to_create_meas = False
@@ -82,7 +87,10 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
             if namews(desired_tabs['extr']) in db_metadata.tables:
                 if force_extr or _table_mismatch(desired_tabs['extr'], db_metadata):
                     need_to_create_extr = True
-                    dump_extractions(mg_name, conn)
+                    from datavac.database.db_upload import delete_prior_extractions
+                    delete_prior_extractions(trove=DDEF().troves[only(DDEF().measurement_groups[mg_name].reader_cards)],
+                                       sampleload_info=None,only_meas_groups=[mg_name], conn=conn)
+                    conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{mg_name}" """))
                     db_metadata.tables[namews(desired_tabs['extr'])].drop(conn,checkfirst=True)
                 else: need_to_create_extr = False
             else: need_to_create_extr = True
@@ -91,6 +99,9 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
             if namews(desired_tabs['sweep']) not in db_metadata.tables:
                 desired_tabs['sweep'].create(conn)
 
+            if need_to_create_meas or need_to_create_extr:
+                from datavac.database.db_create import create_meas_group_view
+                create_meas_group_view(mg_name, conn)
             
 
 

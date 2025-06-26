@@ -8,40 +8,12 @@ import pandas as pd
 import platformdirs
 
 from datavac.examples.demo1 import EXAMPLE_DATA_DIR
-from datavac.examples.demo1.mock_devices import Transistor4T
-from datavac.examples.demo1.mock_logic import AndGate, OrGate, DFlipFlop, TieHi, TieLo, RingOscillator, Divider, \
+from datavac.examples.data_mock.mock_devices import Transistor4T
+from datavac.examples.data_mock.mock_logic import AndGate, OrGate, DFlipFlop, TieHi, TieLo, RingOscillator, Divider, \
     InverterDC
-from datavac.io.layout_params import get_layout_params
+from datavac.config.layout_params import LP
 
 
-def make_IdVg(transistor,VDs,VGrange, do_plot=False) -> dict:
-    # Make a simple IdVg curve
-    npoints=51
-    VG=np.linspace(VGrange[0], VGrange[1], npoints)
-    data={'VG':VG}
-    for VD in VDs:
-        sweep_data = transistor.DCIV(VG, VD, VS=0)
-        data['fID@VD='+str(VD)]=sweep_data['ID']
-        data['fIG@VD='+str(VD)]=sweep_data['IG']
-        data['fIS@VD='+str(VD)]=sweep_data['IS']
-
-    if do_plot:
-        # Plotting the IdVg data
-        import matplotlib.pyplot as plt
-
-        plt.figure()
-        for VD in VDs:
-            plt.plot(data['VG'], data[f'fID@VD={VD}'], label=f'VD={VD}V')
-
-        plt.xlabel('VG (V)')
-        plt.ylabel('ID (A)')
-        plt.title('Id-Vg Transfer Curve')
-        plt.legend()
-        plt.grid(True)
-        plt.yscale('log')
-        plt.show()
-
-    return data
 
 #def make_KelvinRon(transistor:Transistor4T,IDs,VGrange, do_plot=False) -> dict:
 #    # Make a simple IdVg curve
@@ -60,7 +32,8 @@ def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np
     (EXAMPLE_DATA_DIR/lot).mkdir(parents=True,exist_ok=True)
     data.to_csv(EXAMPLE_DATA_DIR/lot/f"{lot}_{sample}_{meas_name}.csv",index=False)
 
-def read_csv(file:str|Path, mg_name: str, only_sampleload_info: dict = {}):
+def read_csv(file:str|Path, mg_name: str, only_sampleload_info: dict = {},
+             read_info_so_far: Optional[dict] = None) -> list[pd.DataFrame]:
     assert len(only_sampleload_info) == 0, "Only sampleload_info is not supported in this example"
     from datavac.examples.demo1.dvconfig import EXAMPLE_DATA_DIR
     rawcsv=pd.read_csv(EXAMPLE_DATA_DIR/file)
@@ -71,18 +44,18 @@ def read_csv(file:str|Path, mg_name: str, only_sampleload_info: dict = {}):
     return [pd.DataFrame(data).convert_dtypes()]
 
 def get_transistor(mask,structure):
-    lp=get_layout_params()
+    lp=LP()
     site_params=lp.get_params([structure],mask=mask).iloc[0]
     return Transistor4T(W=site_params['W [um]']*1e-6,L=site_params['L [um]']*1e-6,
                VT0=site_params['VT0_target [V]'],n=site_params['n_target'],pol=site_params['pol'])
 
 def get_inverter(mask,structure):
-    lp=get_layout_params()
+    lp=LP()
     site_params=lp.get_params([structure],mask=mask).iloc[0]
     return InverterDC(Vim=site_params['target_Vmid [V]'], gain=site_params['target_gain'])
 
 def get_ring(mask,structure) -> RingOscillator:
-    lp=get_layout_params()
+    lp=LP()
     site_params=lp.get_params([structure],mask=mask).iloc[0]
     return RingOscillator(stages=site_params['stages'],
                           t_stage=site_params['target_t_stage [ps]']/1e12,
@@ -98,14 +71,14 @@ def make_example_data():
     ###
     # nMOS Id-Vgs
     ###
-    data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[ .01,  1], VGrange=[0,  1], do_plot=False)
+    data={structure: get_transistor('Mask1',structure).generate_potential_idvg(VDs=[ .01,  1], VGrange=[0,  1], do_plot=False)
           for structure in ['nmos1','nmos2','nmos3']}
     write_example_data_file('lot1','sample1','nMOS_IdVg',data)
 
     ###
     # pMOS Id-Vgs
     ###
-    data={structure: make_IdVg(get_transistor('Mask1',structure), VDs=[-.01, -1], VGrange=[0, -1], do_plot=False)
+    data={structure: get_transistor('Mask1',structure).generate_potential_idvg(VDs=[-.01, -1], VGrange=[0, -1], do_plot=False)
           for structure in ['pmos1','pmos2','pmos3']}
     write_example_data_file('lot1','sample1','pMOS_IdVg',data)
 

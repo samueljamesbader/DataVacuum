@@ -1,5 +1,5 @@
 import panel as pn
-pn.extension('mathjax')
+pn.extension('mathjax') # type: ignore
 from panel.template.base import BasicTemplate
 
 
@@ -7,7 +7,7 @@ class PanelApp:
     title: str = "DataVacuum"
     def __init__(self, title = None):
         page_kwargs={}
-        if (theme:=pn.state.cache.get('theme',None)) is not None:
+        if (theme:=pn.state.cache.get('theme',None)) is not None: # type: ignore
             page_kwargs['theme']=theme
         if title is not None:
             self.title=title
