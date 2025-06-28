@@ -1,7 +1,7 @@
 from __future__ import annotations
 from functools import cache
 from typing import Any, cast
-from datavac.appserve.secrets.vault.demo_vault import DemoVault
+from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
 from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
 from datavac.config.layout_params import LayoutParameters
 from datavac.config.project_config import ProjectConfiguration

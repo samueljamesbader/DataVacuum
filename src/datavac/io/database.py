@@ -14,7 +14,7 @@ import requests
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import SQLAlchemyError
 
-from datavac.appserve.secrets.db_secrets import get_db_connection_info
+from datavac.appserve.dvsecrets.db_secrets import get_db_connection_info
 from datavac.io.layout_params import get_layout_params
 from datavac.trove.classic_folder_trove import ensure_meas_group_sufficiency, ALL_MATERIAL_COLUMNS, ALL_LOAD_COLUMNS, \
     ALL_MATLOAD_COLUMNS

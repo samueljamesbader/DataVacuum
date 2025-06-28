@@ -2,12 +2,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, Union
 from dataclasses import dataclass, field
 
-
-
 if TYPE_CHECKING:
     import pandas as pd
     from datavac.config.data_definition import DVColumn
     from datavac.io.measurement_table import MultiUniformMeasurementTable
+    from sqlalchemy import Table
 
 @dataclass
 class ReaderCard():
@@ -56,4 +55,8 @@ class Trove():
             - The second dictionary maps sample names to dictionaries of sample/load information.
         """
         raise NotImplementedError("Trove.read() must be implemented by subclasses.")
-
+    
+    def dbtables(self,key: str) -> Table:
+        """Returns the database table associated with this trove for the given key."""
+        from datavac.database.db_structure import DBSTRUCT
+        return DBSTRUCT().get_trove_dbtables(self.name)[key]

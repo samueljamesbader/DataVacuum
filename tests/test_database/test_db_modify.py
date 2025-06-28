@@ -5,7 +5,7 @@ from datavac.trove.mock_trove import MockTrove
 from datavac.trove.mock_trove import MockReaderCard
 
 def make_project_config(num_meas_cols, num_extr_cols):
-    from datavac.appserve.secrets.vault.demo_vault import DemoVault
+    from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
     from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
     from datavac.config.project_config import ProjectConfiguration
     from datavac.measurements.measurement_group import MeasurementGroup

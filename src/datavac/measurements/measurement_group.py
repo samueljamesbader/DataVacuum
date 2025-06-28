@@ -9,7 +9,8 @@ from datavac.util.util import only
 if TYPE_CHECKING:
     from datavac.config.data_definition import DVColumn, SubSampleReference
     from datavac.io.measurement_table import UniformMeasurementTable
-    from datavac.trove import ReaderCard
+    from datavac.trove import Trove, ReaderCard
+    from sqlalchemy import Table
 
 @dataclass
 class MeasurementGroup():
@@ -105,6 +106,15 @@ class MeasurementGroup():
         """Returns the name of the trove that contains the reader cards for this measurement group."""
         if not len(self.reader_cards): return ''
         return only(self.reader_cards.keys())
+    def trove(self) -> Trove:
+        """Returns the Trove object that contains the reader cards for this measurement group."""
+        from datavac.config.data_definition import DDEF
+        return DDEF().troves[self.trove_name()]
+    
+    def dbtable(self, key:str) -> Table:
+        """Returns the SQLAlchemy Table object for this measurement group from DBSTRUCT()."""
+        from datavac.database.db_structure import DBSTRUCT
+        return DBSTRUCT().get_measurement_group_dbtables(self.name)[key]
 
 @dataclass
 class SemiDevMeasurementGroup(MeasurementGroup):

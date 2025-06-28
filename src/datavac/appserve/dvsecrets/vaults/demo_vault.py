@@ -1,4 +1,4 @@
-from datavac.appserve.secrets.vault import Vault
+from datavac.appserve.dvsecrets.vaults.vault import Vault
 from datavac.database.db_connect import DBConnectionMode, PostgreSQLConnectionInfo
 
 

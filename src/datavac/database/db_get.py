@@ -29,8 +29,15 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
         for pf,values in pre_filters.items():
             s=s.where(get_col(pf).in_(values))
         return s
-    cols:list[Column]=[get_col(f) for f in columns] if columns is not None else\
-                                [c for tab in table_depends for c in tab.columns]
+    if columns is not None:
+        cols:list[Column]=[get_col(f) for f in columns]
+    else:
+        col_names = set()
+        cols: list[Column] = []
+        for tab in table_depends:
+            for c in tab.columns:
+                if c.name not in col_names:
+                    cols.append(c); col_names.add(c.name)
     def apply_joins():
         ordered_needed_tables=[]
         need_queue=set(absolute_needs+[f.table for f in cols]+[get_col(pf).table for pf in pre_filters])

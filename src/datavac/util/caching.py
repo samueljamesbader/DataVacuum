@@ -15,7 +15,8 @@ if TYPE_CHECKING:
 
 
 def pickle_cached(cache_dir:str|Path, # type: ignore
-                  namer: Callable[..., str])\
+                  namer: Callable[..., str],
+                  recency: int = -1)\
             -> Callable[[Callable], Callable]:
     """
     A decorator to cache the results of a function using pickle.
@@ -25,6 +26,8 @@ def pickle_cached(cache_dir:str|Path, # type: ignore
             If not absolute, will be interpreted relative to PCONF().USER_CACHE.
         namer (Callable[[Any], str], optional): A function that takes the wrapped-function's
             arguments and returns a string to use as the cache file name.
+        recency (int): The number of seconds after which the cache is considered stale.
+            If recency <= 0, the cache is never considered stale.
 
     Example
     -------
@@ -69,6 +72,8 @@ def pickle_cached(cache_dir:str|Path, # type: ignore
             if not is_setup: setup()
             cfile=cache_dir/namer(*args,**kwargs)
             try:
+                if not force and (recency>0) and (datetime.now().timestamp() - cfile.stat().st_mtime > recency):
+                    force=True
                 if not force:
                     with open(cfile,'rb') as f:
                         return pickle.load(f)

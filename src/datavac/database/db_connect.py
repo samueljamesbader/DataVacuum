@@ -159,7 +159,7 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     if ('local' in (get_current_context_name() or '')): raise last_error
     if ('builtin:' in (get_current_context_name() or '')): raise last_error
     if not is_server():
-        from datavac.appserve.secrets.user_side import get_secret_from_deployment
+        from datavac.appserve.dvsecrets.user_side import get_secret_from_deployment
         try:
             conn_str=get_secret_from_deployment({DBConnectionMode.READ_ONLY:'readonly_dbstring',
                                                  DBConnectionMode.READ_WRITE: 'readwrite_dbstring',

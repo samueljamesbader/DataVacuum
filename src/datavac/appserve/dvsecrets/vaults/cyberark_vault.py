@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING, Callable, Optional
-from datavac.appserve.secrets.vault import Vault
+from datavac.appserve.dvsecrets.vaults.vault import Vault
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import DBConnectionMode, PostgreSQLConnectionInfo
 from datavac.util.caching import pickle_cached

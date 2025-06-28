@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING, Any, Mapping, Optional, Callable, Sequence
 from datavac.config.layout_params import LayoutParameters
 from datavac.util.lazydict import FunctionLazyDict
 from datavac.util.util import only
-from pandas import DataFrame
 
 
 if TYPE_CHECKING:
     from numpy import dtype
     import pandas as pd
+    from pandas import DataFrame
     from sqlalchemy.sql.sqltypes import TypeEngine
-    from sqlalchemy import Constraint, Connection
+    from sqlalchemy import Constraint, Connection, Table
     from datavac.trove import ReaderCard, Trove
     from datavac.io.measurement_table import UniformMeasurementTable, MeasurementTable
     from datavac.measurements.measurement_group import MeasurementGroup
@@ -110,6 +110,11 @@ class SubSampleReference():
         """Transforms the given table to include the subsample reference information."""
         # Default implementation does nothing, can be overridden in subclasses
         return table
+    
+    def dbtable(self) -> Table:
+        """Returns the database table associated with this subsample reference."""
+        from datavac.database.db_structure import DBSTRUCT
+        return DBSTRUCT().get_subsample_reference_dbtable(self.name)
 
 @dataclass
 class HigherAnalysis():

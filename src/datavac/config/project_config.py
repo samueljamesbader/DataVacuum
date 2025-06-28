@@ -7,7 +7,7 @@ from pathlib import Path
 
 from datavac.config.cert_depo import CertDepo
 from datavac.config.data_definition import DataDefinition
-from datavac.appserve.secrets.vault import Vault
+from datavac.appserve.dvsecrets.vaults.vault import Vault
 import platformdirs
 
 if TYPE_CHECKING: pass

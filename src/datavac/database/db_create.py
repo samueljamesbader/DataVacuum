@@ -1,3 +1,4 @@
+from typing import Optional
 from datavac.config.data_definition import DDEF
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import DBConnectionMode, get_db_connection_info,\
@@ -84,7 +85,7 @@ def _setup_foundation(conn:Connection):
 
     conn.execute(text(make_schemas+set_search_path+create_blob_store))
 
-def create_meas_group_view(mg_name: str, conn: Connection):
+def create_meas_group_view(mg_name: str, conn: Optional[Connection], just_DDL_string: bool = False) -> str:
     from datavac.database.db_get import get_table_depends_and_hints_for_meas_group, joined_select_from_dependencies
     mg=DDEF().measurement_groups[mg_name]
     meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
@@ -93,7 +94,11 @@ def create_meas_group_view(mg_name: str, conn: Connection):
                                         table_depends=td, pre_filters={},join_hints=jh)
     seltextl=sel.compile(conn, compile_kwargs={"literal_binds": True})
     view_namewsq = f'{DBSTRUCT().jmp_schema}."{mg_name}"'
-    conn.execute(text(f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""))
+    ddl=f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""
+    if not just_DDL_string:
+        assert conn is not None, "Connection must be provided if not just generating DDL string."
+        conn.execute(text(ddl))
+    return ddl
 
 def create_analysis_view(an_name: str, conn: Connection):
     from datavac.database.db_get import get_table_depends_and_hints_for_analysis, joined_select_from_dependencies
