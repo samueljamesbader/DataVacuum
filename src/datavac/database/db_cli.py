@@ -38,9 +38,38 @@ def cli_ensure_clear_database(*args):
     from datavac.database.db_create import ensure_clear_database
     ensure_clear_database()
 
+
+def cli_read_and_enter_data(*args): 
+    parser = argparse.ArgumentParser(description="Read and enter data.")
+    parser.add_argument('--trove', '-t', type=str, nargs='+', default=None,
+                        help="Restrict to specified trove(s)")
+    parser.add_argument('--meas-group', '-g', type=str, nargs='+', default=None,
+                        help="Restrict to specified measurement group(s)")
+    from datavac.config.data_definition import DDEF
+
+    possible_slcs=list(set(sum((DDEF().ALL_SAMPLELOAD_COLNAMES(t) for t in DDEF().troves),[])))
+
+    for col in possible_slcs:
+        parser.add_argument(f'--{col.lower()}',type=str, nargs='+', default=None,
+            help=f"Restrict to specified {col}(s)")
+    
+    namespace = parser.parse_args(args)
+    print(namespace)
+
+    sampleload_info = {}
+    for col in possible_slcs:
+        if getattr(namespace, col.lower()) is not None:
+            sampleload_info[col] = getattr(namespace, col.lower())
+            
+    from datavac.database.db_upload_meas import read_and_enter_data
+    read_and_enter_data(trove_names=namespace.trove, only_meas_groups=namespace.meas_group,
+                        only_sampleload_info=sampleload_info)
+
+
 DB_CLI = CLIIndex({
     'print': cli_print_database,
     #'force': cli_force_database,
     'create': cli_create_all,
     'clear': cli_ensure_clear_database,
+    'upload (ud)': cli_read_and_enter_data,
     })

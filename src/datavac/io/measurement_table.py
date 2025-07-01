@@ -142,17 +142,18 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
                               meas_length=self.meas_length)
 
     def __add__(self, other: 'UniformMeasurementTable'):
-        assert self.headers==other.headers,\
-            f"Header mismatch: {self.headers} != {other.headers}"
-        assert self.meas_group==other.meas_group,\
-            f"Meas group mismatch {self.meas_group} != {other.meas_group}"
-        if self.meas_length==other.meas_length:
-            return UniformMeasurementTable(
-                dataframe=pd.concat([self._dataframe,other._dataframe],ignore_index=True),
-                headers=self.headers,meas_group=self.meas_group,meas_length=self.meas_length)
-        else:
-            logger.warning("Adding two UniformMeasurementTables of different meas_lengths" 
-                           " to produce a MultiUniformMeasurementTable")
+        #assert self.headers==other.headers,\
+        #    f"Header mismatch: {self.headers} != {other.headers}"
+        #assert self.meas_group==other.meas_group,\
+        #    f"Meas group mismatch {self.meas_group} != {other.meas_group}"
+        #if self.meas_length==other.meas_length:
+        #    return UniformMeasurementTable(
+        #        dataframe=pd.concat([self._dataframe,other._dataframe],ignore_index=True),
+        #        headers=self.headers,meas_group=self.meas_group,meas_length=self.meas_length)
+        #else:
+        #    logger.warning("Adding two UniformMeasurementTables of different meas_lengths" 
+        #                   " to produce a MultiUniformMeasurementTable")
+        if True:
             return MultiUniformMeasurementTable([self,other])
 
     def __getitem__(self, item: str)->Union[np.ndarray, pd.Series]:
@@ -182,7 +183,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         self._non_scalar_columns=[]
 
     def analyze(self,*args,**kwargs):
-        self.meas_group.extract(self,*args,**kwargs)
+        self.meas_group.extract_by_umt(self,*args,**kwargs)
 
     @staticmethod
     def from_read_data(read_dfs:Sequence[pd.DataFrame],meas_group:MeasurementGroup):
@@ -192,8 +193,11 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         if 'MeasLength' not in read_df.columns:
             #logger.warning("No MeasLength column in read data, will try to recreate")
             read_df=read_df.copy()
-            read_df['MeasLength']=read_df['RawData'].apply(lambda rd:\
-                                       only(set(len(rdv) for rdv in rd.values())))
+            if 'RawData' in read_df.columns:
+                read_df['MeasLength']=read_df['RawData'].apply(lambda rd:\
+                                           only(set(len(rdv) for rdv in rd.values())))
+            else:
+                read_df['MeasLength']=0
 
         meas_length=read_df['MeasLength'].iloc[0]
         if not all(n == meas_length for n in read_df['MeasLength']):
@@ -201,14 +205,20 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
                            str(read_df[['DieX','DieY','Site','MeasLength']].drop_duplicates(['MeasLength'])))
             raise Exception(f"Multiple meas_length's: {read_df['MeasLength'].unique()}")
 
-        headers=read_df['RawData'].iloc[0].keys()
-        assert all(raw.keys() == headers for raw in read_df['RawData'])
+        if 'RawData' in read_df.columns:
+            headers=read_df['RawData'].iloc[0].keys()
+            if not all(raw.keys() == headers for raw in read_df['RawData']):
+                logger.debug(f"Header mismatch: {[list(raw.keys()) for raw in read_df['RawData']]}")
 
-        for col in headers:
-            read_df[col]=[raw[col] for raw in read_df['RawData']]
+            # Could just assign directly instead of making a separate dataframe,
+            # but when there are many header columns to add,
+            # that results in highly-fragmented-data PerformanceWarnings from Pandas
+            header_part=pd.DataFrame({col:[raw[col] for raw in read_df['RawData']] for col in headers})
+            read_df=pd.concat([read_df,header_part],axis=1).drop(columns=['RawData'])
+        else: headers=[]
 
         return UniformMeasurementTable(
-            dataframe=read_df.drop(columns=['RawData']),headers=list(headers),
+            dataframe=read_df,headers=list(headers),
             meas_length=meas_length,meas_group=meas_group)
 
     def __getstate__(self):
@@ -284,16 +294,6 @@ class MultiUniformMeasurementTable(MeasurementTable):
         umts=[]
         for read_df in read_dfs:
             if not len(read_df): continue
-
-            # TODO: remove this
-            headers=read_df['RawData'].iloc[0].keys()
-            if not all(raw.keys() == headers for raw in read_df['RawData']):
-                logger.debug(f"Header mismatch: {[list(raw.keys()) for raw in read_df['RawData']]}")
-
-            # Could just assign directly, but when there are many columns, that results in
-            # highly-fragmented-data PerformanceWarnings from Pandas
-            header_part=pd.DataFrame({col:[raw[col] for raw in read_df['RawData']] for col in headers})
-            read_df=pd.concat([read_df,header_part],axis=1)
 
             umts.append(UniformMeasurementTable.from_read_data(
                 read_dfs=[read_df],meas_group=meas_group))

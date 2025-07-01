@@ -42,8 +42,3 @@ def make_color_col(factor_col,all_factors=None):
     return factor_col \
         .map(dict(zip(factors,get_sam_palette(len(factors))))) \
         .astype('string')
-
-
-def named_list_to_dict(dvcol_list: list[Any]) -> dict[str, Any]:
-    """Converts a list of objects to a dictionary with object.name as keys."""
-    return {col.name: col for col in dvcol_list}

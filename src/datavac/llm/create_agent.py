@@ -1,4 +1,4 @@
-from datavac.appserve.dbinfo import describe_mg, list_mgs
+from datavac.llm.llm_dbtools import describe_mg, list_mgs
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from datavac.config.project_config import PCONF

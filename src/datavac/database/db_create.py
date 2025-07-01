@@ -89,7 +89,7 @@ def create_meas_group_view(mg_name: str, conn: Optional[Connection], just_DDL_st
     from datavac.database.db_get import get_table_depends_and_hints_for_meas_group, joined_select_from_dependencies
     mg=DDEF().measurement_groups[mg_name]
     meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
-    td, jh = get_table_depends_and_hints_for_meas_group(mg)
+    td, jh = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False)
     sel,_=joined_select_from_dependencies(columns=None, absolute_needs=[meas_tab],
                                         table_depends=td, pre_filters={},join_hints=jh)
     seltextl=sel.compile(conn, compile_kwargs={"literal_binds": True})

@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Any, Optional
 from datavac.config.project_config import PCONF
-from datavac.database.db_connect import get_engine_so
+from datavac.database.db_connect import get_engine_rw, get_engine_so
 from datavac.database.db_structure import DBSTRUCT
 from datavac.config.data_definition import DDEF
 from datavac.database.db_util import namews
@@ -71,7 +71,7 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
             if namews(desired_tabs['meas']) in db_metadata.tables:
                 if force_meas or _table_mismatch(desired_tabs['meas'], db_metadata):
                     need_to_create_meas = True
-                    from datavac.database.db_upload import delete_prior_loads
+                    from datavac.database.db_upload_meas import delete_prior_loads
                     delete_prior_loads(trove=DDEF().troves[only(DDEF().measurement_groups[mg_name].reader_cards)],
                                        sample_info=None,only_meas_groups=[mg_name], conn=conn)
                     drops=[db_metadata.tables[namews(t)]
@@ -87,7 +87,7 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
             if namews(desired_tabs['extr']) in db_metadata.tables:
                 if force_extr or _table_mismatch(desired_tabs['extr'], db_metadata):
                     need_to_create_extr = True
-                    from datavac.database.db_upload import delete_prior_extractions
+                    from datavac.database.db_upload_meas import delete_prior_extractions
                     delete_prior_extractions(trove=DDEF().troves[only(DDEF().measurement_groups[mg_name].reader_cards)],
                                        sampleload_info=None,only_meas_groups=[mg_name], conn=conn)
                     conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{mg_name}" """))
@@ -102,25 +102,38 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
             if need_to_create_meas or need_to_create_extr:
                 from datavac.database.db_create import create_meas_group_view
                 create_meas_group_view(mg_name, conn)
-            
 
+def heal():
+    import pandas as pd
+    from datavac.database.db_upload_meas import read_and_enter_data
+    from datavac.database.db_upload_meas import perform_and_enter_extraction
+    sampletab=DBSTRUCT().get_sample_dbtable()
+    with get_engine_rw().begin() as conn:
+        for trove in PCONF().data_definition.troves.values():
+            load_grouping = trove.natural_grouping or DDEF().SAMPLE_COLNAME
 
+            if len(PCONF().data_definition.troves)>1:
+                logger.debug(f"Healing loads for trove {trove.name}")
+            relotab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reload']
+            pd_relo=pd.read_sql(con=conn, sql=select(*relotab.c, *sampletab.c).select_from(relotab.join(sampletab)))
+            if not len(pd_relo): logger.debug(f"No reloads required")
+            else:
+                for lgval, grp in pd_relo.groupby(load_grouping):
+                    meas_groups = list(grp['MeasGroup'].unique())
+                    logger.debug(f"Healing for {load_grouping}={lgval}, measurement groups {meas_groups}")
+                    if load_grouping == DDEF().SAMPLE_COLNAME:
+                        sampleload_info: dict[str,Any] = {load_grouping: [lgval]}
+                    else:
+                        sampleload_info: dict[str,Any] = {load_grouping: [lgval], DDEF().SAMPLE_COLNAME: list(grp['sampleid'].unique())}
+                    read_and_enter_data(only_meas_groups=meas_groups,only_sampleload_info=sampleload_info)
+            logger.debug(f"Done with reloads")
 
-#def force_database():
-#    db_metadata = MetaData(schema=DBSTRUCT().int_schema)
-#    db_metadata.reflect(bind=get_engine_so(), views=True)
-#    #print(db_metadata.tables)
-#
-#    with get_engine_so().begin() as conn:
-#        _setup_foundation(conn)
-#
-#    for sr in PCONF().data_definition.sample_references:
-#        sr_tab=DBSTRUCT().get_sample_reference_dbtable(sr)
-#        if sr_tab.name in db_metadata.tables:
-#
-#
-#
-#
-#    for mg in PCONF().data_definition.measurement_groups:
-#        DBSTRUCT().get_measurement_group_dbtables(mg)
-#        
+            reextab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reextr']
+            loadtab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['loads']
+            pd_reex= pd.read_sql(con=conn, sql=select(*reextab.c, *loadtab.c, *sampletab.c)\
+               .select_from(reextab.join(loadtab).join(sampletab)))
+            if not len(pd_reex): logger.debug(f"No re-extractions required")
+            else:
+                for samplename, grp in pd_reex.groupby(DDEF().SAMPLE_COLNAME):
+                    perform_and_enter_extraction(trove=trove, samplename=samplename,
+                        only_meas_groups=list(grp['MeasGroup'].unique()),conn=conn)

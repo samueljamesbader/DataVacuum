@@ -2,13 +2,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
-from datavac.io.measurement_table import MultiUniformMeasurementTable
 from datavac.util.util import only
 
 
 if TYPE_CHECKING:
     from datavac.config.data_definition import DVColumn, SubSampleReference
-    from datavac.io.measurement_table import UniformMeasurementTable
+    from datavac.io.measurement_table import UniformMeasurementTable, MultiUniformMeasurementTable
     from datavac.trove import Trove, ReaderCard
     from sqlalchemy import Table
 
@@ -42,6 +41,9 @@ class MeasurementGroup():
     """Dictionary of reader cards by Trove name that provide information on how to read the measurements.
     For now, all reader cards must belong to the same trove, ie len(self.reader_cards.keys()) == 1.
     """
+    
+    involves_sweeps: bool = True
+    """Whether this measurement group includes non-scalar data (e.g. swept arrays) that require a BYTEA sweep table"""
 
     def __post_init__(self):
         assert len(self.reader_cards)<=1, \

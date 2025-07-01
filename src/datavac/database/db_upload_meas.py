@@ -2,22 +2,20 @@ from __future__ import annotations
 
 from datetime import datetime
 from itertools import groupby
-from typing import TYPE_CHECKING, Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 from datavac.database.db_connect import get_engine_rw
-from datavac.database.db_util import namewsq
 from datavac.database.postgresql_upload_utils import upload_binary, upload_csv
 from datavac.trove import Trove
 from datavac.util.util import asnamedict, only, returner_context
-from datavac.util.logging import logger
 from sqlalchemy import Connection, delete, literal, select, text
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
 
 from datavac.config.project_config import PCONF
 from datavac.database.db_structure import DBSTRUCT
+from datavac.config.data_definition import DDEF
 
 if TYPE_CHECKING:
-    import pandas as pd
-    from datavac.io.measurement_table import MeasurementTable
+    from datavac.io.measurement_table import MeasurementTable, MultiUniformMeasurementTable
 
 def enter_sample(conn: Connection, **sample_info: dict[str,Any]):
     """ Enter a sample into the Materials table, or update it if it already exists.
@@ -168,18 +166,28 @@ def upload_measurement(trove: Trove, sampleload_info: Mapping[str,Any], data_by_
             meastab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
             content=meas_data.scalar_table.reset_index()\
                            .assign(loadid=loadid).rename(columns={'index':'measid'})
-            for ssr in PCONF().data_definition.subsample_references.values():
-                ssr.transform(content, sample_info=sample_info, conn=conn)
+            for ssr_name in PCONF().data_definition.measurement_groups[mg_name].subsample_reference_names:
+                PCONF().data_definition.subsample_references[ssr_name]\
+                    .transform(content, sample_info=sample_info, conn=conn)
             upload_csv(content[list(meastab.c.keys())],
                        conn, DBSTRUCT().int_schema, meastab.name)
             
             # Upload the sweeps
             sstab=meas_data.get_stacked_sweeps()
             if len(sstab):
+
+                import numpy as np
+                def sweep_to_bytes(s: np.ndarray) -> bytes:
+                    """Convert a sweep to bytes, handling both float32 and 'onestring' types."""
+                    if s.dtype != np.float32:
+                        raise TypeError(f"Sweep data type {s.dtype} for {mg_name} is not supported. Only float32 is supported.")
+                    return s.tobytes()
+
                 # This part is to handle the deprecated ONESTRING
                 from datavac.database.postgresql_binary_format import pd_to_pg_converters
                 sweepconv=(pd_to_pg_converters['STRING']) \
-                    if (hasattr(mg_name,'ONESTRING') and mg_name.ONESTRING) else lambda s: s.tobytes() # type: ignore
+                    if (hasattr(mg_name,'ONESTRING') and mg_name.ONESTRING) else sweep_to_bytes # type: ignore
+                # Convert to the appropriate format and upload
                 upload_binary(
                     sstab.assign(loadid=loadid)[['loadid','measid','sweep','header']],
                     conn,DBSTRUCT().int_schema,DBSTRUCT().get_measurement_group_dbtables(mg_name)['sweep'].name,
@@ -207,7 +215,6 @@ def delete_prior_extractions(trove: Trove, sampleload_info: Optional[Mapping[str
         A dictionary mapping measurement group names to lists of loadids that were deleted.
     """
     from datavac.database.db_structure import DBSTRUCT
-    from datavac.util.logging import logger
     from sqlalchemy import delete, literal
 
     loadtab=DBSTRUCT().get_trove_dbtables(trove.name)['loads']
@@ -263,8 +270,8 @@ def upload_extraction(trove: Trove, sampleload_info: Mapping[str,Any],
         
         # Upload the extraction data
         extrtab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['extr']
-        content=meas_data.scalar_table.reset_index()\
-                       .assign(loadid=mg_name_to_loadid[mg_name]).rename(columns={'index':'measid'})
+        content=meas_data.scalar_table.assign(loadid=mg_name_to_loadid[mg_name])
+        if 'measid' not in content.columns: content=content.reset_index().rename(columns={'index':'measid'})
         with get_engine_rw().begin() as conn:
             upload_csv(content[list(extrtab.c.keys())],
                        conn, DBSTRUCT().int_schema, extrtab.name)
@@ -276,109 +283,59 @@ def upload_extraction(trove: Trove, sampleload_info: Mapping[str,Any],
             ]
             conn.execute(text(';'.join([str(s.compile(conn,compile_kwargs={'literal_binds':True})) for s in statements])))
         
-        
 
-        
+def read_and_enter_data(trove_names: Optional[list[str]] = None,
+                        only_meas_groups: Optional[list[str]] = None,
+                        only_sampleload_info: dict[str,Sequence[Any]] = {},
+                        info_already_known: dict[str,Any] = {}, 
+                        kwargs_by_trove: dict[str,dict[str,Any]] = {}):
+    trove_names = trove_names or list(PCONF().data_definition.troves.keys())
+    for trove_name in trove_names:
+        if trove_name not in PCONF().data_definition.troves:
+            raise ValueError(f"Trove '{trove_name}' not found in data definition.")
+        trove=PCONF().data_definition.troves[trove_name]
+        sample_to_mg_to_data, sample_to_sampleloadinfo = trove.read(
+            only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
+            info_already_known=info_already_known, **(kwargs_by_trove.get(trove_name,{})))
+        for sample, data_by_mg in sample_to_mg_to_data.items():
+            assert PCONF().data_definition.SAMPLE_COLNAME in sample_to_sampleloadinfo[sample], \
+                f"Sample info for '{sample}' does not have the sample identifier column "\
+                f"'{PCONF().data_definition.SAMPLE_COLNAME}', just\n{sample_to_sampleloadinfo[sample]}" 
+            upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg, only_meas_groups=only_meas_groups)
+            perform_and_enter_extraction(trove, samplename=sample,
+                     only_meas_groups=list(data_by_mg), pre_obtained_data_by_mg=data_by_mg)
 
-def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Connection] = None):
-    """ Upload a sample descriptor to the database.
-
-    Args:
-        sd_name: The name of the sample descriptor.
-        data: A DataFrame containing the sample descriptor data.
-    """
-    # TODO: Inefficient, should be done in O(1) queries
-    import pandas as pd
-    from datavac.database.db_structure import DBSTRUCT
-    from datavac.database.postgresql_upload_utils import upload_csv
-    sampletab=DBSTRUCT().get_sample_dbtable()
-    sdtab=DBSTRUCT().get_sample_descriptor_dbtable(sd_name)
-    samplename_col=PCONF().data_definition.sample_identifier_column.name
-    with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
-        res=conn.execute(select(sampletab.c.sampleid,sampletab.c[samplename_col])\
-                            .where(sampletab.c[samplename_col].in_(list(data.index)))).all()
-        for samplename, row in data.iterrows():
-            if samplename not in [r[1] for r in res]:
-                enter_sample(conn, **PCONF().data_definition.sample_info_completer(
-                    dict(**{samplename_col:samplename},**{k:v for k,v in row.items() if k in sampletab.c}))) # type: ignore
-        res=conn.execute(select(sampletab.c.sampleid,sampletab.c[samplename_col])\
-                            .where(sampletab.c[samplename_col].in_(list(data.index)))).all()
-        data=pd.merge(left=data,right=pd.DataFrame(res,columns=['sampleid',samplename_col]),
-                 how='left',left_index=True,right_on=samplename_col).drop(columns=[samplename_col]).set_index('sampleid')
-        #print(data)
-        conn.execute(delete(sdtab).where(sdtab.c.sampleid.in_(list(data.index))))
-        upload_csv(data.reset_index(), conn, DBSTRUCT().int_schema, sd_name,)
-
-
-def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional[Connection] = None,
-                               dump_extractions_and_analyses: bool = False):
-    """ Upload a subsample reference to the database.
+def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups: list[str],
+              pre_obtained_data_by_mg: dict[str,MultiUniformMeasurementTable]={}, conn: Optional[Connection] = None):
+    """ Re-extract data for a sample.
 
     Args:
-        ssr_name: The name of the subsample reference.
-        data: A DataFrame containing the subsample reference data.
+        samplename: The name of the sample to re-extract.
+        only_meas_groups: If provided, only re-extracts for these measurement groups will be performed.
+            If None, all re-extracts for the sample will be performed.
+        pre_obtained_data_by_mg: data already obtained for the measurement groups.  Any measurement groups
+            in only_meas_groups but not supplied here will be obtained from the database.
+        conn: The database connection to use. If None, a new connection will be created.
     """
-    from datavac.database.db_structure import DBSTRUCT
-    from datavac.database.postgresql_upload_utils import upload_csv
-    from datavac.config.project_config import PCONF
-    from datavac.database.db_structure import DBSTRUCT
-    from datavac.config.data_definition import DDEF
-    from sqlalchemy import text
-    from datavac.database.db_connect import get_engine_rw
-    ssr = PCONF().data_definition.subsample_references[ssr_name]
-    ssrtab = DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
-    with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
+    from datavac.database.db_get import get_data_for_reextr
+    from datavac.database.db_upload_meas import upload_extraction
 
-        # Load the data into a temporary table and check if it is different
-        conn.execute(text(f'CREATE TEMP TABLE tmplay (LIKE {namewsq(ssrtab)});'))
-        upload_csv(data, conn, None, 'tmplay')
-        if conn.execute(text(
-            f'''SELECT CASE WHEN EXISTS (TABLE {namewsq(ssrtab)} EXCEPT TABLE tmplay)
-              OR EXISTS (TABLE tmplay EXCEPT TABLE {namewsq(ssrtab)})
-            THEN 'different' ELSE 'same' END AS result ;''')).all()[0][0] == 'same':
-            logger.debug(f"Content unchanged for {ssr_name}")
-            
-        # If the content has changed, we need to update the table
-        else:
-            logger.debug(f"Content changed for {ssr_name}, updating")
+    with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
 
-            # Remove foreign key constraints and delete old data if necessary
-            for mg in DDEF().measurement_groups.values():
-                if ssr_name in mg.subsample_reference_names:
-                    meastab=DBSTRUCT().get_measurement_group_dbtables(mg.name)['meas']
-                    if dump_extractions_and_analyses:
-                        raise NotImplementedError()
-                    conn.execute(text(f'ALTER TABLE {namewsq(meastab)}'\
-                                      f' DROP CONSTRAINT IF EXISTS "fk_{ssr.key_column.name} -- {mg.name}";'))
-            for an in DDEF().higher_analyses.values():
-                if ssr_name in an.subsample_reference_names:
-                    antab=DBSTRUCT().get_higher_analysis_dbtable(an.name)
-                    if dump_extractions_and_analyses:
-                        raise NotImplementedError()
-                    conn.execute(text(f'ALTER TABLE {namewsq(antab)}'\
-                                      f' DROP CONSTRAINT IF EXISTS "fk_{ssr.key_column.name} -- {an.name}";'))
-                    
-            # Bring in the new table
-            conn.execute(delete(ssrtab))
-            conn.execute(text(f'INSERT INTO {namewsq(ssrtab)} SELECT * from tmplay;'))
-            
-            # Recreate foreign key constraints
-            for mg in DDEF().measurement_groups.values():
-                if ssr_name in mg.subsample_reference_names:
-                    meastab=DBSTRUCT().get_measurement_group_dbtables(mg.name)['meas']
-                    conn.execute(text(f'ALTER TABLE {namewsq(meastab)}' \
-                                      f' ADD CONSTRAINT "fk_{ssr.key_column.name} -- {mg.name}" FOREIGN KEY ("{ssr.key_column.name}")' \
-                                      f' REFERENCES {namewsq(ssrtab)} ("{ssr.key_column.name}") ON DELETE CASCADE;'))
-                    from datavac.database.db_create import create_meas_group_view
-                    create_meas_group_view(mg.name, conn)
-            for an in DDEF().higher_analyses.values():
-                if ssr_name in an.subsample_reference_names:
-                    antab=DBSTRUCT().get_higher_analysis_dbtable(an.name)
-                    conn.execute(text(f'ALTER TABLE {namewsq(antab)}' \
-                                      f' ADD CONSTRAINT "fk_{ssr.key_column.name} -- {an.name}" FOREIGN KEY ("{ssr.key_column.name}")' \
-                                      f' REFERENCES {namewsq(ssrtab)} ("{ssr.key_column.name}") ON DELETE CASCADE;'))
-                    from datavac.database.db_create import create_analysis_view
-                    create_analysis_view(mg.name, conn)
-                    
-        conn.execute(text(f'DROP TABLE tmplay;'))
-        #conn.commit()
+        # Get any needed data not already obtained
+        data_by_mg = dict(**{
+            mg_name:get_data_for_reextr(DDEF().measurement_groups[mg_name],
+                                        samplename=samplename, on_no_data='raise', conn=conn,) # on_no_data should be None for optional dependencies
+                for mg_name in only_meas_groups if mg_name not in pre_obtained_data_by_mg
+        },**pre_obtained_data_by_mg)
+        data_by_mg = {k:v for k,v in data_by_mg.items() if v is not None}
+
+        # Perform the extraction
+        for mg_name, data in data_by_mg.items():
+            assert not(len(PCONF().data_definition.measurement_groups[mg_name].required_dependencies)), "Not implemented yet"
+            assert not(len(PCONF().data_definition.measurement_groups[mg_name].optional_dependencies)), "Not implemented yet"
+            PCONF().data_definition.measurement_groups[mg_name].extract_by_mumt(data)
+
+        # Upload
+        upload_extraction(trove, sampleload_info={DDEF().SAMPLE_COLNAME:samplename},
+                          data_by_meas_group=data_by_mg, only_meas_groups=only_meas_groups)

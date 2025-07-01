@@ -51,6 +51,8 @@ def data_to_pgbin(data,converters):
                 cfield=converter(field)
 
             # If it fails, write a NULL
+            # (re-raise TypeError, silence all else)
+            except TypeError as e: raise e
             except Exception as e:
                 #print(e)
                 bio.write(b'\xff\xff\xff\xff')

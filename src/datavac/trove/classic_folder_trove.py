@@ -35,7 +35,7 @@ class ClassicFolderTrove(Trove):
     filecache_context_manager: Optional[Callable[[], Any]] = None
     """A context manager to use for caching file reads.  If not specified, will default to a null context manager."""
 
-    connect_toplevel_folder_to: Optional[str] = None
+    natural_grouping: Optional[str] = None
     """If specified, the top-level folder can be narrowed down by this name of a sample/load information column.
     
     e.g. if the read_dir is organized by each top-level folder containing one 'Lot', and 'Lot' is a column in
@@ -67,15 +67,15 @@ class ClassicFolderTrove(Trove):
             only_meas_groups, only_sampleload_info, info_already_known: Same as Trove.read()
             only_file_names: If set, only reads files with these names.
             only_folders: If set, only reads the specified folders.
-                If not set, self.connect_toplevel_folder_to can be used to restrict the read
+                If not set, self.natural_grouping can be used to restrict the read
             cached_glob: a function which takes a folder and a pattern, and returns a list of paths matching the pattern.
             dont_recurse: If True, will not recurse into subfolders.
         """
 
         # Attempt to narrow down the read_dir to specific folder(s)
         if only_folders is None:
-            if self.connect_toplevel_folder_to and (self.connect_toplevel_folder_to in only_sampleload_info):
-                folders=only_sampleload_info[self.connect_toplevel_folder_to]
+            if self.natural_grouping and (self.natural_grouping in only_sampleload_info):
+                folders=only_sampleload_info[self.natural_grouping]
             else:
                 if self.prompt_for_readall:
                     if not (input(f'No folder or top-level restriction,'\

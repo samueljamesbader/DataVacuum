@@ -1,15 +1,16 @@
+from __future__ import annotations
 import dataclasses
-from typing import Optional, Union, cast
+from typing import Optional, Union, cast, TYPE_CHECKING
 
 from datavac.config.data_definition import DVColumn
-from datavac.gui.bokeh_util.util import named_list_to_dict
 from datavac.measurements.measurement_group import SemiDevMeasurementGroup
-import numpy as np
 
-from datavac.util.maths import VTCC, YatX
-from datavac.util.util import only
+from datavac.util.util import asnamedict, only
 from datavac.util.logging import logger
-from datavac.io.measurement_table import MeasurementTable, UniformMeasurementTable
+
+if TYPE_CHECKING:
+    from datavac.io.measurement_table import MeasurementTable, UniformMeasurementTable
+    import numpy as np
 
 @dataclasses.dataclass
 class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
@@ -20,6 +21,7 @@ class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
                 [self.norm_column.split("[")[1].split("]")[0]]
 
     def get_norm(self, measurements: MeasurementTable):
+        import numpy as np
         assert self.norm_column is not None
         #if self.norm_column is None:
         #    return None
@@ -60,11 +62,13 @@ class IdVg(MeasurementWithLinearNormColumn):
         for k,v in self.Vgons.items():
             extr_columns.append(DVColumn(f'Ron{k} [ohm]','float64',f'Ron at VG={v} V'))
             extr_columns.append(DVColumn(f'RonW{k} [ohm.um]','float64',f'Normalized Ron*W at VG={v} V'))
-        return named_list_to_dict(extr_columns)
+        return asnamedict(*extr_columns)
 
 
     def extract_by_umt(self, measurements:UniformMeasurementTable) -> None:
+        import numpy as np
         from scipy.signal import savgol_filter
+        from datavac.util.maths import VTCC, YatX
 
         # Properties of the Sav-Gol filter to apply to gm
         gmsavgol=(5,1)
@@ -93,7 +97,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         assert VDsat*VDlin>0, f"Oops, VDsat {VDsat} and VDlin {VDlin} have different signs"
 
         W=self.get_norm(measurements)
-        VG=measurements['VG']
+        VG: np.ndarray=measurements['VG'] # type: ignore
         IDsat:np.ndarray[float]=measurements[f'fID@VD={VDsat_str}'] if (has_idsat:=(f'fID@VD={VDsat_str}' in measurements)) else VG*np.NaN # type: ignore
         IDlin:np.ndarray[float]=measurements[f'fID@VD={VDlin_str}'] if (has_idlin:=(f'fID@VD={VDlin_str}' in measurements)) else VG*np.NaN # type: ignore
         IGsat:np.ndarray[float]=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.NaN # type: ignore
@@ -205,12 +209,16 @@ class IdVd(SemiDevMeasurementGroup):
             [self.norm_column.split("[")[1].split("]")[0]]
 
     def get_norm(self, measurements):
+        import numpy as np
         return np.array(measurements[self.norm_column],dtype=np.float32)*self._norm_col_units
 
     def get_preferred_dtype(self,header):
+        import numpy as np
         return np.float32
 
-    def analyze(self, measurements:UniformMeasurementTable):
+    def extract_by_umt(self, measurements:UniformMeasurementTable):
+        import numpy as np
+        from datavac.util.maths import YatX
         has_ig=any('IG' in k for k in measurements.headers)
         VGstrs=[k.split("=")[-1] for k in measurements.headers if k.startswith('fID')]
         for VGofflabel,VGoff in self.VGoffs.items():
@@ -252,10 +260,13 @@ class KelvinRon(MeasurementWithLinearNormColumn):
         if self.only_fields is not None: raise NotImplementedError("Only fields not implemented")
 
     def get_preferred_dtype(self,header):
+        import numpy as np
         return np.float32
 
-    def analyze(self, measurements,rexts=None):
-        import pandas as pd
+    def extract_by_umt(self, measurements,rexts=None):
+        import pandas as pd 
+        import numpy as np
+        from datavac.util.maths import YatX
 
         W=self.get_norm(measurements)
 
@@ -288,6 +299,7 @@ class KelvinRon(MeasurementWithLinearNormColumn):
                 main_ron_id=fron_headers[0].split("=")[-1]
             else: main_ron_id=None
         else: main_ron_id=self.main_ron_id
+        assert main_ron_id is not None
         if (k:=('fRon@ID='+str(main_ron_id))) in measurements.headers:
             #if self.vg_for_ron is not None:
             #    ind_vg=np.argmin(np.abs(measurements['VG']-self.vg_for_ron))
@@ -309,6 +321,8 @@ class KelvinRon(MeasurementWithLinearNormColumn):
 
     @staticmethod
     def VTRon(VG:np.ndarray,Ron:np.ndarray):
+        import numpy as np
+        from scipy.signal import savgol_filter
         # Compute the effective on-state VT from the slope of the conductance at peak transconductance
         dVG=VG[0,1]-VG[0,0] # Assumes uniform and regular VG
         Ron=Ron.copy()

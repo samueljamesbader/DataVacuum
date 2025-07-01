@@ -1,20 +1,22 @@
 from __future__ import annotations
 from functools import cache
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
 from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
 from datavac.config.layout_params import LayoutParameters
 from datavac.config.project_config import ProjectConfiguration
-from datavac.examples.data_mock.mock_devices import Transistor4T
 from datavac.examples.demo2 import EXAMPLE_DATA_DIR, dbname
 from datavac.measurements.transistor import IdVg
 from datavac.trove.mock_trove import MockReaderCard, MockTrove
 from datavac.util.util import asnamedict
-import pandas as pd
 import io
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 @cache
 def get_split_table():
+    import pandas as pd
     split_table = pd.read_csv(
         io.StringIO("""
         LotSample,     MaskSet,     VTSkew,   CDSkew
@@ -30,6 +32,8 @@ def get_split_table():
     return split_table
 
 def generate(lot_sample: str) -> list[pd.DataFrame]:
+    import pandas as pd
+    from datavac.examples.data_mock.mock_devices import Transistor4T
     Lnom= 1e-6  # Nominal length in meters
     dbdf= get_masks()['MainMask'][0]
     split_table=get_split_table()
@@ -47,7 +51,6 @@ def generate(lot_sample: str) -> list[pd.DataFrame]:
                      'Structure': 'nMOS1','DieXY': dbdf_row['DieXY'],})
     return [pd.DataFrame(data).convert_dtypes()]
 def sample_func() -> dict[str,dict[str,Any]]:
-    """ Returns a list of sample names for the split table. """
     from datavac.config.project_config import PCONF
     SAMPLENAME_COL=PCONF().data_definition.SAMPLE_COLNAME
     tab=get_split_table().copy()
@@ -58,11 +61,13 @@ def sample_func() -> dict[str,dict[str,Any]]:
 
 
 class MockLayoutParams(LayoutParameters):
-    _tables_by_meas: dict[str, pd.DataFrame] = {
-        'IdVg': pd.DataFrame({
-            'Structure': ['nMOS1'],
-            'W [um]': [1],
-        }).set_index('Structure', verify_integrity=True),} 
+    def __init__(self):
+        import pandas as pd
+        self._tables_by_meas: dict[str, pd.DataFrame] = {
+            'IdVg': pd.DataFrame({
+                'Structure': ['nMOS1'],
+                'W [um]': [1],
+            }).set_index('Structure', verify_integrity=True),} 
 class SemiDeviceDataDefinitionFakeLayout(SemiDeviceDataDefinition):
     def get_flow_names(self) -> list[str]:
         return ['MainFlow']
@@ -99,23 +104,23 @@ def get_project_config() -> ProjectConfiguration:
     )
 
 if __name__ == '__main__':
+
     from datavac.config.project_config import PCONF
     from datavac.database.db_create import ensure_clear_database, create_all
     from datavac.database.db_semidev import upload_mask_info
-    from datavac.database.db_upload import upload_sample_descriptor, upload_measurement, upload_subsample_reference, upload_extraction
+    from datavac.database.db_upload_meas import upload_measurement, upload_extraction
+    from datavac.database.db_upload_other import upload_sample_descriptor, upload_subsample_reference
+    from datavac.database.db_upload_meas import read_and_enter_data
+
     DDEF=cast(SemiDeviceDataDefinitionFakeLayout,PCONF().data_definition)
+
     ensure_clear_database()
     create_all()
     upload_mask_info(get_masks())
+
     upload_sample_descriptor('SplitTable MainFlow', get_split_table())
     upload_subsample_reference('LayoutParams -- IdVg',DDEF.get_layout_params_table('IdVg').reset_index(drop=False))
-    trove=PCONF().data_definition.troves['']
-    sample_to_mg_to_data, sample_to_sampleloadinfo = trove.read()
-    for sample, data_by_mg in sample_to_mg_to_data.items():
-        upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg)
-        for mg_name, data in data_by_mg.items():
-            PCONF().data_definition.measurement_groups[mg_name].extract_by_mumt(data)
-        upload_extraction(trove, sample_to_sampleloadinfo[sample], data_by_mg)
+    read_and_enter_data()
         
     from datavac.database.db_util import read_sql
     #print(read_sql("""select * from vac."Loads_" """))

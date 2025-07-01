@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 @dataclass
 class ReaderCard():
     reader_func: Optional[Callable[...,list[pd.DataFrame]|dict[str,list[pd.DataFrame]]]] = None
+    """Signature should match self.read()"""
 
     def read(self, mg_name:str=None, # type: ignore
              only_sampleload_info:dict[str,Any]={}, read_info_so_far:dict[str,Any]={}, **kwargs)\
@@ -32,6 +33,11 @@ class Trove():
 
     load_info_columns: list[DVColumn] = field(default_factory=list)
     """List of columns associated to a load from this trove."""
+    
+    natural_grouping: Optional[str] = None
+    """Name of a sample/load information column that it makes sense to read in altogether.
+    
+    eg if all data for a given 'Lot' is accessed together, the Trove might use this column to reduce requests."""
 
     def read(self,
              only_meas_groups:Optional[list[str]]=None,
