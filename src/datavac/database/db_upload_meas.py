@@ -266,7 +266,8 @@ def upload_extraction(trove: Trove, sampleload_info: Mapping[str,Any],
         mg_name_to_loadid={k:only(v) for k,v in
            delete_prior_extractions(trove, sampleload_info, only_meas_groups=only_meas_groups).items()}
 
-    for mg_name, meas_data in data_by_meas_group.items():
+    for mg_name in (only_meas_groups or data_by_meas_group):
+        meas_data = data_by_meas_group[mg_name]
         
         # Upload the extraction data
         extrtab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['extr']
@@ -311,31 +312,74 @@ def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups
 
     Args:
         samplename: The name of the sample to re-extract.
-        only_meas_groups: If provided, only re-extracts for these measurement groups will be performed.
-            If None, all re-extracts for the sample will be performed.
+        only_meas_groups: Minimal list of measurement groups to re-extract.
+            (Extractions which depend on these measurement groups will also be re-extracted).
         pre_obtained_data_by_mg: data already obtained for the measurement groups.  Any measurement groups
             in only_meas_groups but not supplied here will be obtained from the database.
         conn: The database connection to use. If None, a new connection will be created.
     """
-    from datavac.database.db_get import get_data_for_reextr
+    from datavac.database.db_get import get_data_for_reextr, get_data
     from datavac.database.db_upload_meas import upload_extraction
+    from datavac.measurements.meas_util import perform_extraction
+
+    #required_meas_groups_to_reextr = set(only_meas_groups)
+    #optional_meas_groups_to_reextr = set()
+    #for mg in DDEF().measurement_groups.values():
+    #    if any(mg.optional_dependencies
+    #del only_meas_groups
 
     with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
 
-        # Get any needed data not already obtained
-        data_by_mg = dict(**{
-            mg_name:get_data_for_reextr(DDEF().measurement_groups[mg_name],
-                                        samplename=samplename, on_no_data='raise', conn=conn,) # on_no_data should be None for optional dependencies
-                for mg_name in only_meas_groups if mg_name not in pre_obtained_data_by_mg
-        },**pre_obtained_data_by_mg)
-        data_by_mg = {k:v for k,v in data_by_mg.items() if v is not None}
+        data_by_mg = {}
+        required_meas_groups = set(only_meas_groups)
+        mg_retrieval_queue = list(only_meas_groups)
+        already_tried_no_data = set()
+        should_reextract = set(only_meas_groups)
 
+        # Go through the retrieval queue until emptied
+        while len(mg_retrieval_queue):
+            mg_name = mg_retrieval_queue.pop(0)
+
+            # If this measurement group has already been located and has data, skip it
+            if mg_name in data_by_mg: continue
+
+            # If the measurement group has already been tried and has no data, skip unless it is required
+            if (mg_name in already_tried_no_data):
+                if mg_name in required_meas_groups:
+                    raise ValueError(f"Measurement group '{mg_name}' is required but no data was obtained for it.")
+                else: continue
+            
+            # Use the pre-obtained data if possible
+            if mg_name in pre_obtained_data_by_mg:
+                data_by_mg[mg_name] = data = pre_obtained_data_by_mg[mg_name]
+            # Otherwise get the data for this measurement group
+            else:
+                # Raise error if a required measurement group has no data
+                if mg_name in should_reextract:
+                    data = get_data_for_reextr(DDEF().measurement_groups[mg_name], conn=conn, samplename=samplename,
+                                               on_no_data=('raise' if mg_name in required_meas_groups else None))
+                else:
+                    data = get_data(mg_name, conn=conn, **{DDEF().SAMPLE_COLNAME:[samplename]}) # type: ignore
+                    if (data is None) and (mg_name in required_meas_groups):
+                        raise ValueError(f"Measurement group '{mg_name}' is required but no data was obtained for it.")
+            if data is None: already_tried_no_data.add(mg_name)
+            # Add this groups dependencies to the queue as required or optional as specified
+            # Add any groups that depende on this group as optional
+            else:
+                data_by_mg[mg_name] = data
+                required_meas_groups|=set(DDEF().measurement_groups[mg_name].required_dependencies)
+                mg_retrieval_queue.extend(DDEF().measurement_groups[mg_name].required_dependencies)
+                mg_retrieval_queue.extend(DDEF().measurement_groups[mg_name].optional_dependencies)
+                for pot_forward_mg in DDEF().measurement_groups.values():
+                    if (mg_name in pot_forward_mg.required_dependencies or mg_name in pot_forward_mg.optional_dependencies):
+                        mg_retrieval_queue.append(pot_forward_mg.name)
+                        should_reextract.add(pot_forward_mg.name)
+        should_reextract = list(should_reextract) 
+                
+                
         # Perform the extraction
-        for mg_name, data in data_by_mg.items():
-            assert not(len(PCONF().data_definition.measurement_groups[mg_name].required_dependencies)), "Not implemented yet"
-            assert not(len(PCONF().data_definition.measurement_groups[mg_name].optional_dependencies)), "Not implemented yet"
-            PCONF().data_definition.measurement_groups[mg_name].extract_by_mumt(data)
+        perform_extraction({samplename: data_by_mg}, only_meas_groups=should_reextract)
 
         # Upload
         upload_extraction(trove, sampleload_info={DDEF().SAMPLE_COLNAME:samplename},
-                          data_by_meas_group=data_by_mg, only_meas_groups=only_meas_groups)
+                          data_by_meas_group=data_by_mg, only_meas_groups=should_reextract)

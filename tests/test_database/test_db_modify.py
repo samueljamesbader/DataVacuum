@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from datavac import unload_my_imports
 from datavac.trove.mock_trove import MockTrove
@@ -8,7 +8,7 @@ from datavac.trove.mock_trove import MockReaderCard
 
 if TYPE_CHECKING:
     import pandas as pd
-    from datavac.io.measurement_table import UniformMeasurementTable
+    from datavac.io.measurement_table import UniformMeasurementTable, MultiUniformMeasurementTable
 
 def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str = ''):
     """Generates a project configuration for testing purposes.
@@ -33,11 +33,18 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
     @dataclass
     class MG(MeasurementGroup):
         def available_extr_columns(self) -> dict[str, DVColumn]:
-            return asnamedict(*super().available_extr_columns().values(),* extr_cols)
-        def extract_by_umt(self, measurements: UniformMeasurementTable, **kwargs) -> None:
+            return asnamedict(*super().available_extr_columns().values(), *extr_cols,
+                              DVColumn('BonusExtrCol0', 'string', 'Bonus Extr column 0'))
+        def extract_by_umt(self, measurements: UniformMeasurementTable, other: Optional[MultiUniformMeasurementTable] = None) -> None:
             for col in self.extr_column_names:
+                if 'Bonus' in col: continue
                 measurements[col]=measurements[col.replace('Extr','Test')]\
                     .apply(lambda x: x.replace('meas','extr')+extr_sign)
+            if other is not None:
+                for col in self.extr_column_names:
+                    if 'Bonus' not in col: continue
+                    measurements[col]=other[col.replace('BonusExtr','Extr')]\
+                        .apply(lambda x: x+extr_sign)
 
     def generate(mg_name: str, only_sampleload_info: dict[str, str] = {}, **kwargs) -> list[pd.DataFrame]:
         import pandas as pd
@@ -66,8 +73,9 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                                         meas_columns=meas_cols, extr_column_names=[c.name for c in extr_cols],),
                                     MG(involves_sweeps=True,
                                         name ='test_group_yessw', description ='Test measurement group, yes sweeps',
+                                        required_dependencies= {'test_group_nosw':'other'},
                                         reader_cards={'': [MockReaderCard(reader_func=generate,sample_func=sample_func)]},
-                                        meas_columns=meas_cols[:1], extr_column_names=[c.name for c in extr_cols][:1],)),
+                                        meas_columns=meas_cols[:1], extr_column_names=[c.name for c in extr_cols][:1]+['BonusExtrCol0'],)),
                                     troves={'': MockTrove()}
                                 ),
                                 vault=DemoVault(dbname='datavac_dbtest')
@@ -178,12 +186,20 @@ def test_update_meas_groups():
     assert np.all(data_back['ExtrCol0']==['extr0_col0-reextr','extr1_col0-reextr','extr0_col0','extr1_col0'])
     assert np.all(data_back['ExtrCol1']==['extr0_col1-reextr','extr1_col1-reextr','extr0_col1','extr1_col1'])
     
+    # Set up the config to add another re-extraction sign to the extraction columns
+    unload_my_imports()
+    from datavac.config.project_config import PCONF
+    from datavac.config.data_definition import DDEF
+    from datavac.database.db_upload_meas import perform_and_enter_extraction
+    from datavac.database.db_get import get_data
+    PCONF(make_project_config(2,2,extr_sign='-reextr2'))
+
     # Reextract sample0 for yessw group and check the data
     perform_and_enter_extraction(DDEF().troves[''], samplename='sample0',only_meas_groups=['test_group_yessw'])
     data_back=get_data('test_group_yessw', include_sweeps=True, unstack_headers=True)
     assert np.all(data_back.loc[0,'header0']==np.r_[1.0,2,3,4,5].astype('float32'))
-    assert np.all(data_back['ExtrCol0']==['extr0_col0-reextr','extr1_col0-reextr','extr0_col0','extr1_col0'])
-
+    assert np.all(data_back['ExtrCol0']==['extr0_col0-reextr2','extr1_col0-reextr2','extr0_col0','extr1_col0'])
+    assert np.all(data_back['BonusExtrCol0']==['extr0_col0-reextr-reextr2','extr1_col0-reextr-reextr2','extr0_col0','extr1_col0'])
 
 if __name__ == "__main__":
     test_update_meas_groups()

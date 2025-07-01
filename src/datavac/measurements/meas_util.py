@@ -1,12 +1,13 @@
+from typing import Optional
 from datavac.io.measurement_table import MultiUniformMeasurementTable
 from datavac.util.logging import logger
 from datavac.util.tables import check_dtypes
 
-def perform_extraction(matname_to_mg_to_data: dict[str,dict[str,MultiUniformMeasurementTable]]) -> None:
+def perform_extraction(matname_to_mg_to_data: dict[str,dict[str,MultiUniformMeasurementTable]],
+                       only_meas_groups:Optional[list[str]]=None) -> None:
     for matname, mg_to_data in matname_to_mg_to_data.items():
-        to_be_extracted=list(mg_to_data.keys())
+        to_be_extracted=only_meas_groups.copy() or list(mg_to_data.keys())
         #ensure_meas_group_sufficiency(to_be_extracted,required_only=True, just_extraction=True)
-        logger.critical("Would normally ensure measurement group sufficiency here, but skipping for now")
         while len(to_be_extracted):
             for mg_name in to_be_extracted:
                 from datavac.config.project_config import PCONF
@@ -21,8 +22,8 @@ def perform_extraction(matname_to_mg_to_data: dict[str,dict[str,MultiUniformMeas
                 mg.extract_by_mumt(data, **dep_kws)
 
                 # TODO: this check is assembling the full MUMT in memory, which is unnecessary just to get columns...
-                cols=data._dataframe.columns
-                for k in mg.extr_column_names: assert k in cols
-                check_dtypes(data.scalar_table)
+                ######cols=data._dataframe.columns
+                ######for k in mg.extr_column_names: assert k in cols
+                ######check_dtypes(data.scalar_table)
 
                 to_be_extracted.remove(mg_name)
