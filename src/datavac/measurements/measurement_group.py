@@ -11,8 +11,16 @@ if TYPE_CHECKING:
     from datavac.trove import Trove, ReaderCard
     from sqlalchemy import Table
 
-@dataclass
+@dataclass(eq=False,repr=False)
 class MeasurementGroup():
+    """Represents a collection of measurements that will be stored in one table.
+
+    Notes: there should only be one MeasurementGroup with a given name, so hashing/equality is based
+    on the name.  This an implementation detail, but it does mean if you subclass this class and if
+    you decorate the subclass with @dataclass, you should set eq=False to avoid dataclass overriding
+    the __hash__/__eq__ method.  See https://docs.python.org/3/library/dataclasses.html#dataclasses.dataclass.
+    If you fail to do so, Python will complain that the instance is not hashable.
+    """
     name: str
     """The name of the measurement group."""
 
@@ -117,8 +125,24 @@ class MeasurementGroup():
         """Returns the SQLAlchemy Table object for this measurement group from DBSTRUCT()."""
         from datavac.database.db_structure import DBSTRUCT
         return DBSTRUCT().get_measurement_group_dbtables(self.name)[key]
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __eq__(self, other: object) -> bool:
+        """Equality is based on the name of the analysis."""
+        if isinstance(other, str):
+            raise Exception("Comparing MeasurementGroup to string")
+        if not isinstance(other, MeasurementGroup):
+            return False
+        return self.name == other.name
+    
+    def __str__(self) -> str:
+        return f'<MeasGroup:"{self.name}">'
+    def __repr__(self) -> str:
+        return f'<MeasGroup:"{self.name}">'
 
-@dataclass
+@dataclass(eq=False)
 class SemiDevMeasurementGroup(MeasurementGroup):
     layout_param_group: Optional[str] = None
     

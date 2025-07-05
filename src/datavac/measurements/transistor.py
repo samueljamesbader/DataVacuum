@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from datavac.io.measurement_table import MeasurementTable, UniformMeasurementTable
     import numpy as np
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False,repr=False)
 class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
     norm_column: str = None
     def __post_init__(self):
@@ -29,7 +29,7 @@ class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
                         .scalar_table_with_layout_params(params=[self.norm_column],on_missing='ignore')[self.norm_column],dtype=np.float32) \
             *self._norm_col_units
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False,repr=False)
 class IdVg(MeasurementWithLinearNormColumn):
     """
 

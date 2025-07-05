@@ -103,6 +103,7 @@ def create_meas_group_view(mg_name: str, conn: Optional[Connection], just_DDL_st
 def create_analysis_view(an_name: str, conn: Connection):
     from datavac.database.db_get import get_table_depends_and_hints_for_analysis, joined_select_from_dependencies
     an=DDEF().higher_analyses[an_name]
+    anls_tab=DBSTRUCT().get_higher_analysis_dbtables(an.name)['anls']
     td, jh = get_table_depends_and_hints_for_analysis(an)
     sel,_=joined_select_from_dependencies(columns=None, absolute_needs=[anls_tab],
                                         table_depends=td, pre_filters={},join_hints=jh)
@@ -129,6 +130,11 @@ def create_all():
 
     for mg_name in PCONF().data_definition.measurement_groups:
         DBSTRUCT().get_measurement_group_dbtables(mg_name)
+        
+    for an_name in PCONF().data_definition.higher_analyses:
+        DBSTRUCT().get_higher_analysis_dbtables(an_name)
+
+    DBSTRUCT().get_higher_analysis_reload_table()
 
     DBSTRUCT().metadata.create_all(get_engine_so(), checkfirst=True)
 

@@ -13,7 +13,7 @@ from datavac.io.measurement_table import UniformMeasurementTable
 from datavac.util.maths import YatX
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class InverterDC(SemiDevMeasurementGroup):
     vhi: float = 1.0
     vlo: float = 0.0
@@ -93,7 +93,7 @@ def get_digitized_curves(time:np.ndarray[float], curves:dict[str,np.ndarray[floa
                       for k in curves}
     return digitized_curves
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class OscopeFormulaLogic(SemiDevMeasurementGroup):
     formula_col: str = 'formula'
     time_col: str = 'Time'
@@ -165,7 +165,7 @@ class OscopeFormulaLogic(SemiDevMeasurementGroup):
         )
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class OscopeRingOscillator(SemiDevMeasurementGroup):
     time_col: str = 'Time'
     signal_col: str = 'out'

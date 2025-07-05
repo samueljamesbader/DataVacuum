@@ -1,6 +1,8 @@
 from __future__ import annotations
 import functools
+import graphlib
 from typing import TYPE_CHECKING, Any, Optional
+from datavac.config.data_definition import HigherAnalysis
 from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
 from datavac.util.logging import time_it
 from datavac.util.util import returner_context
@@ -27,7 +29,10 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
     Returns:
         An SQLAlchemy Select and a dictionary mapping column names to their intended pandas types
     """
-    all_cols=[c for tab in table_depends for c in tab.columns]
+    ts = graphlib.TopologicalSorter(table_depends)
+    ordered_tables = list(ts.static_order())
+
+    all_cols=[c for tab in ordered_tables for c in tab.columns]
     def get_col(cname) -> Column:
         try: return next(c for c in all_cols if c.name==cname)
         except StopIteration:
@@ -41,24 +46,20 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
     else:
         col_names = set()
         cols: list[Column] = []
-        for tab in table_depends:
+        for tab in ordered_tables:
             for c in tab.columns:
                 if c.name not in col_names:
                     cols.append(c); col_names.add(c.name)
-    def apply_joins():
-        ordered_needed_tables=[]
-        need_queue=set(absolute_needs+[f.table for f in cols]+[get_col(pf).table for pf in pre_filters])
-        while len(need_queue):
-            for n in need_queue.copy():
-                further_needs=table_depends[n]
-                if n in ordered_needed_tables:
-                    need_queue.remove(n)
-                elif all(pn in ordered_needed_tables for pn in further_needs):
-                    ordered_needed_tables.append(n)
-                    need_queue.remove(n)
-                else: need_queue|=set(further_needs)
-        return functools.reduce((lambda x,y: x.join(y,onclause=join_hints.get(y,None))),ordered_needed_tables)
-    sel=apply_wheres(select(*cols).select_from(apply_joins()))
+
+    starter_needs =  [t for t in ordered_tables if t in absolute_needs
+                              or t in [f.table for f in cols]
+                              or t in [get_col(pf).table for pf in pre_filters]]
+    
+    from datavac.util.dag import include_all_descendants
+    all_needs = include_all_descendants(starter_needs, table_depends)
+    ordered_needed_tables = [t for t in ordered_tables if t in all_needs]
+    thejoin=functools.reduce((lambda x,y: x.join(y,onclause=join_hints.get(y,None))),ordered_needed_tables) # type: ignore
+    sel=apply_wheres(select(*cols).select_from(thejoin))
     dtypes={c.name:sql_to_pd_types[c.type.__class__] for c in cols
                                              if c.type.__class__ in sql_to_pd_types}
     return sel, dtypes
@@ -85,6 +86,34 @@ def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, inc
         if include_sweeps and meas_group.involves_sweeps:
             table_depends[sweeptab:=(DBSTRUCT().get_measurement_group_dbtables(meas_group.name)['sweep'])]=[meastab]
         for ssr_name in meas_group.subsample_reference_names:
+            # Note: just including the sample table here because in case the subsample reference has foreign keys
+            # to some sample info, we need to make sure the sample info is merged before the subsample reference
+            table_depends[DBSTRUCT().get_subsample_reference_dbtable(ssr_name)]=[coretab,DBSTRUCT().get_sample_dbtable()]
+
+        # TODO: Uncomment when fnct and ot readded 
+        #fnc_tables=[self._hat(fnct) for fnct in fnc_tables]
+        #other_tables=[self._hat(ot) for ot in other_tables]
+        #for fnct in fnc_tables: table_depends[fnct]=[self._mattab]
+        #for ot in other_tables: table_depends[ot]=[self._mattab]
+
+        return table_depends, {}
+def get_table_depends_and_hints_for_analysis(an: HigherAnalysis)\
+            -> tuple[dict[Table, list[Table]], dict[Table, str]]:
+        """Returns the table dependencies and join hints for a given higher analysis.
+        
+        Args:
+            an: The analysis to get the table dependencies for.
+        Returns:
+            A tuple containing:
+            - A dictionary mapping tables to their dependencies (ie which tables they need to be joined with).
+            - A dictionary mapping tables to their join hints (ie how to join them).
+        """
+
+        table_depends={}
+        table_depends[coretab:=(anlstab:=DBSTRUCT().get_higher_analysis_dbtables(an.name)['anls'])]=[]
+        table_depends[         ( idttab:=DBSTRUCT().get_higher_analysis_dbtables(an.name)['idt'])]=[coretab]
+        table_depends[sampletab:=(DBSTRUCT().get_sample_dbtable())]=[coretab]
+        for ssr_name in an.subsample_reference_names:
             # Note: just including the sample table here because in case the subsample reference has foreign keys
             # to some sample info, we need to make sure the sample info is merged before the subsample reference
             table_depends[DBSTRUCT().get_subsample_reference_dbtable(ssr_name)]=[coretab,DBSTRUCT().get_sample_dbtable()]

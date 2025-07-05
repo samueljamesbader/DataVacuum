@@ -25,12 +25,13 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
     """
     from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
     from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
+    from datavac.config.data_definition import HigherAnalysis
     from datavac.config.project_config import ProjectConfiguration
     from datavac.measurements.measurement_group import MeasurementGroup
     from datavac.util.util import asnamedict
     meas_cols = [DVColumn(f'TestCol{i}', 'string', f'Test Meas column {i}') for i in range(num_meas_cols)]
     extr_cols = [DVColumn(f'ExtrCol{i}', 'string', f'Test Extr column {i}') for i in range(num_extr_cols)]
-    @dataclass
+    @dataclass(eq=False,repr=False)
     class MG(MeasurementGroup):
         def available_extr_columns(self) -> dict[str, DVColumn]:
             return asnamedict(*super().available_extr_columns().values(), *extr_cols,
@@ -63,6 +64,10 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                             'SampleInfoCol1': 'sample0_info1', 'MaskSet':'MainMask'},
                 'sample1': {'SampleName':'sample1','SampleInfoCol0': 'sample1_info0',
                             'SampleInfoCol1': 'sample1_info1', 'MaskSet':'MainMask'}}
+    def anls_func(nosw: pd.DataFrame, yessw: pd.DataFrame) -> pd.DataFrame:
+        import pandas as pd
+        return pd.DataFrame({'AnlsCol_nosw':   nosw['ExtrCol0'].str.replace('extr','anls'),
+                             'AnlsCol_yessw': yessw['ExtrCol0'].str.replace('extr','anls')})
     
     return ProjectConfiguration(deployment_name='datavac_dbtest',
                                 data_definition=SemiDeviceDataDefinition(
@@ -76,7 +81,13 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                                         required_dependencies= {'test_group_nosw':'other'},
                                         reader_cards={'': [MockReaderCard(reader_func=generate,sample_func=sample_func)]},
                                         meas_columns=meas_cols[:1], extr_column_names=[c.name for c in extr_cols][:1]+['BonusExtrCol0'],)),
-                                    troves={'': MockTrove()}
+                                    troves={'': MockTrove()},
+                                    higher_analyses=asnamedict(HigherAnalysis('test_anls', 'Test analysis',
+                                        analysis_function= anls_func,
+                                        analysis_columns=[DVColumn('AnlsCol_nosw', 'string', 'Analysis column for nosw'),
+                                                         DVColumn('AnlsCol_yessw', 'string', 'Analysis column for yessw')],
+                                        required_dependencies={'test_group_nosw':'nosw','test_group_yessw':'yessw'},)),
+                                        
                                 ),
                                 vault=DemoVault(dbname='datavac_dbtest')
                                 )

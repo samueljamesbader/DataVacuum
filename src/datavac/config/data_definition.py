@@ -3,9 +3,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Callable, Sequence, Tuple
 
 from datavac.config.layout_params import LayoutParameters
+from datavac.util.caching import cache_but_copy
 from datavac.util.lazydict import FunctionLazyDict
 from datavac.util.util import only
 
@@ -116,16 +117,46 @@ class SubSampleReference():
         from datavac.database.db_structure import DBSTRUCT
         return DBSTRUCT().get_subsample_reference_dbtable(self.name)
 
-@dataclass
+@dataclass(eq=False)
 class HigherAnalysis():
     name: str
     description: str
-    analysis_function: Callable[[MeasurementTable], pd.DataFrame]
-    required_dependencies: list[str] = field(default_factory=list)
-    optional_dependencies: list[str] = field(default_factory=list)
-    subsample_reference_names: list[str] = field(default_factory=list)
+    analysis_function: Callable[..., pd.DataFrame]
+    """The arguments that analysis_function needs to accept are the required and optional dependencies.
+    
+    If a dependency is a MeasurementGroup, the function will receive a MultiUniformMeasurementTable.
+    If a dependency is a HigherAnalysis, the function will receive a DataFrame.
+    If a dependency is optional, the function must not require that argument. 
 
-@dataclass
+    The function should return a DataFrame with the analysis results.
+    """
+
+    analysis_columns: list[DVColumn] = field(default_factory=list)
+    required_dependencies: Mapping[str,str] = field(default_factory=dict)
+    optional_dependencies: Mapping[str,str] = field(default_factory=dict)
+    subsample_reference_names: list[str] = field(default_factory=list)
+    def dbtables(self, key:str) -> Table:
+        """Returns the database table associated with this higher analysis for the given key."""
+        from datavac.database.db_structure import DBSTRUCT
+        return DBSTRUCT().get_higher_analysis_dbtables(self.name)[key]
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
+    
+    def __str__(self) -> str:
+        return f'<Analysis:"{self.name}">'
+    def __repr__(self) -> str:
+        return f'<Analysis:"{self.name}">'
+    
+    def __eq__(self, other: object) -> bool:
+        """Equality is based on the name of the analysis."""
+        if isinstance(other, str):
+            raise Exception("Comparing HigherAnalysis to string")
+        if not isinstance(other, HigherAnalysis):
+            return False
+        return self.name == other.name
+
+@dataclass(eq=False)
 class DataDefinition():
 
     measurement_groups: Mapping[str, MeasurementGroup] = field(default_factory=dict)
@@ -160,6 +191,16 @@ class DataDefinition():
         if self.troves is None:
             from datavac.trove.classic_folder_trove import ClassicFolderTrove
             self.troves = {'all': ClassicFolderTrove()}
+        for meas_group in self.measurement_groups.values():
+            try: hash(meas_group)
+            except TypeError:
+                raise TypeError(f"MeasurementGroup \"{meas_group.name}\" is not hashable. "\
+                                "Usuallly this is because a subclass used @dataclass() instead of @dataclass(eq=False).")
+        for higher_analysis in self.higher_analyses.values():
+            try: hash(higher_analysis)
+            except TypeError:
+                raise TypeError(f"HigherAnalysis \"{higher_analysis.name}\" is not hashable. "\
+                                "Usuallly this is because a subclass used @dataclass() instead of @dataclass(eq=False).")
     
     @property
     def SAMPLE_COLNAME(self):
@@ -176,9 +217,54 @@ class DataDefinition():
     
     def ALL_SAMPLELOAD_COLNAMES(self, trove_name: str):
         return self.ALL_SAMPLE_COLNAMES + self.ALL_LOAD_COLNAMES(trove_name)
+    
+    @cache
+    def get_meas_groups_dependency_graph(self) -> Mapping[MeasurementGroup, Sequence[MeasurementGroup]]:
+        """Returns a mapping of measurement groups to their required and optional dependencies."""
+        return {mg: [self.measurement_groups[mg_name]
+                      for mg_name in list(mg.required_dependencies)\
+                                   + list(mg.optional_dependencies)]
+                    for mg in self.measurement_groups.values()}
+    
+    @cache
+    def get_analyses_dependency_graph(self) -> Mapping[HigherAnalysis, Sequence[MeasurementGroup|HigherAnalysis]]:
+        """Returns a mapping of higher analyses to their required and optional dependencies."""
+        return {an: [(self.higher_analyses.get(mgoa_name) or self.measurement_groups[mgoa_name])
+                      for mgoa_name in list(an.required_dependencies)\
+                                     + list(an.optional_dependencies)]
+                    for an in self.higher_analyses.values()}
+    @cache
+    def get_meas_groups_dependent_graph(self) -> Mapping[MeasurementGroup, Sequence[MeasurementGroup|HigherAnalysis]]:
+        """Returns a mapping of measurement groups to their dependents (measurement groups or analyses)."""
+        from datavac.util.dag import reverse_dag
+        from datavac.measurements.measurement_group import MeasurementGroup
+        return reverse_dag({k:[mgoa for mgoa in v if isinstance(mgoa, MeasurementGroup)]
+                            for k,v in list(self.get_meas_groups_dependency_graph().items())\
+                                          +list(self.get_analyses_dependency_graph().items())})
+    @cache
+    def get_analyses_dependent_graph(self) -> Mapping[HigherAnalysis, Sequence[HigherAnalysis]]:
+        """Returns a mapping of higher analyses to their dependents."""
+        from datavac.util.dag import reverse_dag
+        return reverse_dag({k:[mgoa for mgoa in v if isinstance(mgoa,HigherAnalysis)]
+                            for k,v in self.get_analyses_dependency_graph().items()})
 
+    @cache_but_copy
+    def get_meas_groups_topo_sorted(self) -> list[MeasurementGroup]:
+        """Returns a list of all meas groups such that any dependencies appear before dependents."""
+        from graphlib import TopologicalSorter
+        ts = TopologicalSorter(self.get_meas_groups_dependency_graph())
+        return list(ts.static_order())
+    
+    @cache_but_copy
+    def get_higher_analyses_topo_sorted(self) -> list[HigherAnalysis]:
+        """Returns a list of all higher analyses such that any dependencies appear before dependents."""
+        from graphlib import TopologicalSorter
+        ts = TopologicalSorter({k:[mgoa for mgoa in v if isinstance(mgoa,HigherAnalysis)]
+                                for k,v in self.get_analyses_dependency_graph().items()})
+        return list(ts.static_order())
+    
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True,eq=False)
 class SemiDeviceDataDefinition(DataDefinition):
 
     layout_params_func: Callable[[],LayoutParameters] = LayoutParameters

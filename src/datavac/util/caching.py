@@ -4,7 +4,7 @@ from datetime import datetime
 import functools
 import pickle
 import shutil
-from functools import wraps
+from functools import cache, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
@@ -180,3 +180,11 @@ def cli_clear_local_cache(*args):
     )
     namespace=parser.parse_args(args)
     clear_local_cache(namespace.cache_dir)
+
+
+def cache_but_copy(func):
+    cached_func=cache(func)
+    @wraps(func)
+    def wrapper(*args,**kwargs):
+        return cached_func(*args,**kwargs).copy()
+    return wrapper

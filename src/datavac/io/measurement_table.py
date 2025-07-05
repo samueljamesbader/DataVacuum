@@ -22,6 +22,9 @@ class MeasurementTable:
 
     def __len__(self):
         raise NotImplementedError()
+    
+    def __getitem__(self,item):
+        raise NotImplementedError()
 
     def drop(self, columns: list[str]):
         raise NotImplementedError()
