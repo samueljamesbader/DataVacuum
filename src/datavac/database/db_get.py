@@ -111,7 +111,7 @@ def get_table_depends_and_hints_for_analysis(an: HigherAnalysis)\
 
         table_depends={}
         table_depends[coretab:=(anlstab:=DBSTRUCT().get_higher_analysis_dbtables(an.name)['anls'])]=[]
-        table_depends[         ( idttab:=DBSTRUCT().get_higher_analysis_dbtables(an.name)['idt'])]=[coretab]
+        table_depends[         (aidttab:=DBSTRUCT().get_higher_analysis_dbtables(an.name)['aidt'])]=[coretab]
         table_depends[sampletab:=(DBSTRUCT().get_sample_dbtable())]=[coretab]
         for ssr_name in an.subsample_reference_names:
             # Note: just including the sample table here because in case the subsample reference has foreign keys
@@ -212,6 +212,8 @@ def get_data_from_meas_group(meas_group: MeasurementGroup, scalar_columns:Option
 
     if include_sweeps: assert meas_group.involves_sweeps, \
         f"Measurement group {meas_group.name} does not involve sweeps, but they were requested."
+    assert not ((not include_sweeps) and unstack_headers), \
+        f"Unstacking headers only makes sense when sweeps are included in the data."
     td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=include_sweeps)
     sel, dtypes = joined_select_from_dependencies(columns=(scalar_columns+(['header','sweep'] if include_sweeps else [])
                                                            if scalar_columns is not None else None),

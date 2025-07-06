@@ -64,10 +64,14 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                             'SampleInfoCol1': 'sample0_info1', 'MaskSet':'MainMask'},
                 'sample1': {'SampleName':'sample1','SampleInfoCol0': 'sample1_info0',
                             'SampleInfoCol1': 'sample1_info1', 'MaskSet':'MainMask'}}
-    def anls_func(nosw: pd.DataFrame, yessw: pd.DataFrame) -> pd.DataFrame:
+    def anls_func1(nosw: MultiUniformMeasurementTable, yessw: MultiUniformMeasurementTable) -> pd.DataFrame:
         import pandas as pd
-        return pd.DataFrame({'AnlsCol_nosw':   nosw['ExtrCol0'].str.replace('extr','anls'),
-                             'AnlsCol_yessw': yessw['ExtrCol0'].str.replace('extr','anls')})
+        return pd.DataFrame({'Anls1Col_nosw':   nosw['ExtrCol0'].str.replace('extr','anls'),
+                             'Anls1Col_yessw': yessw['ExtrCol0'].str.replace('extr','anls')})
+    def anls_func2(anls1: pd.DataFrame, yessw: MultiUniformMeasurementTable) -> pd.DataFrame:
+        import pandas as pd
+        return pd.DataFrame({'Anls2Col_nosw':  anls1['Anls1Col_nosw'].str.replace('anls','anls1'),
+                             'Anls2Col_yessw': yessw['ExtrCol0'].str.replace('extr','anls')})
     
     return ProjectConfiguration(deployment_name='datavac_dbtest',
                                 data_definition=SemiDeviceDataDefinition(
@@ -82,11 +86,18 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                                         reader_cards={'': [MockReaderCard(reader_func=generate,sample_func=sample_func)]},
                                         meas_columns=meas_cols[:1], extr_column_names=[c.name for c in extr_cols][:1]+['BonusExtrCol0'],)),
                                     troves={'': MockTrove()},
-                                    higher_analyses=asnamedict(HigherAnalysis('test_anls', 'Test analysis',
-                                        analysis_function= anls_func,
-                                        analysis_columns=[DVColumn('AnlsCol_nosw', 'string', 'Analysis column for nosw'),
-                                                         DVColumn('AnlsCol_yessw', 'string', 'Analysis column for yessw')],
-                                        required_dependencies={'test_group_nosw':'nosw','test_group_yessw':'yessw'},)),
+                                    higher_analyses=asnamedict(
+                                        HigherAnalysis('test_anls1', 'Test analysis',
+                                            analysis_function= anls_func1,
+                                            analysis_columns=[DVColumn('Anls1Col_nosw', 'string', 'Analysis column for nosw'),
+                                                              DVColumn('Anls1Col_yessw', 'string', 'Analysis column for yessw')],
+                                            required_dependencies={'test_group_nosw':'nosw','test_group_yessw':'yessw'},),
+                                        HigherAnalysis('test_anls2', 'Test analysis',
+                                            analysis_function= anls_func2,
+                                            analysis_columns=[DVColumn('Anls2Col_nosw', 'string', 'Analysis column for nosw'),
+                                                              DVColumn('Anls2Col_yessw', 'string', 'Analysis column for yessw')],
+                                            required_dependencies={'test_anls1':'anls1','test_group_yessw':'yessw'},),
+                                    ),
                                         
                                 ),
                                 vault=DemoVault(dbname='datavac_dbtest')
@@ -96,7 +107,7 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
 
 def test_update_meas_groups():
 
-    unload_my_imports()
+    unload_my_imports(silent=True)
     from datavac.config.project_config import PCONF
     from datavac.config.data_definition import DDEF
     from datavac.database.db_create import ensure_clear_database, create_all
@@ -106,10 +117,12 @@ def test_update_meas_groups():
     from datavac.io.make_diemap import make_fullwafer_diemap
     from datavac.database.db_upload_meas import read_and_enter_data
     from datavac.database.db_modify import heal
+    from datavac.util.logging import logger
     import numpy as np
 
     # Make a project where the nosw group has 1 meas column and 1 extr column,
     # and the yessw group has 1 meas column and 1 extr column.
+    logger.debug("CONFIG 1,1")
     PCONF(make_project_config(1,1))
     ensure_clear_database()
     create_all()
@@ -122,25 +135,40 @@ def test_update_meas_groups():
     
     # Populate the database with some data and check
     upload_mask_info({'MainMask': make_fullwafer_diemap(name='deprecatethis', aindex=30, bindex=20, save_csv=False)})
+    logger.debug("Read and enter data")
     read_and_enter_data()
     data_back=read_sql('select * from jmp."test_group_nosw" order by loadid,measid')
     assert np.all(data_back['TestCol0']==['meas0_col0','meas1_col0','meas0_col0','meas1_col0'])
     assert np.all(data_back['ExtrCol0']==['extr0_col0','extr1_col0','extr0_col0','extr1_col0'])
+    data_back=read_sql('select * from jmp."test_anls1" order by "SampleName","Anls1Col_nosw"')
+    assert np.all(data_back['Anls1Col_nosw'] ==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    assert np.all(data_back['Anls1Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    data_back=read_sql('select * from jmp."test_anls2" order by "SampleName","Anls2Col_nosw"')
+    assert np.all(data_back['Anls2Col_nosw'] ==['anls10_col0','anls11_col0','anls10_col0','anls11_col0'])
+    assert np.all(data_back['Anls2Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    assert len(read_sql('select * from vac."ReLoad_"'))==0
+    assert len(read_sql('select * from vac."ReExtr_"'))==0
+    assert len(read_sql('select * from vac."ReAnls"' ))==0
 
     # Now clear out the configuration and reconfigure with 2 meas columns and 1 extr column
-    unload_my_imports()
+    unload_my_imports(silent=True)
     from datavac.config.project_config import PCONF
     from datavac.database.db_modify import update_measurement_group_tables
     from datavac.database.db_util import read_sql
+    logger.debug("CONFIG 2,1")
     PCONF(make_project_config(2,1))
 
     # Update the measurement group tables, make sure the nosw data is dropped
     # and the yessw group is still there.
+    logger.debug("Update measurement group tables")
     update_measurement_group_tables()
     assert len(read_sql('select * from jmp."test_group_nosw"  order by loadid,measid'))==0
     assert len(read_sql('select * from jmp."test_group_yessw" order by loadid,measid'))>0
+    assert len(read_sql('select * from jmp."test_anls1"'))==0
+    assert len(read_sql('select * from jmp."test_anls2"'))==0
 
     # Now heal and make sure the data is put back
+    logger.debug("Heal the database")
     heal()
     assert len(read_sql('select * from jmp."test_group_yessw" order by loadid,measid'))>0
     assert read_sql('select * from vac."Meas -- test_group_nosw"').columns.tolist()\
@@ -153,16 +181,25 @@ def test_update_meas_groups():
     assert np.all(data_back['ExtrCol0']==['extr0_col0','extr1_col0','extr0_col0','extr1_col0'])
     assert len(read_sql('select * from vac."ReLoad_"'))==0
     assert len(read_sql('select * from vac."ReExtr_"'))==0
+    assert len(read_sql('select * from vac."ReAnls"' ))==0
+    data_back=read_sql('select * from jmp."test_anls1" order by "SampleName","Anls1Col_nosw"')
+    assert np.all(data_back['Anls1Col_nosw'] ==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    assert np.all(data_back['Anls1Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    data_back=read_sql('select * from jmp."test_anls2" order by "SampleName","Anls2Col_nosw"')
+    assert np.all(data_back['Anls2Col_nosw'] ==['anls10_col0','anls11_col0','anls10_col0','anls11_col0'])
+    assert np.all(data_back['Anls2Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
 
     # Now clear out the configuration and reconfigure with 2 meas columns and 2 extr column
-    unload_my_imports()
+    unload_my_imports(silent=True)
     from datavac.config.project_config import PCONF
     from datavac.database.db_modify import update_measurement_group_tables
     from datavac.database.db_util import read_sql
+    logger.debug("CONFIG 2,2")
     PCONF(make_project_config(2,2))
     
     # Update the measurement group tables, make sure the nosw extraction is dropped, but not measurement
     # and the yessw is untouched.
+    logger.debug("Update measurement group tables (extraction changed)")
     update_measurement_group_tables()
     assert len(read_sql('select * from vac."Meas -- test_group_nosw"  order by loadid,measid'))>0
     assert len(read_sql('select * from vac."Meas -- test_group_yessw" order by loadid,measid'))>0
@@ -170,6 +207,7 @@ def test_update_meas_groups():
     assert len(read_sql('select * from vac."Extr -- test_group_yessw" order by loadid,measid'))>0
 
     # Now heal and make sure the data is put back
+    logger.debug("Heal the database")
     heal()
     assert read_sql('select * from vac."Meas -- test_group_nosw"').columns.tolist()\
         == ['loadid', 'measid', 'rawgroup', 'TestCol0', 'TestCol1']
@@ -182,23 +220,48 @@ def test_update_meas_groups():
     assert np.all(data_back['ExtrCol1']==['extr0_col1','extr1_col1','extr0_col1','extr1_col1'])
     assert len(read_sql('select * from vac."ReLoad_"'))==0
     assert len(read_sql('select * from vac."ReExtr_"'))==0
+    data_back=read_sql('select * from jmp."test_anls1" order by "SampleName","Anls1Col_nosw"')
+    assert np.all(data_back['Anls1Col_nosw'] ==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    assert np.all(data_back['Anls1Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    data_back=read_sql('select * from jmp."test_anls2" order by "SampleName","Anls2Col_nosw"')
+    assert np.all(data_back['Anls2Col_nosw'] ==['anls10_col0','anls11_col0','anls10_col0','anls11_col0'])
+    assert np.all(data_back['Anls2Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
 
     # Set up the config to add a re-extraction sign to the extraction columns
-    unload_my_imports()
+    unload_my_imports(silent=True)
     from datavac.config.project_config import PCONF
     from datavac.config.data_definition import DDEF
     from datavac.database.db_upload_meas import perform_and_enter_extraction
     from datavac.database.db_get import get_data
+    logger.debug("CONFIG 2,2,-reextr")
     PCONF(make_project_config(2,2,extr_sign='-reextr'))
 
     # Reextract sample0 for nosw group and check the data
+    logger.debug("Reextract sample0 for nosw group")
     perform_and_enter_extraction(DDEF().troves[''], samplename='sample0',only_meas_groups=['test_group_nosw'])
     data_back=read_sql('select * from jmp."test_group_nosw" order by loadid,measid')
     assert np.all(data_back['ExtrCol0']==['extr0_col0-reextr','extr1_col0-reextr','extr0_col0','extr1_col0'])
     assert np.all(data_back['ExtrCol1']==['extr0_col1-reextr','extr1_col1-reextr','extr0_col1','extr1_col1'])
+
+    # Analysis should not have changed 
+    data_back=read_sql('select * from jmp."test_anls1" order by "SampleName","Anls1Col_nosw"')
+    assert np.all(data_back['Anls1Col_nosw'] ==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    assert np.all(data_back['Anls1Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+    data_back=read_sql('select * from jmp."test_anls2" order by "SampleName","Anls2Col_nosw"')
+    assert np.all(data_back['Anls2Col_nosw'] ==['anls10_col0','anls11_col0','anls10_col0','anls11_col0'])
+    assert np.all(data_back['Anls2Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
+
+    # Heal and now it should
+    heal()
+    data_back=read_sql('select * from jmp."test_anls1" order by "SampleName","Anls1Col_nosw"')
+    assert np.all(data_back['Anls1Col_nosw'] ==['anls0_col0-reanls','anls1_col0-reanls','anls0_col0','anls1_col0'])
+    assert np.all(data_back['Anls1Col_yessw']==['anls0_col0-reanls','anls1_col0-reanls','anls0_col0','anls1_col0'])
+    data_back=read_sql('select * from jmp."test_anls2" order by "SampleName","Anls2Col_nosw"')
+    assert np.all(data_back['Anls2Col_nosw'] ==['anls10_col0-reanls1','anls11_col0-reanls1','anls10_col0','anls11_col0'])
+    assert np.all(data_back['Anls2Col_yessw']==['anls0_col0-reanls','anls1_col0-reanls','anls0_col0','anls1_col0'])
     
     # Set up the config to add another re-extraction sign to the extraction columns
-    unload_my_imports()
+    unload_my_imports(silent=True)
     from datavac.config.project_config import PCONF
     from datavac.config.data_definition import DDEF
     from datavac.database.db_upload_meas import perform_and_enter_extraction

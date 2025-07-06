@@ -2,7 +2,7 @@ from typing import Any, Optional
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import get_engine_rw, get_engine_so
 from datavac.database.db_structure import DBSTRUCT
-from datavac.config.data_definition import DDEF
+from datavac.config.data_definition import DDEF, HigherAnalysis
 from datavac.database.db_util import namews
 from datavac.util.logging import logger
 from datavac.util.util import only
@@ -106,34 +106,54 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
 def heal():
     import pandas as pd
     from datavac.database.db_upload_meas import read_and_enter_data
-    from datavac.database.db_upload_meas import perform_and_enter_extraction
+    from datavac.database.db_upload_meas import perform_and_enter_extraction, perform_and_enter_analysis
     sampletab=DBSTRUCT().get_sample_dbtable()
-    with get_engine_rw().begin() as conn:
-        for trove in PCONF().data_definition.troves.values():
-            load_grouping = trove.natural_grouping or DDEF().SAMPLE_COLNAME
+    for trove in PCONF().data_definition.troves.values():
+        load_grouping = trove.natural_grouping or DDEF().SAMPLE_COLNAME
 
-            if len(PCONF().data_definition.troves)>1:
-                logger.debug(f"Healing loads for trove {trove.name}")
-            relotab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reload']
+        if len(PCONF().data_definition.troves)>1:
+            logger.debug(f"Healing loads for trove {trove.name}")
+        relotab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reload']
+        with get_engine_rw().begin() as conn:
             pd_relo=pd.read_sql(con=conn, sql=select(*relotab.c, *sampletab.c).select_from(relotab.join(sampletab)))
-            if not len(pd_relo): logger.debug(f"No reloads required")
-            else:
-                for lgval, grp in pd_relo.groupby(load_grouping):
-                    meas_groups = list(grp['MeasGroup'].unique())
-                    logger.debug(f"Healing for {load_grouping}={lgval}, measurement groups {meas_groups}")
-                    if load_grouping == DDEF().SAMPLE_COLNAME:
-                        sampleload_info: dict[str,Any] = {load_grouping: [lgval]}
-                    else:
-                        sampleload_info: dict[str,Any] = {load_grouping: [lgval], DDEF().SAMPLE_COLNAME: list(grp['sampleid'].unique())}
-                    read_and_enter_data(only_meas_groups=meas_groups,only_sampleload_info=sampleload_info)
-            logger.debug(f"Done with reloads")
+        if not len(pd_relo): logger.debug(f"No reloads required")
+        else:
+            for lgval, grp in pd_relo.groupby(load_grouping):
+                meas_groups = list(grp['MeasGroup'].unique())
+                logger.debug(f"Healing for {load_grouping}={lgval}, measurement groups {meas_groups}")
+                if load_grouping == DDEF().SAMPLE_COLNAME:
+                    sampleload_info: dict[str,Any] = {load_grouping: [lgval]}
+                else:
+                    sampleload_info: dict[str,Any] = {load_grouping: [lgval], DDEF().SAMPLE_COLNAME: list(grp['sampleid'].unique())}
+                read_and_enter_data(only_meas_groups=meas_groups,only_sampleload_info=sampleload_info)
+        logger.debug(f"Done with reloads")
 
-            reextab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reextr']
-            loadtab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['loads']
+
+        reextab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reextr']
+        loadtab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['loads']
+        with get_engine_rw().begin() as conn:
             pd_reex= pd.read_sql(con=conn, sql=select(*reextab.c, *loadtab.c, *sampletab.c)\
                .select_from(reextab.join(loadtab).join(sampletab)))
-            if not len(pd_reex): logger.debug(f"No re-extractions required")
-            else:
-                for samplename, grp in pd_reex.groupby(DDEF().SAMPLE_COLNAME):
-                    perform_and_enter_extraction(trove=trove, samplename=samplename,
+        if not len(pd_reex): logger.debug(f"No re-extractions required")
+        else:
+            for samplename, grp in pd_reex.groupby(DDEF().SAMPLE_COLNAME):
+                with get_engine_rw().begin() as conn:
+                    data_by_mg,mg_to_loadid=perform_and_enter_extraction(trove=trove, samplename=samplename,
                         only_meas_groups=list(grp['MeasGroup'].unique()),conn=conn)
+                    needed_analyses = list(set(an.name for mg in data_by_mg
+                                              for an in DDEF().get_meas_groups_dependent_graph()[DDEF().measurement_groups[mg]]
+                                                if isinstance(an, HigherAnalysis)))
+                    perform_and_enter_analysis(samplename=samplename, only_analyses=needed_analyses, conn=conn,
+                                               pre_obtained_data_by_mgoa=data_by_mg, pre_obtained_mgoa_to_loadanlsid=mg_to_loadid,)
+            
+        reantab=DBSTRUCT().get_higher_analysis_reload_table()
+        with get_engine_rw().begin() as conn:
+            pd_rean= pd.read_sql(con=conn, sql=select(*reantab.c,*sampletab.c)\
+               .select_from(reantab.join(sampletab)))
+        if not len(pd_rean): logger.debug(f"No re-analyses required")
+        else:
+            for samplename, grp in pd_rean.groupby(DDEF().SAMPLE_COLNAME):
+                analyses = list(grp['Analysis'].unique())
+                perform_and_enter_analysis(samplename=samplename, only_analyses=analyses)
+            
+            

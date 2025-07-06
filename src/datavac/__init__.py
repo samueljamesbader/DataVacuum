@@ -10,9 +10,9 @@ _load_dotenv()
 load_environment_from_context()
 
 
-def unload_my_imports(imports=['datavac','bokeh_transform_utils']):
+def unload_my_imports(imports=['datavac','bokeh_transform_utils'], silent=False):
     modules_to_drop=[k for k in sys.modules if any((i in k for i in imports))]
-    if len(modules_to_drop):
+    if (not silent) and len(modules_to_drop):
         print(f"Unloading {', '.join(sorted(modules_to_drop))}")
     for k in modules_to_drop:
         del sys.modules[k]

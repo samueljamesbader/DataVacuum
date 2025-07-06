@@ -230,7 +230,7 @@ def delete_prior_extractions(trove: Trove, sampleload_info: Optional[Mapping[str
         return mg_name_to_loadids                 
     
 
-def upload_extraction(trove: Trove, sampleload_info: Mapping[str,Any],
+def upload_extraction(trove: Trove, samplename: Any,
                       data_by_meas_group: Mapping[str, MeasurementTable],
                       only_meas_groups: Optional[list[str]] = None,
                       skip_delete_use_these_loadids: dict[str,int] = {}):
@@ -241,7 +241,7 @@ def upload_extraction(trove: Trove, sampleload_info: Mapping[str,Any],
                                        if mg_name not in skip_delete_use_these_loadids]
     mg_name_to_loadid=dict(**mg_name_to_loadid,
                   **{k:only(v) for k,v in
-                        delete_prior_extractions(trove, sampleload_info,
+                        delete_prior_extractions(trove, {DDEF().SAMPLE_COLNAME:samplename},
                             only_meas_groups=need_to_delete_and_acquire_loadid).items()})
 
     for mg_name in (only_meas_groups or data_by_meas_group):
@@ -264,7 +264,9 @@ def upload_extraction(trove: Trove, sampleload_info: Mapping[str,Any],
             statements=[
                 delete(reextab).where(reextab.c.loadid==mg_name_to_loadid[mg_name]),
                 pgsql_insert(reantab).from_select(['sampleid','Analysis'],
-                                                  select(sampletab.c.sampleid,needed_analyses_cte.c.analysis))
+                                                  select(sampletab.c.sampleid,needed_analyses_cte.c.analysis)\
+                                                    .where(sampletab.c[DDEF().SAMPLE_COLNAME]==literal(samplename)))\
+                                     .on_conflict_do_nothing()
             ]
             query_str = ';'.join([str(s.compile(conn,compile_kwargs={'literal_binds':True})) for s in statements])
             #print(query_str)
@@ -291,21 +293,23 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
                 f"'{PCONF().data_definition.SAMPLE_COLNAME}', just\n{sample_to_sampleloadinfo[sample]}" 
             mg_to_loadid=upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg,
                                             only_meas_groups=only_meas_groups)
-            mg_to_loadid=perform_and_enter_extraction(trove, samplename=sample,
+            data_by_mg,mg_to_loadid=perform_and_enter_extraction(trove, samplename=sample,
                             only_meas_groups=list(data_by_mg),
                             pre_obtained_data_by_mg=data_by_mg,
                             pre_obtained_mg_to_loadid=mg_to_loadid)
-            needed_analyes = list(set(an.name for mg in data_by_mg
+            needed_analyses = list(set(an.name for mg in data_by_mg
                                       for an in DDEF().get_meas_groups_dependent_graph()[DDEF().measurement_groups[mg]]
                                         if isinstance(an, HigherAnalysis)))
-            perform_and_enter_analysis(samplename=sample, only_analyses=needed_analyes,
+            perform_and_enter_analysis(samplename=sample, only_analyses=needed_analyses,
                                        pre_obtained_data_by_mgoa=data_by_mg, pre_obtained_mgoa_to_loadanlsid=mg_to_loadid,)
 
 def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups: list[str],
               pre_obtained_data_by_mg: dict[str,MultiUniformMeasurementTable]={},
               pre_obtained_mg_to_loadid: dict[str,int]={},
-              conn: Optional[Connection] = None) -> dict[str,int]:
+              conn: Optional[Connection] = None) -> tuple[dict[str,MultiUniformMeasurementTable],dict[str,int]]:
     """ Re-extract data for a sample.
+
+    Caution: the tables in pre_obtained_data_by_mg will be modified in place by extraction.
 
     Args:
         samplename: The name of the sample to re-extract.
@@ -375,7 +379,7 @@ def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups
         perform_extraction({samplename: data_by_mg}, only_meas_groups=should_reextract)
 
         # Upload
-        return upload_extraction(trove, sampleload_info={DDEF().SAMPLE_COLNAME:samplename},
+        return data_by_mg,upload_extraction(trove, samplename=samplename,
                                  data_by_meas_group=data_by_mg, only_meas_groups=should_reextract,
                                  skip_delete_use_these_loadids=pre_obtained_mg_to_loadid)
 
@@ -384,14 +388,14 @@ def delete_prior_analyses(samplename: Any, only_analyses: Optional[list[str]] = 
     statements=[]
     for an_name in (only_analyses or DDEF().higher_analyses.keys()):
         an = DDEF().higher_analyses[an_name]
-        statements.append(delete(an.dbtables('idt'))\
+        statements.append(delete(an.dbtables('aidt'))\
+                          .where(sampletab.c['sampleid']==an.dbtables('aidt').c['sampleid'])\
                           .where(sampletab.c[PCONF().data_definition.SAMPLE_COLNAME]==literal(samplename)))
     with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
         conn.execute(text(';'.join([str(s.compile(conn,compile_kwargs={'literal_binds':True})) for s in statements])))
 
 
 def upload_analysis(an: HigherAnalysis, samplename: Any, data: pd.DataFrame,
-                    data_by_mgoa: dict[str,MeasurementTable|pd.DataFrame],
                     pre_obtained_mgoa_to_loadanlsid: dict[str,int]={},
                     conn: Optional[Connection] = None):
     with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
@@ -404,26 +408,28 @@ def upload_analysis(an: HigherAnalysis, samplename: Any, data: pd.DataFrame,
                 idrefs[f'anlsid - {dep_name}'] = pre_obtained_mgoa_to_loadanlsid[dep_name]
         sampletab=DBSTRUCT().get_sample_dbtable()
         SAMPLECOL=sampletab.c[PCONF().data_definition.SAMPLE_COLNAME]
-        # TODO: delete print statment
-        myres=conn.execute(pgsql_insert(an.dbtables('idt'))\
+        anlsid=conn.execute(pgsql_insert(an.dbtables('aidt'))\
                          .from_select(['sampleid', *idrefs.keys()],
                                 select(sampletab.c['sampleid'], *[literal(v) for v in idrefs.values()])\
                                     .where(SAMPLECOL==literal(samplename)))\
-                         .returning(an.dbtables('idt').c.anlsid))
-        anlsid=myres.scalar_one()
+                         .returning(an.dbtables('aidt').c.anlsid)).scalar_one()
         data=data.assign(anlsid=anlsid)
         upload_csv(data[[c.name for c in an.dbtables('anls').c]],conn, DBSTRUCT().int_schema, an.dbtables('anls').name)
 
         reantab=DBSTRUCT().get_higher_analysis_reload_table()
         statements:list=[
-            delete(reantab).where(SAMPLECOL==literal(samplename)).where(reantab.c.Analysis==literal(an.name))]
-        dpnt_analyses = [(an.name,) for an in DDEF().get_analyses_dependent_graph()[an]]
+            delete(reantab).where(SAMPLECOL==literal(samplename))\
+                .where(reantab.c['sampleid']==sampletab.c['sampleid'])\
+                .where(reantab.c.Analysis==literal(an.name))]
+        dpnt_analyses = [(an2.name,) for an2 in DDEF().get_analyses_dependent_graph()[an]]
         if len(dpnt_analyses):
             dpnt_analyses_cte=select(values(Column('analysis', VARCHAR),name="dpdt_analysis").data(dpnt_analyses)).cte()
             statements.append(pgsql_insert(reantab).from_select(['sampleid','Analysis'],
-                                              select(sampletab.c.sampleid,dpnt_analyses_cte.c.analysis)))
+                                              select(sampletab.c.sampleid,dpnt_analyses_cte.c.analysis)
+                                                .where(SAMPLECOL==literal(samplename)))\
+                                     .on_conflict_do_nothing())
         query_str = ';'.join([str(s.compile(conn,compile_kwargs={'literal_binds':True})) for s in statements])
-        print(query_str)
+        #print(query_str)
         conn.execute(text(query_str))
         return anlsid
 
@@ -435,10 +441,9 @@ def perform_and_enter_analysis(samplename: Any, only_analyses: list[str],
     from datavac.database.db_get import get_data
     
     needs_analysis = set([DDEF().higher_analyses[an_name] for an_name in only_analyses])
-    needs_upload = set()
     data_by_mgoa: dict[str, MeasurementTable|pd.DataFrame] = {}
     already_tried_no_data = set()
-    mgoa_to_loadanlsid=pre_obtained_mgoa_to_loadanlsid.copy()
+    mgoa_to_loadanlsid:dict[str,int|None]=pre_obtained_mgoa_to_loadanlsid.copy() # type: ignore
     for an in DDEF().get_higher_analyses_topo_sorted():
         if an in needs_analysis:
             possible_to_perform = True
@@ -452,25 +457,34 @@ def perform_and_enter_analysis(samplename: Any, only_analyses: list[str],
                                 data = pre_obtained_data_by_mgoa[dep_mgoa]
                             else:
                                 data = get_data(dep_mgoa, conn=conn, **{DDEF().SAMPLE_COLNAME:[samplename]}) # type: ignore
-                                if data is None: already_tried_no_data.add(dep_mgoa)
+                                if data is None:
+                                    already_tried_no_data.add(dep_mgoa)
+                                    mgoa_to_loadanlsid[dep_mgoa]=None
+                                else:
+                                    mgoa_to_loadanlsid[dep_mgoa]=\
+                                        int(only(data['loadid'].unique()))\
+                                            if dep_mgoa in DDEF().measurement_groups else\
+                                        int(only(data['anlsid'].unique()))
                         if data is not None: data_by_mgoa[dep_mgoa]=data
                         elif required:  possible_to_perform = False
             if possible_to_perform:
+                logger.info(f"{an.name} analysis ({samplename})")
                 data_by_mgoa[an.name]=an.analysis_function(
                     **{v:data_by_mgoa.get(k) for k,v in an.required_dependencies.items()},
                     **{v:data_by_mgoa.get(k) for k,v in an.optional_dependencies.items()},)
                 for an2 in DDEF().get_analyses_dependent_graph()[an]: needs_analysis.add(an2)
-                needs_upload.add(an)
             elif only_analyses and (an.name in only_analyses):
                 logger.warning(f"Analysis '{an.name}' could not be performed for sample '{samplename}' because "\
                                f"not all required measurement groups or analyses were available. "
                                f"Skipping this analysis.")
     if len(needs_analysis):
         with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
-            for an in needs_analysis:
+            # even though already evaluated analyses, still needs to go in order because anlsid's are acquired on upload
+            for an in DDEF().get_higher_analyses_topo_sorted():
+                if an not in needs_analysis: continue
                 an_data: pd.DataFrame = data_by_mgoa[an.name] # type: ignore
                 mgoa_to_loadanlsid[an.name]=\
-                    upload_analysis(an, samplename, an_data, data_by_mgoa,
+                    upload_analysis(an, samplename, an_data, 
                                 pre_obtained_mgoa_to_loadanlsid=mgoa_to_loadanlsid, conn=conn)
 
                                 

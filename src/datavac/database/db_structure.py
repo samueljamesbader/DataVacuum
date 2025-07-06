@@ -173,6 +173,7 @@ class DBStructure():
                 Column('measid',INTEGER,nullable=False),
                 ForeignKeyConstraint(columns=['loadid','measid'],**_CASC,
                                      refcolumns=[meas_tab.c.loadid, meas_tab.c.measid]),
+                PrimaryKeyConstraint('loadid','measid'),
                 *extr_columns, schema=self.int_schema)
         
         sweep_tab = self.metadata.tables.get(self.int_schema+f'.Sweep -- {mg_name}')
@@ -193,10 +194,10 @@ class DBStructure():
     def get_higher_analysis_dbtables(self,an_name: str) -> dict[str,Table]:
         from datavac.config.data_definition import DDEF
         an=DDEF().higher_analyses[an_name]
-        idt=self.metadata.tables.get(DBSTRUCT().int_schema+f'.AnalysisID -- {an_name}')
+        aidt=self.metadata.tables.get(DBSTRUCT().int_schema+f'.AnalysisID -- {an_name}')
         ALL_MGS = DDEF().measurement_groups
         ALL_HAS = DDEF().higher_analyses
-        if idt is None:
+        if aidt is None:
             sampletab=DBSTRUCT().get_sample_dbtable()
             reqlids=[Column(f'loadid - {mg_name}',INTEGER,
                             ForeignKey(ALL_MGS[mg_name].trove().dbtables('loads').c.loadid,**_CASC),nullable=False,index=True)
@@ -210,11 +211,11 @@ class DBStructure():
             optaids=[Column(f'anlsid - {an2_name}',INTEGER,
                             ForeignKey(ALL_HAS[an2_name].dbtables('aidt').c.anlsid,**_CASC),nullable=True,index=True)
                                 for an2_name in an.optional_dependencies if an2_name in ALL_HAS]
-            idt=Table(f"AnalysisID -- {an_name}", self.metadata,
-                      Column('anlsid', INTEGER, primary_key=True, autoincrement=True),
-                      Column('sampleid', INTEGER, ForeignKey(sampletab.c['sampleid'], **_CASC), nullable=False),
-                      *reqlids, *reqaids, *optlids, *optaids,
-                      schema=self.int_schema)
+            aidt=Table(f"AnalysisID -- {an_name}", self.metadata,
+                       Column('anlsid', INTEGER, primary_key=True, autoincrement=True),
+                       Column('sampleid', INTEGER, ForeignKey(sampletab.c['sampleid'], **_CASC), nullable=False),
+                       *reqlids, *reqaids, *optlids, *optaids,
+                       schema=self.int_schema)
         
         anls=self.metadata.tables.get(DBSTRUCT().int_schema+f'.Analysis -- {an_name}')
         if anls is None:
@@ -232,19 +233,20 @@ class DBStructure():
                          for ssr_name, ssr in subsample_references.items()]
             
             anls=Table(f'Analysis -- {an_name}', self.metadata,
-                Column('anlsid', INTEGER, ForeignKey(idt.c.anlsid, **_CASC), nullable=False),
+                Column('anlsid', INTEGER, ForeignKey(aidt.c.anlsid, **_CASC), nullable=False),
                 *subsample_reference_columns,
                 *[Column(c.name, c.sql_dtype) for c in an.analysis_columns],
                 schema=self.int_schema)
-        return {'idt': idt, 'anls': anls}
+        return {'aidt': aidt, 'anls': anls}
 
     def get_higher_analysis_reload_table(self) -> Table:
         """Returns the reload table for higher analyses."""
-        t=self.metadata.tables.get(self.int_schema+f'.ReAnalyze')
+        t=self.metadata.tables.get(self.int_schema+f'.ReAnls')
         return t if (t is not None) else \
-            Table('ReAnalyze', self.metadata,
+            Table('ReAnls', self.metadata,
                   Column('sampleid', INTEGER, ForeignKey(self.get_sample_dbtable().c.sampleid, **_CASC), nullable=False),
                   Column('Analysis', VARCHAR, nullable=False),
+                  UniqueConstraint('sampleid', 'Analysis'),
                   schema=self.int_schema)
 
     def get_blob_store_dbtable(self) -> Table:
