@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from datavac.util.tables import check_dtypes
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.measurements.measurement_type import MeasurementType
 from datavac.util.util import only
 
@@ -186,6 +186,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         self._non_scalar_columns=[]
 
     def analyze(self,*args,**kwargs):
+        raise Exception("This functionality has been moved to MeasurementGroup.extract_by_mumt/umt()")
         self.meas_group.extract_by_umt(self,*args,**kwargs)
 
     @staticmethod

@@ -86,6 +86,7 @@ def get_project_config() -> ProjectConfiguration:
         deployment_name='demo1',
         data_definition=SemiDeviceDataDefinition(
             measurement_groups=measurement_groups,
+            get_masks_func=lambda: {},
             sample_identifier_column=DVColumn('LotSample','string','Lot and Sample ID of the sample'),
             troves={'':trove},
             layout_params_func=partial(

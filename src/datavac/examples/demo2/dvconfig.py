@@ -31,7 +31,7 @@ def get_split_table():
         """),skipinitialspace=True).convert_dtypes().set_index('LotSample',verify_integrity=True)
     return split_table
 
-def generate(lot_sample: str) -> list[pd.DataFrame]:
+def generate(LotSample: str, mg_name: str) -> list[pd.DataFrame]:
     import pandas as pd
     from datavac.examples.data_mock.mock_devices import Transistor4T
     Lnom= 1e-6  # Nominal length in meters
@@ -43,11 +43,11 @@ def generate(lot_sample: str) -> list[pd.DataFrame]:
         radius = dbdf_row['DieRadius [mm]']
 
         t=Transistor4T(
-            VT0={'low':.3,'nom':.4,'high':.5}[split_table.loc[lot_sample, 'VTSkew']]+.1*radius/150, # type: ignore
-            L=Lnom*split_table.loc[lot_sample, 'CDSkew'], # type: ignore
-            n=1+(.2/split_table.loc[lot_sample, 'CDSkew']), # type: ignore
+            VT0={'low':.3,'nom':.4,'high':.5}[split_table.loc[LotSample, 'VTSkew']]+.1*radius/150, # type: ignore
+            L=Lnom*split_table.loc[LotSample, 'CDSkew'], # type: ignore
+            n=1+(.2/split_table.loc[LotSample, 'CDSkew']), # type: ignore
         )
-        data.append({'RawData': t.generate_potential_idvg(VDs=[.05,1],VGrange=[0,1]),
+        data.append({'RawData': {k:v.astype('float32') for k,v in t.generate_potential_idvg(VDs=[.05,1],VGrange=[0,1]).items()},
                      'Structure': 'nMOS1','DieXY': dbdf_row['DieXY'],})
     return [pd.DataFrame(data).convert_dtypes()]
 def sample_func() -> dict[str,dict[str,Any]]:
@@ -98,6 +98,7 @@ def get_project_config() -> ProjectConfiguration:
                     )
             ),
             layout_params_func=MockLayoutParams,
+            get_masks_func=get_masks,
             troves={'': MockTrove()},
         ),
         vault=DemoVault(dbname=dbname),
@@ -112,14 +113,14 @@ if __name__ == '__main__':
     from datavac.database.db_upload_other import upload_sample_descriptor, upload_subsample_reference
     from datavac.database.db_upload_meas import read_and_enter_data
 
-    DDEF=cast(SemiDeviceDataDefinitionFakeLayout,PCONF().data_definition)
+    ddef=cast(SemiDeviceDataDefinitionFakeLayout,PCONF().data_definition)
 
     ensure_clear_database()
     create_all()
-    upload_mask_info(get_masks())
+    #upload_mask_info(get_masks())
 
     upload_sample_descriptor('SplitTable MainFlow', get_split_table())
-    upload_subsample_reference('LayoutParams -- IdVg',DDEF.get_layout_params_table('IdVg').reset_index(drop=False))
+    #upload_subsample_reference('LayoutParams -- IdVg',ddef.get_layout_params_table('IdVg').reset_index(drop=False))
     read_and_enter_data()
         
     from datavac.database.db_util import read_sql

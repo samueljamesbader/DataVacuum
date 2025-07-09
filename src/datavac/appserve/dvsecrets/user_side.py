@@ -1,7 +1,7 @@
 import argparse
 
 
-from datavac.util.logging import logger, time_it
+from datavac.util.dvlogging import logger, time_it
 import webbrowser
 import os
 from pathlib import Path

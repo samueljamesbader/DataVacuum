@@ -11,7 +11,7 @@ from datavac.util.util import asnamedict, only, returner_context
 from sqlalchemy import VARCHAR, Column, Connection, delete, literal, select, text, values
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.config.project_config import PCONF
 from datavac.database.db_structure import DBSTRUCT
 from datavac.config.data_definition import DDEF, HigherAnalysis
@@ -261,13 +261,13 @@ def upload_extraction(trove: Trove, samplename: Any,
             needed_analyses = [(an.name,) for an in DDEF().get_meas_groups_dependent_graph()[DDEF().measurement_groups[mg_name]]
                                 if isinstance(an, HigherAnalysis)]
             needed_analyses_cte=select(values(Column('analysis', VARCHAR),name="needed_analysis").data(needed_analyses)).cte()
-            statements=[
-                delete(reextab).where(reextab.c.loadid==mg_name_to_loadid[mg_name]),
-                pgsql_insert(reantab).from_select(['sampleid','Analysis'],
-                                                  select(sampletab.c.sampleid,needed_analyses_cte.c.analysis)\
-                                                    .where(sampletab.c[DDEF().SAMPLE_COLNAME]==literal(samplename)))\
-                                     .on_conflict_do_nothing()
-            ]
+            statements:list=[delete(reextab).where(reextab.c.loadid==mg_name_to_loadid[mg_name])]
+            if len(needed_analyses):
+                statements.append(
+                    pgsql_insert(reantab).from_select(['sampleid','Analysis'],
+                                                      select(sampletab.c.sampleid,needed_analyses_cte.c.analysis)\
+                                                        .where(sampletab.c[DDEF().SAMPLE_COLNAME]==literal(samplename)))\
+                                         .on_conflict_do_nothing())
             query_str = ';'.join([str(s.compile(conn,compile_kwargs={'literal_binds':True})) for s in statements])
             #print(query_str)
             conn.execute(text(query_str))

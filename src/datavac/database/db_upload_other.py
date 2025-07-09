@@ -2,7 +2,7 @@ from typing import Optional
 from datavac.database.db_upload_meas import enter_sample
 import pandas as pd
 from datavac.database.db_util import namewsq
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.util.util import returner_context
 from sqlalchemy import Connection, delete, select
 

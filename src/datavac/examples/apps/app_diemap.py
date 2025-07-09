@@ -1,3 +1,5 @@
+from typing import cast
+from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
 import numpy as np
 import pandas as pd
 import panel as pn
@@ -6,7 +8,6 @@ from panel.template.base import BasicTemplate
 from datavac.appserve.app import PanelApp
 from datavac.gui.bokeh_util.wafer import Waferplot
 from datavac.io.diemap import get_die_geometry, get_die_table, get_custom_dieremap
-from datavac.util.conf import CONFIG
 from datavac.gui.bokeh_util.palettes import RdYlGn
 
 class AppDieMapDisplay(PanelApp):
@@ -15,7 +16,7 @@ class AppDieMapDisplay(PanelApp):
 
     def get_page(self) -> BasicTemplate:
         tabs=[]
-        for mask in CONFIG['array_maps']:
+        for mask in cast(SemiDeviceDataDefinition,DDEF())._get_mask_yaml()['array_maps']:
             subtabs=[]
             die_lb=get_die_geometry(mask)
             main_dietab=get_die_table(mask)
@@ -27,7 +28,7 @@ class AppDieMapDisplay(PanelApp):
                            pre_source=main_dietab,cmap={'white':'#FFFFFF'},fig_kwargs={'width':600,'height':600},
                            text='DieLabel')
             subtabs.append((f'Core: {mask}', pltr.fig))
-            for name in CONFIG['custom_remaps'][mask]:
+            for name in cast(SemiDeviceDataDefinition,DDEF())._get_mask_yaml()['custom_remaps'][mask]:
                 crm=get_custom_dieremap(mask,name).drop(columns=['DieCenterA [mm]','DieCenterB [mm]'])
                 dietab=pd.merge(main_dietab,crm,
                                 left_on=['DieX','DieY'],right_on=['DieX','DieY'],

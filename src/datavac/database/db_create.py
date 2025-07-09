@@ -4,7 +4,7 @@ from datavac.config.project_config import PCONF
 from datavac.database.db_connect import DBConnectionMode, get_db_connection_info,\
       get_engine_so, raw_psycopg2_connection_do, raw_psycopg2_connection_so, have_do_creds
 from datavac.database.db_structure import DBSTRUCT
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from sqlalchemy import Connection, text
 
 def ensure_database_existence():
@@ -143,3 +143,5 @@ def create_all():
              create_meas_group_view(mg_name, conn)
         for an_name in PCONF().data_definition.higher_analyses:
             create_analysis_view(an_name, conn)
+    
+    DDEF().populate_initial()

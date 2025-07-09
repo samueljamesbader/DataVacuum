@@ -114,7 +114,7 @@ class DBStructure():
         return t if (t is not None) else \
             Table(ssr.name, self.metadata,
                   Column(ssr.key_column.name, ssr.key_column.sql_dtype, primary_key=True, nullable=False),
-                  *[Column(c.name, c.sql_dtype, nullable=False) for c in ssr.info_columns],
+                  *[Column(c.name, c.sql_dtype, nullable=True) for c in ssr.info_columns],
                   *ssr.get_constraints(),
                   schema=self.int_schema)
     
@@ -157,7 +157,10 @@ class DBStructure():
                     *[Column(c.name,c.sql_dtype) for c in mg.meas_columns],
                     PrimaryKeyConstraint('loadid','measid'),
                     schema=self.int_schema)
-        
+            
+        # TODO: REMOVE this temporary check
+        if hasattr(mg, 'analyze'): raise Exception(f"The analyze method (in {mg.__class__}) is *hard-deprecated* for MeasurementGroup.")
+
         extr_tab = self.metadata.tables.get(self.int_schema+f'.Extr -- {mg_name}')
         if extr_tab is None:
             avail=mg.available_extr_columns()
@@ -165,8 +168,8 @@ class DBStructure():
             try:
                 extr_columns = [Column(avail[c].name, avail[c].sql_dtype) for c in extr_column_names]
             except KeyError as e:
-                raise KeyError(f"Measurement group '{mg_name}' requested extraction columns {extr_column_names}, "
-                               f"but only the following are available: {list(avail.keys())}, errored on {str(e)}") from e
+                raise KeyError(f"Measurement group '{mg_name}' requested extraction columns {extr_column_names},\n"
+                               f"but only the following are available: {list(avail.keys())},\nerrored on {str(e)}") from e
             extr_tab = Table(
                 f'Extr -- {mg_name}', self.metadata,
                 Column('loadid',INTEGER,nullable=False),

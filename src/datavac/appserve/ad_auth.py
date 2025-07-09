@@ -13,7 +13,7 @@ from nacl.exceptions import BadSignatureError
 from panel.auth import AzureAdLoginHandler, OAuthProvider
 
 from datavac.appserve.dvsecrets.db_secrets import get_access_key_sign_seed, get_auth_info
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 
 # TODO: Check if any recent Panel updates provide a way to not require this anymore
 

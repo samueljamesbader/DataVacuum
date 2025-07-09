@@ -6,11 +6,11 @@ from panel.io import hold
 from panel.template.base import BasicTemplate
 import param as hvparam
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.appserve.app import PanelApp
 from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.gui.panel_util.selectors import VerticalCrossSelector
-from datavac.io.database import get_database
+from datavac.io.OLDdatabase import get_database
 
 class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
     lot_prefetch_measgroup: Union[str,list]

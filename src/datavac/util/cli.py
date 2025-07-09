@@ -56,8 +56,10 @@ class CLIIndex():
 
 def util_cli_funcs():
     from datavac.util.caching import cli_clear_local_cache
+    from datavac.util.rerun_data import cli_rerun_data
     return {
         'clear_cache': cli_clear_local_cache,
+        'rerun_data (rd)': cli_rerun_data,
     }
 
 def entrypoint_datavac_cli():

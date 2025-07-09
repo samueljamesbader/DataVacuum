@@ -110,7 +110,8 @@ class MeasurementGroup():
             measurements: The measurements to extract from.
             **kwargs: Additional UniformMeasurementTables corresponding to the dependencies
         """
-        pass
+        raise NotImplementedError("extract_by_umt must be implemented in the subclass")
+        #pass
 
     def trove_name(self) -> str:
         """Returns the name of the trove that contains the reader cards for this measurement group."""

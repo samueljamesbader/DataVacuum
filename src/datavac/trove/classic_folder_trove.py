@@ -11,7 +11,7 @@ from datavac.trove import ReaderCard, Trove
 from datavac.trove.folder_aux_info import FolderAuxInfoReader, MissingFolderInfoException
 from datavac.trove.single_folder_trove import FolderTroveReaderCard, SingleFolderTrove
 from datavac.trove.trove_util import get_cached_glob
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 
 if TYPE_CHECKING:
     from datavac.io.measurement_table import MultiUniformMeasurementTable
@@ -140,6 +140,4 @@ class ClassicFolderTrove(Trove):
             for data in mg_to_data.values():
                 data.defrag()
 
-        #perform_extraction(matname_to_mg_to_data)
-        logger.critical("Old flow would have done extraction here, is that implemented elsewhere yet?") # TODO: implement extraction flow
         return matname_to_mg_to_data,matname_to_matload_info

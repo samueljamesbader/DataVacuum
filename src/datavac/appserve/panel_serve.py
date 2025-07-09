@@ -8,10 +8,10 @@ import panel as pn
 import panel.theme
 from panel.theme.material import MaterialDefaultTheme
 
-from datavac.io.database import get_database
+from datavac.io.OLDdatabase import get_database
 from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes, \
     AccessKeyDownload
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.appserve.index import Indexer
 from datavac.util.util import import_modfunc
 

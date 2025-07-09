@@ -263,11 +263,14 @@ class DataDefinition():
                                 for k,v in self.get_analyses_dependency_graph().items()})
         return list(ts.static_order())
     
+    def populate_initial(self, conn: Optional[Connection] = None ): pass
+    
 
 @dataclass(kw_only=True,eq=False)
 class SemiDeviceDataDefinition(DataDefinition):
 
     layout_params_func: Callable[[],LayoutParameters] = LayoutParameters
+    get_masks_func: Optional[Callable[[],dict[str,Any]]] = None
 
     sample_references: dict[str,SampleReference]\
                     = field(default_factory=lambda: {'MaskSet':
@@ -308,6 +311,28 @@ class SemiDeviceDataDefinition(DataDefinition):
         """Returns a list of all flow names (each flow name will correspond to a split table)."""
         #raise NotImplementedError("This method should be implemented in subclasses to return the flow names.")
         return []
+
+    @cache
+    def _get_mask_yaml(self):
+        import yaml
+        from datavac.config.project_config import PCONF
+        yaml_path = PCONF().CONFIG_DIR / 'masks.yaml'  # type: ignore
+        assert yaml_path.exists(), f"ProjectConfig.get_masks() called but masks.yaml file not found at {yaml_path}"
+        with open(yaml_path, 'r') as f: # type: ignore
+            mask_yaml = yaml.safe_load(f)
+        return mask_yaml
+    
+    def get_masks(self) -> dict[str, Any]:
+        """Each value in output dict should be of the form returned by make_fullwafer_diemap()."""
+        if self.get_masks_func: return self.get_masks_func()
+        else:
+            masks={}
+            for mask_name, mask_info in self._get_mask_yaml()['array_maps'].items():
+                from datavac.io.make_diemap import make_fullwafer_diemap
+                masks[mask_name] = make_fullwafer_diemap(
+                    name=mask_name, **mask_info['args'])
+            return masks
+            
     
     def _subsample_reference(self, name: str) -> SubSampleReference:
         @dataclass(kw_only=True)
@@ -339,7 +364,7 @@ class SemiDeviceDataDefinition(DataDefinition):
                               DVColumn('DieY', 'int32','The Y coordinate of the die.'),
                               DVColumn('DieCenterA [mm]','float64','Coordinate A (increase right when notch left) of the die center in mm'),
                               DVColumn('DieCenterB [mm]','float64','Coordinate B (increase up when notch left) of the die center in mm'),
-                              DVColumn('DieRadius [mm]', 'float64', 'The radius of the die from wafer center in mm'),
+                              DVColumn('DieRadius [mm]', 'int32', 'The radius of the die from wafer center in mm'),
                               DVColumn('DieComplete', 'boolean', 'Whether the die is complete or partial')])
         elif 'LayoutParams -- ' in name:
             lpg=name.split(" -- ")[-1]
@@ -371,6 +396,13 @@ class SemiDeviceDataDefinition(DataDefinition):
     def ALL_SAMPLELOAD_COLNAMES(self, trove_name: str):
         return self.ALL_SAMPLE_COLNAMES\
             + [c.name for c in self.troves[trove_name].load_info_columns]
+    
+    def populate_initial(self, conn: Optional[Connection] = None):
+        super().populate_initial(conn=conn)
+
+        from datavac.database.db_semidev import upload_mask_info, update_layout_params
+        upload_mask_info(self.get_masks(),conn=conn)
+        update_layout_params(dump_extractions_and_analyses=False)
                
 def DDEF() -> DataDefinition:
     """Returns the current data definition."""

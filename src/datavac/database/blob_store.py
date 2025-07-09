@@ -2,7 +2,7 @@ from datetime import datetime
 import pickle
 
 from datavac.database.db_connect import get_engine_ro, get_engine_so
-from datavac.util.logging import time_it
+from datavac.util.dvlogging import time_it
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
 

@@ -4,7 +4,7 @@ import hmac
 import hashlib
 import aiofiles
 from pathlib import Path
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 
 # See https://www.synopsys.com/blogs/software-security/python-pickling/
 # for "secure" use of pickle

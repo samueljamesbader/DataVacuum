@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 def _default_splitter(key: str) -> tuple[str, str]:
     """
@@ -27,14 +27,16 @@ class CategorizedLazyDict(Mapping):
         self._category_joiner = category_joiner
         self._data = {}
 
-    def _load_category(self, category: str) -> None:
+    def _load_category(self, category: str, key: Optional[str] = None) -> None:
         """Load the data for a specific category if it hasn't been loaded yet."""
         if category not in self._data:
-            self._data[category] = self._category_getters[category]()
+            if (getter:=self._category_getters.get(category)) is None:
+                raise KeyError(f"Category '{category}' not found in category_getters while checking for '{key}'.")
+            self._data[category] = getter()
 
     def __getitem__(self, key: str) -> Any:
         category, subkey = self._category_splitter(key)
-        self._load_category(category)
+        self._load_category(category,key=key)
         return self._data[category][subkey]
     
     def __iter__(self):
@@ -49,9 +51,17 @@ class CategorizedLazyDict(Mapping):
         category, subkey = self._category_splitter(key)
         if category not in self._category_getters: return False
         else:
-            self._load_category(category)
+            self._load_category(category, key=key)
             return subkey in self._data[category]
- 
+
+class CategorizedFullKeyLazyDict(CategorizedLazyDict):
+    def __init__(self,
+                 category_getters: dict[str, Callable[[], dict[str, Any]]],
+                 category_extractor: Callable[[str], str] = lambda x: _default_splitter(x)[0]):
+        category_splitter = lambda x: (category_extractor(x), x)
+        category_joiner = lambda category, subkey: subkey
+        super().__init__(category_getters, category_splitter, category_joiner)
+
 class FunctionLazyDict(Mapping):
     def __init__(self, getter: Callable[[str], Any], keylister: Callable[[], list[str]]):
         """

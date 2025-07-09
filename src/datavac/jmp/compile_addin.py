@@ -16,7 +16,7 @@ import re
 import yaml
 from urllib3.exceptions import InsecureRequestWarning
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.appserve.dvsecrets.db_secrets import get_ssl_rootcert_for_db, get_db_connection_info
 from datavac.util.conf import CONFIG
 from datavac.util.paths import USER_CACHE

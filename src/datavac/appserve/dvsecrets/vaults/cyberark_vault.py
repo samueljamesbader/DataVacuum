@@ -5,7 +5,7 @@ from datavac.appserve.dvsecrets.vaults.vault import Vault
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import DBConnectionMode, PostgreSQLConnectionInfo
 from datavac.util.caching import pickle_cached
-from datavac.util.logging import time_it
+from datavac.util.dvlogging import time_it
 
 @dataclass
 class CyberArkVault(Vault):

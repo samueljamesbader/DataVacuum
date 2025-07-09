@@ -4,7 +4,7 @@ from datavac.database.db_connect import get_engine_rw, get_engine_so
 from datavac.database.db_structure import DBSTRUCT
 from datavac.config.data_definition import DDEF, HigherAnalysis
 from datavac.database.db_util import namews
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.util.util import only
 from sqlalchemy import Connection, MetaData, delete, literal, select, Table, text
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pickle
 from typing import TYPE_CHECKING, Any, Optional, cast
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.util.util import returner_context
 
 if TYPE_CHECKING:
@@ -50,6 +50,20 @@ def upload_mask_info(mask_info: dict[str, Any],conn: Optional[Connection]=None):
         #print("Successful")
 
 
-#def update_layout_parameters(layout_params, layout_param_group, conn, dump_extractions_and_analyses=True):
+def _update_layout_param_group(layout_param_group: str, conn: Optional[Connection], dump_extractions_and_analyses: bool = True):
+    from datavac.database.db_upload_other import upload_subsample_reference
+    from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
+    upload_subsample_reference(f'LayoutParams -- {layout_param_group}',
+           cast(SemiDeviceDataDefinition,DDEF()).get_layout_params_table(layout_param_group).reset_index(drop=False),
+           conn=conn,dump_extractions_and_analyses=dump_extractions_and_analyses)
+    
+def update_layout_params(conn: Optional[Connection] = None, dump_extractions_and_analyses: bool = True):
+    from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
+    from datavac.database.db_connect import get_engine_rw
+    lpnames=cast(SemiDeviceDataDefinition,DDEF()).get_layout_params_table_names()
+    with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
+        for layout_param_group in lpnames:
+            _update_layout_param_group(layout_param_group, conn,
+                                       dump_extractions_and_analyses=dump_extractions_and_analyses)
 
 

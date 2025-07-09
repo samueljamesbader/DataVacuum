@@ -1,10 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Union, cast
 from datavac.config.data_definition import DVColumn
 from datavac.trove import ReaderCard, Trove
 if TYPE_CHECKING:
     from datavac.io.measurement_table import MultiUniformMeasurementTable
+    import pandas as pd
 
 
 class MockTrove(Trove):
@@ -44,8 +45,27 @@ class MockTrove(Trove):
 
 @dataclass
 class MockReaderCard(ReaderCard):
-    reader_func: Callable = (lambda: [])
-    """Implementation of ReaderCard.read()."""
+    reader_func: Callable[...,Union[list[pd.DataFrame], dict[str, list[pd.DataFrame]] ]]= (lambda: [])
+    """Implementation of the mock read.
+    
+    Takes an argument by the name of DDEF().sample_identifier_column.name and other **kwargs,
+    returns a suitable list of DataFrames or a dict of lists of DataFrames"""
 
     sample_func: Callable[[],dict[Any,dict[str,Any]]] = dict
     """Returns a dictionary of sample names to dictionaries of sample information."""
+
+    def read(self, mg_name: str, only_sampleload_info: dict[str, Any] = {}, read_info_so_far: dict[str, Any] = {}, **kwargs)\
+            -> Union[list[pd.DataFrame], dict[str, list[pd.DataFrame]]]:
+        """Mock read implementation."""
+        from datavac.config.data_definition import DDEF
+        SAMPLECOLNAME = DDEF().SAMPLE_COLNAME
+        assert SAMPLECOLNAME in only_sampleload_info
+        rets=[]
+        for sn in only_sampleload_info[SAMPLECOLNAME]:
+            rets.append(self.reader_func(**{SAMPLECOLNAME: sn,},mg_name=mg_name,**kwargs))
+        if not len(rets):
+            return []
+        if isinstance(rets[0], dict):
+            return {k:v for ret in rets for k,v in ret.items()}
+        else:
+            return sum(rets, start=[])

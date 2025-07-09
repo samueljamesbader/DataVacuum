@@ -8,7 +8,7 @@ from functools import cache, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
-from datavac.util.logging import time_it, logger
+from datavac.util.dvlogging import time_it, logger
 
 if TYPE_CHECKING:
     from sqlalchemy import Connection

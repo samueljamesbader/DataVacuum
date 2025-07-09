@@ -1,7 +1,7 @@
 from __future__ import annotations
 import io
 from typing import TYPE_CHECKING, Optional
-from datavac.util.logging import time_it
+from datavac.util.dvlogging import time_it
 import numpy as np
 import pandas as pd
 

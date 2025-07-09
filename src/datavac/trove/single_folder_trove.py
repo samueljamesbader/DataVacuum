@@ -7,7 +7,7 @@ import re
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.trove import ReaderCard, Trove
 from datavac.trove.trove_util import get_cached_glob
 from datavac.util.util import only

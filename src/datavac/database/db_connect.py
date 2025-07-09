@@ -5,7 +5,7 @@ from enum import Enum
 from functools import cache
 from typing import TYPE_CHECKING, Any, Generator, Optional
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 
 if TYPE_CHECKING:
     from sqlalchemy import Engine
@@ -137,9 +137,10 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     
     The search order is as follows:
     1. Environment variable `DATAVACUUM_DB_{usermode}_CONNECTION_STRING` if set
-    2. Project configuration vault if configured
+    2. Environment variable `DATAVACUUM_DB_CONNECTION_STRING` if set
+    3. Project configuration vault if configured
     (If the context name contains 'local', the search stops here, otherwise...)
-    3. Asking the deployment server (if this code is not already in server mode)
+    4. Asking the deployment server (if this code is not already in server mode)
 
     Args:
         usermode: which set of credentials to use
@@ -176,9 +177,11 @@ def _get_db_connection_info_from_environment(usermode: DBConnectionMode) -> 'Pos
         usermode (str): The user mode, one of ['ro', 'rw', 'so']. Defaults to 'ro'.
     """
     import os
-    envvar=f'DATAVACUUM_DB_{usermode.value.upper()}_CONNECTION_STRING'    
-    if (conn_str:=os.environ.get(envvar)) is None:
-        raise KeyError(f"Environment variable {envvar} not found.")
+    envvar1=f'DATAVACUUM_DB_{usermode.value.upper()}_CONNECTION_STRING'    
+    envvar2=f'DATAVACUUM_DB_CONNECTION_STRING'
+    conn_str = os.environ.get(envvar1) or os.environ.get(envvar2)
+    if conn_str is None:
+        raise KeyError(f"Environment variables {envvar1} AND/OR {envvar2} not found.")
     return PostgreSQLConnectionInfo.from_connection_string(conn_str)
 
 

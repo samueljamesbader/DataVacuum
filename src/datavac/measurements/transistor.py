@@ -6,7 +6,7 @@ from datavac.config.data_definition import DVColumn
 from datavac.measurements.measurement_group import SemiDevMeasurementGroup
 
 from datavac.util.util import asnamedict, only
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 
 if TYPE_CHECKING:
     from datavac.io.measurement_table import MeasurementTable, UniformMeasurementTable
@@ -57,11 +57,60 @@ class IdVg(MeasurementWithLinearNormColumn):
             self.Vgons={'':(1 if self.pol=='n' else -1)}
 
     def available_extr_columns(self) -> dict[str, DVColumn]:
-        extr_columns=[*super().available_extr_columns().values(),
-                      DVColumn('SS [mV/dec]','float64','Subthreshold swing')]
-        for k,v in self.Vgons.items():
-            extr_columns.append(DVColumn(f'Ron{k} [ohm]','float64',f'Ron at VG={v} V'))
-            extr_columns.append(DVColumn(f'RonW{k} [ohm.um]','float64',f'Normalized Ron*W at VG={v} V'))
+        # Use abs_vdlin/abs_vdsat if provided, else describe as |VD|=max or |VD|=min, and use sign if pol is set
+        if self.abs_vdsat is not None:
+            vdsat_val = self.abs_vdsat if self.pol == 'n' else -self.abs_vdsat
+            VDsat_desc = f"VD={vdsat_val} (saturation)"
+        else:
+            VDsat_desc = "|VD|=max (saturation)"
+        if self.abs_vdlin is not None:
+            vdlin_val = self.abs_vdlin if self.pol == 'n' else -self.abs_vdlin
+            VDlin_desc = f"VD={vdlin_val} (linear)"
+        else:
+            VDlin_desc = "|VD|=min (linear)"
+        extr_columns = [*super().available_extr_columns().values(),
+            DVColumn('SS [mV/dec]', 'float64', 'Subthreshold swing'),
+            DVColumn('Ion [A]', 'float64', f'On-state drain current (saturation, {VDsat_desc})'),
+            DVColumn('Ion/W [A/m]', 'float64', f'On-state drain current per width (saturation, {VDsat_desc})'),
+            DVColumn('Ion_lin [A]', 'float64', f'On-state drain current (linear, {VDlin_desc})'),
+            DVColumn('Ion_lin/W [A/m]', 'float64', f'On-state drain current per width (linear, {VDlin_desc})'),
+            DVColumn('Ioff [A]', 'float64', f'Off-state drain current (saturation, {VDsat_desc})'),
+            DVColumn('Ioff/W [A/m]', 'float64', f'Off-state drain current per width (saturation, {VDsat_desc})'),
+            DVColumn('Ioff_lin [A]', 'float64', f'Off-state drain current (linear, {VDlin_desc})'),
+            DVColumn('Ioff_lin/W [A/m]', 'float64', f'Off-state drain current per width (linear, {VDlin_desc})'),
+            DVColumn('Ioffmin [A]', 'float64', 'Minimum off-state current'),
+            DVColumn('Ioffstart [A]', 'float64', f'Start off-state current (saturation, {VDsat_desc})'),
+            DVColumn('Ioffstart_lin [A]', 'float64', f'Start off-state current (linear, {VDlin_desc})'),
+            DVColumn('Ion/Ioff', 'float64', 'On/Off current ratio'),
+            DVColumn('Ion/Ioffmin', 'float64', 'On/Off-min current ratio'),
+            DVColumn('Ion/Ioffstart', 'float64', 'On/Off-start current ratio'),
+            DVColumn('Ronstop [ohm]', 'float64', f'Ron at VGstop (linear, {VDlin_desc})'),
+            DVColumn('RonWstop [ohm.um]', 'float64', f'Ron*W at VGstop (linear, {VDlin_desc})'),
+            DVColumn('VGstop [V]', 'float64', 'VG at stop'),
+            DVColumn('VGstart [V]', 'float64', 'VG at start'),
+            DVColumn('VTgm_sat', 'float64', f'VT at gm peak (saturation, {VDsat_desc})'),
+            DVColumn('GM_peak [S]', 'float64', 'Peak transconductance'),
+            DVColumn('SS_lin [mV/dec]', 'float64', f'Subthreshold swing (linear, {VDlin_desc})'),
+            DVColumn('SSstart_lin [mV/dec]', 'float64', f'SS at start (linear, {VDlin_desc})'),
+            DVColumn('Igoffstart [A]', 'float64', f'Gate off current (saturation, {VDsat_desc})'),
+            DVColumn('Igoffstart_lin [A]', 'float64', f'Gate off current (linear, {VDlin_desc})'),
+            DVColumn('Igonstop [A]', 'float64', f'Gate on current (saturation, {VDsat_desc})'),
+            DVColumn('Igonstop_lin [A]', 'float64', f'Gate on current (linear, {VDlin_desc})'),
+            DVColumn('Igmax_lin [A]', 'float64', f'Max gate current (linear, {VDlin_desc})'),
+            DVColumn('Igmax_sat [A]', 'float64', f'Max gate current (saturation, {VDsat_desc})'),
+            DVColumn('Igfwdmax_lin [A]', 'float64', f'Max forward gate current (linear, {VDlin_desc})'),
+            DVColumn('Igmax [A]', 'float64', 'Max gate current'),
+            DVColumn('Igmax/W [A/m]', 'float64', 'Max gate current per width'),
+        ]
+        # Add columns for each Vgons
+        for k, v in self.Vgons.items():
+            extr_columns.append(DVColumn(f'Ron{k} [ohm]', 'float64', f'Ron at VG={v} V (linear, {VDlin_desc})'))
+            extr_columns.append(DVColumn(f'RonW{k} [ohm.um]', 'float64', f'Normalized Ron*W at VG={v} V (linear, {VDlin_desc})'))
+        # Add columns for each Iccs
+        for k, v in self.Iccs.items():
+            extr_columns.append(DVColumn(f'VTcc{k}_lin', 'float64', f'VTcc (linear, {VDlin_desc}) at Icc={v}'))
+            extr_columns.append(DVColumn(f'VTcc{k}_sat', 'float64', f'VTcc (saturation, {VDsat_desc}) at Icc={v}'))
+            extr_columns.append(DVColumn(f'DIBL{k} [mV/V]', 'float64', f'DIBL at Icc={v} ({VDsat_desc} - {VDlin_desc})'))
         return asnamedict(*extr_columns)
 
 

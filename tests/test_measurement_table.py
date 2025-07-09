@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from datavac.io.measurement_table import MultiUniformMeasurementTable, UniformMeasurementTable
-from datavac.io.database import get_database, heal
+from datavac.io.OLDdatabase import get_database, heal
 from datavac.tests.freshtestdb import make_fresh_testdb
 
 

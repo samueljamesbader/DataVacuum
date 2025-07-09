@@ -47,7 +47,7 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                     measurements[col]=other[col.replace('BonusExtr','Extr')]\
                         .apply(lambda x: x+extr_sign)
 
-    def generate(mg_name: str, only_sampleload_info: dict[str, str] = {}, **kwargs) -> list[pd.DataFrame]:
+    def generate(SampleName: str, mg_name: str, **kwargs) -> list[pd.DataFrame]:
         import pandas as pd
         import numpy as np
         match mg_name:
@@ -75,6 +75,7 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
     
     return ProjectConfiguration(deployment_name='datavac_dbtest',
                                 data_definition=SemiDeviceDataDefinition(
+                                    get_masks_func=lambda: {},
                                     measurement_groups=asnamedict(
                                     MG(involves_sweeps=False,
                                         name ='test_group_nosw', description ='Test measurement group, no sweeps',
@@ -117,7 +118,7 @@ def test_update_meas_groups():
     from datavac.io.make_diemap import make_fullwafer_diemap
     from datavac.database.db_upload_meas import read_and_enter_data
     from datavac.database.db_modify import heal
-    from datavac.util.logging import logger
+    from datavac.util.dvlogging import logger
     import numpy as np
 
     # Make a project where the nosw group has 1 meas column and 1 extr column,

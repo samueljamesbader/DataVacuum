@@ -2,7 +2,7 @@ import sys
 from dotenv import load_dotenv as _load_dotenv
 
 from datavac.config.contexts import load_environment_from_context
-import datavac.util.logging
+import datavac.util.dvlogging
 
 __version__='0.0.2'
 
@@ -21,11 +21,11 @@ class ThisModule(sys.modules[__name__].__class__):
     @classmethod
     @property
     def logger(cls):
-        return datavac.util.logging.logger
+        return datavac.util.dvlogging.logger
 
     @classmethod
     @property
     def db(cls) -> 'datavac.io.database.Database':
-        from datavac.io.database import get_database, PostgreSQLDatabase
+        from datavac.io.OLDdatabase import get_database, PostgreSQLDatabase
         return get_database()
 sys.modules[__name__].__class__=ThisModule

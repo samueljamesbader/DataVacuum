@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from datavac.util.conf import CONFIG
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.util.util import import_modfunc
 
 

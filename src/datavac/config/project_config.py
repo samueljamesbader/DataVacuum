@@ -21,10 +21,17 @@ class ProjectConfiguration():
 
     def __post_init__(self):
         appname=self.deployment_name or 'DEFAULT'
+        
         self.USER_CACHE: Path = (Path(os.environ.get("DATAVACUUM_CACHE_DIR",None) or \
                 platformdirs.user_cache_path(appname=appname, appauthor='DataVacuum')))/appname
         self.USER_CERTS: Path = self.USER_CACHE/"certs"
         self.USER_CERTS.mkdir(parents=True,exist_ok=True)
+
+        self.RERUN_DIR: Path = (Path(os.environ.get("DATAVACUUM_RERUN_DIR",None) or \
+                self.USER_CACHE/"rerun"))
+        
+        conf_path=os.environ.get("DATAVACUUM_CONFIG_PATH",None)
+        self.CONFIG_DIR: Optional[Path] = Path(conf_path).parent if conf_path else None
 
     
 _pconf: ProjectConfiguration | None = None
@@ -46,13 +53,19 @@ def PCONF(inject_configuration:Optional[ProjectConfiguration]=None) -> ProjectCo
     if _pconf is None:
         conf_mod=os.environ.get('DATAVACUUM_CONFIG_MODULE',None)
         conf_pth=os.environ.get('DATAVACUUM_CONFIG_PATH',None)
-        assert (conf_mod is not None) != (conf_pth is not None), \
+        assert (conf_mod is not None) or (conf_pth is not None), \
             "Must set one of DATAVACUUM_CONFIG_MODULE or DATAVACUUM_CONFIG_PATH"
         if conf_mod is not None:
             try: mod = import_module(conf_mod)
             except ModuleNotFoundError as e:
                 raise Exception(f"Config module {conf_mod} not found") from e
-        if conf_pth is not None:
+            if conf_pth is not None:
+                assert mod.__file__ is not None
+                assert Path(conf_pth).samefile(Path(mod.__file__)), \
+                    f"DATAVACUUM_CONFIG_MODULE and DATAVACUUM_CONFIG_PATH are both set but "\
+                    f"config module {conf_mod} does not match config path {conf_pth}"
+            os.environ['DATAVACUUM_CONFIG_PATH'] = str(Path(mod.__file__)) # type: ignore
+        elif conf_pth is not None:
             conf_pth = Path(conf_pth)
             assert conf_pth.exists(), f"Config path {conf_pth} does not exist"
             assert conf_pth.is_file(), f"Config path {conf_pth} is not a file"

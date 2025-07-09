@@ -17,13 +17,13 @@ import pandas as pd
 import numpy as np
 from param.parameterized import batch_call_watchers
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.gui.bokeh_util import palettes
 from datavac.gui.bokeh_util.util import make_serializable, make_color_col, smaller_legend
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
-from datavac.io.database import get_database, Database
-from datavac.util.logging import logger, time_it
+from datavac.io.OLDdatabase import get_database, Database
+from datavac.util.dvlogging import logger, time_it
 from datavac.util.units import Normalizer
 
 

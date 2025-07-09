@@ -4,7 +4,7 @@ import graphlib
 from typing import TYPE_CHECKING, Any, Optional
 from datavac.config.data_definition import HigherAnalysis
 from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
-from datavac.util.logging import time_it
+from datavac.util.dvlogging import time_it
 from datavac.util.util import returner_context
 from sqlalchemy import Connection, select, Select, Column, Table
 from datavac.measurements.measurement_group import MeasurementGroup

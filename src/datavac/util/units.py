@@ -1,6 +1,6 @@
 from pint import UnitRegistry
 
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 
 units = UnitRegistry()
 

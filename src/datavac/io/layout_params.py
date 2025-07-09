@@ -5,7 +5,7 @@ from importlib import import_module
 from pathlib import Path
 
 #from datavac.util.cli import cli_helper
-from datavac.util.logging import logger, time_it
+from datavac.util.dvlogging import logger, time_it
 from datavac.config.layout_params import LayoutParameters as GeneralLayoutParameters
 import pandas as pd
 import numpy as np
@@ -229,7 +229,9 @@ class LayoutParameters(GeneralLayoutParameters):
                         "-DUT"+meas_df['DUT'].astype(str).str.zfill(2)
 
     def validate_structures_in_meas_group(self,structures,meas_group):
-        rejects=[structure for structure in structures if structure not in self._tables_by_meas[meas_group].index]
+        from datavac.config.data_definition import DDEF
+        from datavac.measurements.measurement_group import SemiDevMeasurementGroup
+        rejects=[structure for structure in structures if structure not in self._tables_by_meas[cast(SemiDevMeasurementGroup,DDEF().measurement_groups[meas_group]).layout_param_group].index]
         assert len(rejects)==0, f"Structures {rejects} not in measurement parameter group '{meas_group}'"
 
 
@@ -243,8 +245,8 @@ def get_layout_params(force_regenerate=False, conn:'Optional[Connection]'=None):
         from datavac.util.caching import pickle_db_cached
         _layout_params,_layout_params_timestamp=\
             pickle_db_cached('LayoutParams',namespace='vac',conn=conn)(LayoutParameters)(
-                params_dir=Path(os.environ['DATAVAC_LAYOUT_PARAMS_DIR']),
-                yaml_path= Path(os.environ['DATAVAC_LAYOUT_PARAMS_YAML']),
+                params_dir=Path(os.environ['DATAVACUUM_LAYOUT_PARAMS_DIR']),
+                yaml_path= Path(os.environ['DATAVACUUM_LAYOUT_PARAMS_YAML']),
                 force=force_regenerate)
     return _layout_params
 def unget_layout_params():

@@ -11,7 +11,7 @@ from bokeh.plotting import figure
 
 from datavac.gui.bokeh_util.util import make_color_col, smaller_legend
 from datavac.gui.panel_util.filter_plotter import FilterPlotter
-from datavac.util.logging import logger
+from datavac.util.dvlogging import logger
 from datavac.util.tables import stack_sweeps
 
 
