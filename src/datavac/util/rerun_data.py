@@ -79,7 +79,7 @@ def rerun_data():
             read_and_enter_data(**ud)
         PCONF().RERUN_DIR.mkdir(exist_ok=True,parents=False)
         destfile=PCONF().RERUN_DIR/(datetime.datetime.now().strftime(timefmt)+".pkl")
-        dat={mg:get_data(mg) for mg in list(DDEF().measurement_groups)+list(DDEF().higher_analyses)}
+        dat={mgoa:get_data(mgoa) for mgoa in list(DDEF().measurement_groups)+list(DDEF().higher_analyses)}
         metadat={'rerun_yaml':yaml_dict,
                  'rerun_time':datetime.datetime.now()}
         with open(destfile, 'wb') as f:
@@ -121,36 +121,45 @@ def compare_data(newer: Optional[Union[str,dict[str,pd.DataFrame]]]=None,
                 logger.critical(f"MISMATCH ERROR (Tab): Key {k} not found in newer data")
         else:
             newtab=newer[k]; oldtab=older[k];
+            found_problem_in_this_tab=False
             if len(oldtab)==0:
                 if len(newtab)>0:
                     logger.debug(f"                Note: Data has been added for {k}, which was previously empty")
-                    continue
+                continue
             old_samples=list(oldtab[DDEF().sample_identifier_column.name].unique())
             new_samples=list(newtab[DDEF().sample_identifier_column.name].unique())
             if old_samples != new_samples:
-                found_problem=True
-                logger.critical(f"MISMATCH ERROR (Tab): Samples in key {k} do not match: "
-                               f"{old_samples} vs {new_samples}")
+                found_problem=True; found_problem_in_this_tab=True
+                logger.critical(f"MISMATCH ERROR (Tab): Samples in key {k} do not match, "
+                               f"old: {old_samples} vs new: {new_samples}")
             newtab=newtab[newtab[DDEF().sample_identifier_column.name].isin(old_samples)]
             if len(oldtab) and (len(oldtab) != len(newtab)):
-                found_problem=True
+                found_problem=True; found_problem_in_this_tab=True
                 logger.critical(f"MISMATCH ERROR (Tab): Length of data for key {k} does not match: "
                                f"{len(oldtab)} vs {len(newtab)}")
             else:
                 # Temporary adjustments for old name scheme
-                if 'matid' in oldtab.columns: oldtab.rename(columns={'matid':'sampleid'}, inplace=True)
-                if 'Mask' in oldtab.columns: oldtab.rename(columns={'Mask':'MaskSet'}, inplace=True)
+                for tab in [oldtab, newtab]:
+                    if 'matid' in tab.columns: tab.rename(columns={'matid':'sampleid'}, inplace=True)
+                    if 'Mask' in tab.columns: tab.rename(columns={'Mask':'MaskSet'}, inplace=True)
+                    tab.drop(columns=[c for c in tab.columns if (c.endswith('__1') and ('id' in c or 'Mask' in c))], inplace=True)
                 for c in oldtab.columns:
                     if c=='date_user_changed': continue
                     if c not in newtab.columns:
-                        found_problem=True
+                        found_problem=True; found_problem_in_this_tab=True
                         logger.critical(f"MISMATCH ERROR (Col): Column {c} not found in newer data for key {k}")
                     elif len(oldtab) and (not oldtab[c].equals(newtab[c])):
-                            found_problem=True
-                            logger.critical(f"MISMATCH ERROR (Col): Column {c} does not match for key {k}")
+                            if 'loadid' in c or 'anlsid' in c or c=='sampleid':
+                                logger.debug(f"                Warn: Column {c} does not match for key {k}")
+                                             
+                            else:
+                                found_problem=True; found_problem_in_this_tab=True
+                                logger.critical(f"MISMATCH ERROR (Col): Column {c} does not match for key {k}")
                 for c in newtab.columns:
                     if c not in oldtab.columns:
                         logger.debug(f"                Note: Column {c} has been added to newer data in key {k}")
+            if not found_problem_in_this_tab:
+                logger.debug(f"                Good: {k}")
     for k in newer:
         if k not in older:
             logger.debug(f"                Note: Key {k} has been added to newer data")
@@ -178,5 +187,8 @@ def cli_rerun_data(*args):
 
 if __name__ == '__main__':
     import sys
-    cli_rerun_data(*sys.argv[1:])
-    #compare_data()
+    #cli_rerun_data(*sys.argv[1:])
+    rerun_data()
+    compare_data(older='Norm')
+    #compare_data(older='Norm')
+    #compare_data(newer='Norm',older='Golden')

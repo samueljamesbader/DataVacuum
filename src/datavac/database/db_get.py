@@ -155,7 +155,7 @@ def _decode_sweeps(data: pd.DataFrame, meas_group: MeasurementGroup):
             sweepconv = functools.partial(np.frombuffer, dtype=np.float32)
         data['sweep']=data['sweep'].map(sweepconv)
 
-def get_data_for_reextr(meas_group: MeasurementGroup, samplename: Any,
+def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_sweeps: bool = True, include_extr: bool = True,
                         on_no_data: str | None ='raise', conn: Optional[Connection] = None) -> MultiUniformMeasurementTable:
     """Retrieves data for re-extraction (ie measured data only, no extr data).
     
@@ -172,8 +172,9 @@ def get_data_for_reextr(meas_group: MeasurementGroup, samplename: Any,
     from datavac.io.measurement_table import MultiUniformMeasurementTable, UniformMeasurementTable
 
 
-    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=True)
-    td = {t: d for t, d in td.items() if 'Extr' not in t.name}
+    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=include_sweeps)
+    if not include_extr:
+        td = {t: d for t, d in td.items() if 'Extr' not in t.name}
     sel, dtypes = joined_select_from_dependencies(columns=None, absolute_needs=list(td), table_depends=td,
                                                   pre_filters={DDEF().SAMPLE_COLNAME: [samplename]}, join_hints=jh)
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
@@ -187,7 +188,7 @@ def get_data_for_reextr(meas_group: MeasurementGroup, samplename: Any,
 
     umts=[]
     for rg, df in data.groupby("rawgroup"):
-        if meas_group.involves_sweeps:
+        if include_sweeps and meas_group.involves_sweeps:
             _decode_sweeps(df, meas_group)
             df=_unstack_header_helper(df, ['loadid','measid'], drop_index=False)
             headers=[]
@@ -230,6 +231,19 @@ def get_data_from_meas_group(meas_group: MeasurementGroup, scalar_columns:Option
 
     return df
 
+def get_data_from_analysis(an: HigherAnalysis, scalar_columns:Optional[list[str]]=None,
+                           conn:Optional[Connection]=None, **factors) -> pd.DataFrame:
+    import pandas as pd
+    from datavac.database.db_connect import get_engine_ro
+    td, jh = get_table_depends_and_hints_for_analysis(an)
+    sel, dtypes = joined_select_from_dependencies(columns=scalar_columns,
+                                                  absolute_needs=list(td), table_depends=td,
+                                                  pre_filters=factors, join_hints=jh)
+    with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
+        df = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
+    return df
+    
+
 def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
              include_sweeps: bool = False, unstack_headers: bool = False,
              conn: Optional[Connection] = None, **factors) -> pd.DataFrame:
@@ -248,6 +262,11 @@ def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
     if (mg:=DDEF().measurement_groups.get(mg_or_an_name)) is not None:
         return get_data_from_meas_group(mg, scalar_columns=scalar_columns, include_sweeps=include_sweeps,
                                         unstack_headers=unstack_headers, conn=conn, **factors)
+    elif (an:=DDEF().higher_analyses.get(mg_or_an_name)) is not None:
+        assert not include_sweeps, \
+            "Higher analyses do not support sweeps, please set include_sweeps=False"
+        assert not unstack_headers, \
+            "Higher analyses do not support unstacking headers, please set unstack_headers=False"
+        return get_data_from_analysis(an, scalar_columns=scalar_columns, conn=conn, **factors)
     else:
-        raise NotImplementedError(f"Data retrieval for analysis {mg_or_an_name} is not implemented yet. "
-                                  "Please implement it in get_data_from_analysis.")
+        raise ValueError(f"Measurement group or analysis '{mg_or_an_name}' not found in data definition.")

@@ -115,6 +115,19 @@ class NonUniformMeasurementTable(DataFrameBackedMeasurementTable):
             pd.concat([self._dataframe,other._dataframe],ignore_index=True),
             meas_group=self.meas_group)
 
+class UMTMUMT_H:
+    #def __getattr__(self, item: str) -> np.ndarray: return self[item]
+    #def __setattr__(self, item: str, value: Any): self.__setitem__(item, value)
+    def __getitem__(self, item: str) -> np.ndarray: raise NotImplementedError()
+    def __setitem__(self, item: str, value: Any): raise NotImplementedError()
+class UMTMUMT_S:
+    #def __getattr__(self, item: str) -> pd.Series:
+    #    import pdb; pdb.set_trace()
+    #    return self[item]
+    #def __setattr__(self, item: str, value: Any): self.__setitem__(item, value)
+    def __getitem__(self, item: str) -> pd.Series: raise NotImplementedError()
+    def __setitem__(self, item: str, value: Any): raise NotImplementedError()
+
 class UniformMeasurementTable(DataFrameBackedMeasurementTable):
 
     def __init__(self, dataframe: pd.DataFrame, headers: list[str],
@@ -158,8 +171,32 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         #                   " to produce a MultiUniformMeasurementTable")
         if True:
             return MultiUniformMeasurementTable([self,other])
+    
+    @property
+    def h(self) -> UMTMUMT_H:
+        class UMT_H(UMTMUMT_H):
+            def __init__(self, umt: UniformMeasurementTable): self._umt = umt
+            def __getitem__(self, item: str) -> np.ndarray:
+                assert item in self.headers
+                return np.vstack(self._umt._dataframe[item]) # type: ignore
+            def __setitem__(self, item: str, value: Any):
+                raise NotImplementedError("Cannot set headers in UniformMeasurementTable")
+        return UMT_H(self)
+    @property
+    def s(self) -> UMTMUMT_S:
+        class UMT_S(UMTMUMT_S):
+            def __init__(self, umt: UniformMeasurementTable): self._umt = umt
+            def __getitem__(self, item: str) -> pd.Series:
+                assert item not in self._umt.headers
+                return self._umt._dataframe[item] # type: ignore
+            def __setitem__(self, item: str, value: Any):
+                assert item not in self._umt.headers
+                self._umt._the_dataframe[item] = value
+        return UMT_S(self)
+            
 
     def __getitem__(self, item: str)->Union[np.ndarray, pd.Series]:
+        #logger.debug(f"Accessing column {item} in UniformMeasurementTable as UMT[col] is deprecated, use UMT.s[col] or UMT.h[col] instead.")
         if item in self.headers:
             return np.vstack(self._dataframe[item]) # type: ignore
         else:
@@ -170,6 +207,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
                 raise
 
     def __setitem__(self, item: str, value: Any):
+        #logger.debug(f"Setting column {item} in UniformMeasurementTable via UMT[col] is deprecated, use UMT.s[col] or UMT.h[col] instead.")
         assert item not in self.headers
         if isinstance(value,pd.Series):
             assert isinstance(value.index,pd.RangeIndex) and value.index.start==0 and value.index.step==1, \
@@ -336,14 +374,41 @@ class MultiUniformMeasurementTable(MeasurementTable):
         return pd.concat([umt._dataframe.drop(columns=umt.headers).assign(rawgroup=i)
                           for i,umt in enumerate(self._umts)],ignore_index=True)
 
+    @property
+    def h(self) -> UMTMUMT_H:
+        class MUMT_H(UMTMUMT_H):
+            def __init__(self, mumt: MultiUniformMeasurementTable): self._mumt = mumt
+            def __getitem__(self, item: str) -> np.ndarray:
+                assert item in (h for umt in self._mumt._umts for h in umt.headers)
+                assert len(set(umt.meas_length for umt in self._mumt._umts))==1
+                return np.vstack(self._mumt._dataframe[item]) # type: ignore
+            def __setitem__(self, item: str, value: Any):
+                raise NotImplementedError("Cannot set headers in MultiUniformMeasurementTable")
+        return MUMT_H(self)
+    @property
+    def s(self) -> UMTMUMT_S:
+        class MUMT_S(UMTMUMT_S):
+            def __init__(self, mumt: MultiUniformMeasurementTable): self._mumt = mumt
+            def __getitem__(self, item: str) -> pd.Series:
+                assert item not in (h for umt in self._mumt._umts for h in umt.headers)
+                return self._mumt._dataframe[item] # type: ignore
+            def __setitem__(self, item: str, value: Any):
+                assert item not in (h for umt in self._mumt._umts for h in umt.headers)
+                self._mumt.__setitem__(item, value, called_correctly=True)
+        return MUMT_S(self)
+    
     def __getitem__(self,item):
+        #logger.debug(f"Getting column {item} in MultiUniformMeasurementTable via MUMT[col] is deprecated, use MUMT.s[col] or MUMT.h[col] instead.")
         if item in (h for umt in self._umts for h in umt.headers):
             assert len(set(umt.meas_length for umt in self._umts))==1
             return np.vstack(self._dataframe[item])
         else:
             return self._dataframe[item]
 
-    def __setitem__(self,item,value):
+    def __setitem__(self,item,value, called_correctly: bool = False):
+        if not called_correctly:
+            pass
+            #logger.debug(f"Setting column {item} in MultiUniformMeasurementTable via MUMT[col] is deprecated, use MUMT.s[col] or MUMT.h[col] instead.")
         istart=0
         for umt in self._umts:
             istop=istart+len(umt)

@@ -39,6 +39,8 @@ class Trove():
     
     eg if all data for a given 'Lot' is accessed together, the Trove might use this column to reduce requests."""
 
+    cli_expander: dict[str,dict[str,Any]] = field(default_factory=dict)
+
     def read(self,
              only_meas_groups:Optional[list[str]]=None,
              only_sampleload_info:dict[str,Sequence[Any]]={},

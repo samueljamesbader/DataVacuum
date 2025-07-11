@@ -102,6 +102,41 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
             if need_to_create_meas or need_to_create_extr:
                 from datavac.database.db_create import create_meas_group_view
                 create_meas_group_view(mg_name, conn)
+def update_analysis_tables(specific_analyses:Optional[list[str]]=None, force=False):
+    from datavac.database.db_upload_meas import delete_prior_analyses
+    if specific_analyses is None:
+        specific_analyses = list(DDEF().higher_analyses)
+    all_desired_tabs = [tab for an in specific_analyses for tab in DBSTRUCT().get_higher_analysis_dbtables(an).values()]
+    with get_engine_so().begin() as conn:
+        db_metadata = MetaData(schema=DBSTRUCT().int_schema)
+        db_metadata.reflect(bind=conn, only=[tab.name for tab in all_desired_tabs], views=True)
+        for an_name in specific_analyses:
+            desired_tabs = DBSTRUCT().get_higher_analysis_dbtables(an_name)
+            if namews(desired_tabs['aidt']) in db_metadata.tables:
+                if force or _table_mismatch(desired_tabs['aidt'], db_metadata):
+                    delete_prior_analyses(None, only_analyses=[an_name], conn=conn)
+                    need_to_create_aidt = True
+                    conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{an_name}" """))
+                    db_metadata.tables[namews(desired_tabs['aidt'])].drop(conn,checkfirst=True)
+                    db_metadata.remove(db_metadata.tables[namews(desired_tabs['aidt'])])
+                else: need_to_create_aidt = False
+            else: need_to_create_aidt = True
+            if need_to_create_aidt: desired_tabs['aidt'].create(conn)
+            if namews(desired_tabs['anls']) in db_metadata.tables:
+                if force or _table_mismatch(desired_tabs['anls'], db_metadata):
+                    if not need_to_create_aidt:
+                        delete_prior_analyses(None, only_analyses=[an_name], conn=conn)
+                    need_to_create_anls = True
+                    conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{an_name}" """))
+                    db_metadata.tables[namews(desired_tabs['anls'])].drop(conn,checkfirst=True)
+                    db_metadata.remove(db_metadata.tables[namews(desired_tabs['anls'])])
+                else: need_to_create_anls = False
+            else: need_to_create_anls = True
+            if need_to_create_anls: desired_tabs['anls'].create(conn)
+            if need_to_create_aidt or need_to_create_anls:
+                from datavac.database.db_create import create_analysis_view
+                create_analysis_view(an_name, conn)
+
 
 def heal():
     import pandas as pd
@@ -137,13 +172,14 @@ def heal():
         if not len(pd_reex): logger.debug(f"No re-extractions required")
         else:
             for samplename, grp in pd_reex.groupby(DDEF().SAMPLE_COLNAME):
+                sample_info = {c.name: only(grp[c.name].unique()) for c in sampletab.c if c.name!='sampleid'}
                 with get_engine_rw().begin() as conn:
                     data_by_mg,mg_to_loadid=perform_and_enter_extraction(trove=trove, samplename=samplename,
                         only_meas_groups=list(grp['MeasGroup'].unique()),conn=conn)
                     needed_analyses = list(set(an.name for mg in data_by_mg
                                               for an in DDEF().get_meas_groups_dependent_graph()[DDEF().measurement_groups[mg]]
                                                 if isinstance(an, HigherAnalysis)))
-                    perform_and_enter_analysis(samplename=samplename, only_analyses=needed_analyses, conn=conn,
+                    perform_and_enter_analysis(sample_info=sample_info, only_analyses=needed_analyses, conn=conn,
                                                pre_obtained_data_by_mgoa=data_by_mg, pre_obtained_mgoa_to_loadanlsid=mg_to_loadid,)
             
         reantab=DBSTRUCT().get_higher_analysis_reload_table()
@@ -153,7 +189,8 @@ def heal():
         if not len(pd_rean): logger.debug(f"No re-analyses required")
         else:
             for samplename, grp in pd_rean.groupby(DDEF().SAMPLE_COLNAME):
+                sample_info = {c.name: only(grp[c.name].unique()) for c in sampletab.c if c.name!='sampleid'}
                 analyses = list(grp['Analysis'].unique())
-                perform_and_enter_analysis(samplename=samplename, only_analyses=analyses)
+                perform_and_enter_analysis(sample_info=sample_info, only_analyses=analyses)
             
             

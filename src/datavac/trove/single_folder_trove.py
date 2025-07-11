@@ -140,7 +140,6 @@ class SingleFolderTrove(Trove):
                                 # If so, check that info for consistency with what we've already gathered
                                 # and add altogether to read_info_so_far_with_data
                                 # Of course the sample is also material/load info, so include that as well
-                                # And for convenience, add the sample to each dataframe so post_reads have access to it
                                 read_info_so_far_with_data=read_info_so_far.copy()
                                 for k in ALL_SAMPLELOAD_COLNAMES:
                                     if any(k in read_df.columns for read_df in read_dfs):
@@ -148,9 +147,6 @@ class SingleFolderTrove(Trove):
                                     else: from_data=None
                                     if k==SAMPLE_COLNAME:
                                         if from_data is not None: assert sample==from_data
-                                        else:
-                                            for read_df in read_dfs:
-                                                read_df[SAMPLE_COLNAME]=pd.Series([sample]*len(read_df),dtype='string')
                                         from_data=sample
                                     if from_data is not None:
                                         if k in read_info_so_far_with_data:
@@ -158,6 +154,12 @@ class SingleFolderTrove(Trove):
                                         else:
                                             read_info_so_far_with_data[k]=from_data
                                 read_info_so_far_with_data=completer(read_info_so_far_with_data)
+
+                                # For convenience, add the sampleload back to each dataframe so post_reads have access to it
+                                for k in read_info_so_far_with_data:
+                                    for read_df in read_dfs:
+                                        if k not in read_df.columns:
+                                            read_df[k]=pd.Series([read_info_so_far_with_data[k]]*len(read_df)).convert_dtypes()
 
                                 # If altogether this info is enough to rule out this data, skip incorporating it
                                 if any(read_info_so_far_with_data[k] not in only_sampleload_info[k]

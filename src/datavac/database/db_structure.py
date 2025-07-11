@@ -226,7 +226,7 @@ class DBStructure():
                 subsample_references={ssr_name: self.datadef.subsample_references[ssr_name]
                                         for ssr_name in an.subsample_reference_names}
             except KeyError as e:
-                raise KeyError(f"Measurement group '{an_name}' requested subsample references {an.subsample_reference_names}, "
+                raise KeyError(f"Analysis '{an_name}' requested subsample references {an.subsample_reference_names}, "
                                f"but only the following are available: {list(self.datadef.subsample_references.keys())}, "
                                f"errored on {str(e)}") from e
             subsample_reference_columns = \
@@ -234,11 +234,17 @@ class DBStructure():
                              ForeignKey(self.get_subsample_reference_dbtable(ssr_name).c[ssr.key_column.name],
                                         name=f'fk_{ssr.key_column.name} -- {an_name}',**_CASC),nullable=False)
                          for ssr_name, ssr in subsample_references.items()]
-            
+            anls_column_names = an.analysis_column_names
+            avail=an.available_analysis_columns()
+            try:
+                anls_columns = [Column(avail[c].name, avail[c].sql_dtype) for c in anls_column_names]
+            except KeyError as e:
+                raise KeyError(f"Analysis '{an_name}' requested columns {anls_column_names},\n"
+                               f"but only the following are available: {list(avail.keys())},\nerrored on {str(e)}") from e
             anls=Table(f'Analysis -- {an_name}', self.metadata,
                 Column('anlsid', INTEGER, ForeignKey(aidt.c.anlsid, **_CASC), nullable=False),
                 *subsample_reference_columns,
-                *[Column(c.name, c.sql_dtype) for c in an.analysis_columns],
+                *anls_columns,
                 schema=self.int_schema)
         return {'aidt': aidt, 'anls': anls}
 

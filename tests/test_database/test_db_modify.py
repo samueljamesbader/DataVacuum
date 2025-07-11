@@ -1,16 +1,18 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 from datavac import unload_my_imports
+from datavac.config.data_definition import DVColumn
 from datavac.trove.mock_trove import MockTrove
 from datavac.trove.mock_trove import MockReaderCard
 
 if TYPE_CHECKING:
     import pandas as pd
     from datavac.io.measurement_table import UniformMeasurementTable, MultiUniformMeasurementTable
+    from datavac.config.project_config import ProjectConfiguration
 
-def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str = ''):
+def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str = '', anls1_cols: int = 2) -> ProjectConfiguration:
     """Generates a project configuration for testing purposes.
 
     Two measurement groups are created:
@@ -37,14 +39,16 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
             return asnamedict(*super().available_extr_columns().values(), *extr_cols,
                               DVColumn('BonusExtrCol0', 'string', 'Bonus Extr column 0'))
         def extract_by_umt(self, measurements: UniformMeasurementTable, other: Optional[MultiUniformMeasurementTable] = None) -> None:
+            if self.involves_sweeps:
+                assert 'header0' in measurements.headers, "Swept data must have 'header0' in the sweep headers."
             for col in self.extr_column_names:
                 if 'Bonus' in col: continue
-                measurements[col]=measurements[col.replace('Extr','Test')]\
+                measurements.s[col]=measurements.s[col.replace('Extr','Test')]\
                     .apply(lambda x: x.replace('meas','extr')+extr_sign)
             if other is not None:
                 for col in self.extr_column_names:
                     if 'Bonus' not in col: continue
-                    measurements[col]=other[col.replace('BonusExtr','Extr')]\
+                    measurements.s[col]=other.s[col.replace('BonusExtr','Extr')]\
                         .apply(lambda x: x+extr_sign)
 
     def generate(SampleName: str, mg_name: str, **kwargs) -> list[pd.DataFrame]:
@@ -64,14 +68,31 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                             'SampleInfoCol1': 'sample0_info1', 'MaskSet':'MainMask'},
                 'sample1': {'SampleName':'sample1','SampleInfoCol0': 'sample1_info0',
                             'SampleInfoCol1': 'sample1_info1', 'MaskSet':'MainMask'}}
-    def anls_func1(nosw: MultiUniformMeasurementTable, yessw: MultiUniformMeasurementTable) -> pd.DataFrame:
-        import pandas as pd
-        return pd.DataFrame({'Anls1Col_nosw':   nosw['ExtrCol0'].str.replace('extr','anls'),
-                             'Anls1Col_yessw': yessw['ExtrCol0'].str.replace('extr','anls')})
-    def anls_func2(anls1: pd.DataFrame, yessw: MultiUniformMeasurementTable) -> pd.DataFrame:
-        import pandas as pd
-        return pd.DataFrame({'Anls2Col_nosw':  anls1['Anls1Col_nosw'].str.replace('anls','anls1'),
-                             'Anls2Col_yessw': yessw['ExtrCol0'].str.replace('extr','anls')})
+    @dataclass(eq=False)
+    class Anls1(HigherAnalysis):
+        name: str = 'test_anls1'; description: str = 'Test analysis'
+        required_dependencies:dict[str,str]=field(default_factory=lambda:{'test_group_nosw':'nosw','test_group_yessw':'yessw'})
+        only_anls_columns: list[str] = field(default_factory=lambda: [f'Anls1Col_nosw', f'Anls1Col_yessw'][:anls1_cols])
+        def available_analysis_columns(self) -> dict[str, DVColumn]:
+            return dict(**super().available_analysis_columns(),
+                        **asnamedict(DVColumn('Anls1Col_nosw', 'string', 'Analysis column for nosw'),
+                                     DVColumn('Anls1Col_yessw', 'string', 'Analysis column for yessw')))
+        def analyze(self,nosw: MultiUniformMeasurementTable, yessw: MultiUniformMeasurementTable) -> pd.DataFrame:
+            import pandas as pd
+            return pd.DataFrame({'Anls1Col_nosw':   nosw.s['ExtrCol0'].str.replace('extr','anls'),
+                                 'Anls1Col_yessw': yessw.s['ExtrCol0'].str.replace('extr','anls')})
+    @dataclass(eq=False)
+    class Anls2(HigherAnalysis):
+        name: str = 'test_anls2'; description: str = 'Test analysis'
+        required_dependencies:dict[str,str]=field(default_factory=lambda:{'test_anls1':'anls1','test_group_yessw':'yessw'})
+        def available_analysis_columns(self) -> dict[str, DVColumn]:
+            return dict(**super().available_analysis_columns(),
+                        **asnamedict(DVColumn('Anls2Col_nosw', 'string', 'Analysis column for nosw'),
+                                     DVColumn('Anls2Col_yessw', 'string', 'Analysis column for yessw')))
+        def analyze(self, anls1: pd.DataFrame, yessw: MultiUniformMeasurementTable) -> pd.DataFrame:
+            import pandas as pd
+            return pd.DataFrame({'Anls2Col_nosw':  anls1['Anls1Col_nosw'].str.replace('anls','anls1'),
+                                 'Anls2Col_yessw': yessw.s['ExtrCol0'].str.replace('extr','anls')})
     
     return ProjectConfiguration(deployment_name='datavac_dbtest',
                                 data_definition=SemiDeviceDataDefinition(
@@ -87,18 +108,7 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
                                         reader_cards={'': [MockReaderCard(reader_func=generate,sample_func=sample_func)]},
                                         meas_columns=meas_cols[:1], extr_column_names=[c.name for c in extr_cols][:1]+['BonusExtrCol0'],)),
                                     troves={'': MockTrove()},
-                                    higher_analyses=asnamedict(
-                                        HigherAnalysis('test_anls1', 'Test analysis',
-                                            analysis_function= anls_func1,
-                                            analysis_columns=[DVColumn('Anls1Col_nosw', 'string', 'Analysis column for nosw'),
-                                                              DVColumn('Anls1Col_yessw', 'string', 'Analysis column for yessw')],
-                                            required_dependencies={'test_group_nosw':'nosw','test_group_yessw':'yessw'},),
-                                        HigherAnalysis('test_anls2', 'Test analysis',
-                                            analysis_function= anls_func2,
-                                            analysis_columns=[DVColumn('Anls2Col_nosw', 'string', 'Analysis column for nosw'),
-                                                              DVColumn('Anls2Col_yessw', 'string', 'Analysis column for yessw')],
-                                            required_dependencies={'test_anls1':'anls1','test_group_yessw':'yessw'},),
-                                    ),
+                                    higher_analyses=asnamedict(Anls1(),Anls2()),
                                         
                                 ),
                                 vault=DemoVault(dbname='datavac_dbtest')
@@ -106,7 +116,9 @@ def make_project_config(num_meas_cols: int, num_extr_cols: int, extr_sign: str =
     
 
 
-def test_update_meas_groups():
+def test_db_modify():
+    from datavac.config.contexts import get_current_context_name
+    assert get_current_context_name() == 'builtin:test' # Make sure not can't run in prod context
 
     unload_my_imports(silent=True)
     from datavac.config.project_config import PCONF
@@ -253,6 +265,7 @@ def test_update_meas_groups():
     assert np.all(data_back['Anls2Col_yessw']==['anls0_col0','anls1_col0','anls0_col0','anls1_col0'])
 
     # Heal and now it should
+    logger.debug("Heal the database")
     heal()
     data_back=read_sql('select * from jmp."test_anls1" order by "SampleName","Anls1Col_nosw"')
     assert np.all(data_back['Anls1Col_nosw'] ==['anls0_col0-reanls','anls1_col0-reanls','anls0_col0','anls1_col0'])
@@ -267,14 +280,42 @@ def test_update_meas_groups():
     from datavac.config.data_definition import DDEF
     from datavac.database.db_upload_meas import perform_and_enter_extraction
     from datavac.database.db_get import get_data
+    logger.debug("CONFIG 2,2,-reextr2")
     PCONF(make_project_config(2,2,extr_sign='-reextr2'))
 
     # Reextract sample0 for yessw group and check the data
+    logger.debug("Reextract sample0 for yessw group")
     perform_and_enter_extraction(DDEF().troves[''], samplename='sample0',only_meas_groups=['test_group_yessw'])
     data_back=get_data('test_group_yessw', include_sweeps=True, unstack_headers=True)
     assert np.all(data_back.loc[0,'header0']==np.r_[1.0,2,3,4,5].astype('float32'))
     assert np.all(data_back['ExtrCol0']==['extr0_col0-reextr2','extr1_col0-reextr2','extr0_col0','extr1_col0'])
     assert np.all(data_back['BonusExtrCol0']==['extr0_col0-reextr-reextr2','extr1_col0-reextr-reextr2','extr0_col0','extr1_col0'])
+    logger.debug("Heal the database")
+    heal()
+
+    # Set up the config with one fewer analysis column
+    unload_my_imports(silent=True)
+    from datavac.config.project_config import PCONF
+    from datavac.config.data_definition import DDEF
+    from datavac.database.db_upload_meas import perform_and_enter_extraction
+    from datavac.database.db_get import get_data
+    from datavac.database.db_modify import update_analysis_tables
+    logger.debug("CONFIG 2,2,,1")
+    PCONF(make_project_config(2,2,anls1_cols=1))
+    update_analysis_tables()
+    assert len(read_sql('select * from jmp."test_anls1"'))==0
+    assert len(read_sql('select * from jmp."test_anls2"'))==0
+    assert read_sql('select * from vac."ReAnls"')['Analysis'].tolist() == ['test_anls1','test_anls1']
+    
+    # Heal and now it should
+    logger.debug("Heal the database")
+    heal()
+    data_back=read_sql('select * from jmp."test_anls1" order by "SampleName","Anls1Col_nosw"')
+    assert np.all(data_back['Anls1Col_nosw'] ==['anls0_col0-reanls','anls1_col0-reanls','anls0_col0','anls1_col0'])
+    assert 'Anls1Col_yessw' not in data_back.columns
+    data_back=read_sql('select * from jmp."test_anls2" order by "SampleName","Anls2Col_nosw"')
+    assert np.all(data_back['Anls2Col_nosw'] ==['anls10_col0-reanls1','anls11_col0-reanls1','anls10_col0','anls11_col0'])
+    assert np.all(data_back['Anls2Col_yessw']==['anls0_col0-reanls2','anls1_col0-reanls2','anls0_col0','anls1_col0'])
 
 if __name__ == "__main__":
-    test_update_meas_groups()
+    test_db_modify()

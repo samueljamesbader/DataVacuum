@@ -66,4 +66,3 @@ def update_layout_params(conn: Optional[Connection] = None, dump_extractions_and
             _update_layout_param_group(layout_param_group, conn,
                                        dump_extractions_and_analyses=dump_extractions_and_analyses)
 
-

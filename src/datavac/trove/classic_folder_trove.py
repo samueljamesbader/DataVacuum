@@ -46,6 +46,12 @@ class ClassicFolderTrove(Trove):
     prompt_for_readall: bool = True
     """If True, will prompt the user to confirm reading if no specific top-level folder is clear from arguments."""
 
+    cli_expander: dict[str,dict[str,Any]] = field(default_factory=lambda:\
+              {'only_folders': dict(name_or_flags=['--folder'],type=str, nargs='+',
+                                help='Restrict to these top-level folders.  If not specified, will read all top-level folders.'),
+              'only_file_names': dict(name_or_flags=['--file'],type=str, nargs='+',
+                                  help='Restrict to these file names')})
+
     def __post_init__(self):
         if self.read_dir is None:
             if 'DATAVACUUM_READ_DIR' not in os.environ:

@@ -1,7 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from enum import Enum
-from functools import cache
+from functools import cache, cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Callable, Sequence, Tuple
 
@@ -117,28 +117,46 @@ class SubSampleReference():
         from datavac.database.db_structure import DBSTRUCT
         return DBSTRUCT().get_subsample_reference_dbtable(self.name)
 
-@dataclass(eq=False)
+@dataclass(eq=False,kw_only=True)
 class HigherAnalysis():
     name: str
     description: str
-    analysis_function: Callable[..., pd.DataFrame]
-    """The arguments that analysis_function needs to accept are the required and optional dependencies.
-    
-    If a dependency is a MeasurementGroup, the function will receive a MultiUniformMeasurementTable.
-    If a dependency is a HigherAnalysis, the function will receive a DataFrame.
-    If a dependency is optional, the function must not require that argument. 
+    analysis_function: Optional[Callable[..., pd.DataFrame]] = None
+    """The function that performs the analysis (alternative to subclassing and overriding analyze())."""
 
-    The function should return a DataFrame with the analysis results.
-    """
-
-    analysis_columns: list[DVColumn] = field(default_factory=list)
+    only_anls_columns: Optional[list[str]] = None
     required_dependencies: Mapping[str,str] = field(default_factory=dict)
     optional_dependencies: Mapping[str,str] = field(default_factory=dict)
     subsample_reference_names: list[str] = field(default_factory=list)
+
+    @cached_property
+    def analysis_column_names(self) -> list[str]:
+        if self.only_anls_columns is not None:
+            return self.only_anls_columns
+        else: 
+            return list(self.available_analysis_columns().keys())
+
     def dbtables(self, key:str) -> Table:
         """Returns the database table associated with this higher analysis for the given key."""
         from datavac.database.db_structure import DBSTRUCT
         return DBSTRUCT().get_higher_analysis_dbtables(self.name)[key]
+    
+    def analyze(self,**kwargs) -> pd.DataFrame:
+        """The arguments that analysis_function needs to accept are the required and optional dependencies.
+        
+        If a dependency is a MeasurementGroup, the function will receive a MultiUniformMeasurementTable.
+        If a dependency is a HigherAnalysis, the function will receive a DataFrame.
+        If a dependency is optional, the function must not require that argument. 
+
+        The function should return a DataFrame with the analysis results.
+        """
+        if self.analysis_function is None:
+            raise NotImplementedError("HigherAnalysis subclasses must either implement analyze() or provide an analysis_function.")
+        else: return self.analysis_function(**kwargs) 
+
+    def available_analysis_columns(self) -> dict[str,DVColumn]:
+        """Returns the columns that are available for analysis in this higher analysis."""
+        return {}
     
     def __hash__(self) -> int:
         return hash(self.name)
