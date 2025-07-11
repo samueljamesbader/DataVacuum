@@ -1233,7 +1233,6 @@ class PostgreSQLDatabase(AlchemyDatabase):
             ys_withdir=[k.split("@")[0] for k in headers if '@' in k]
         directed=all(y[0] in ('f','r') for y in ys_withdir)
         ys=list(set([y[1:] for y in ys_withdir] if directed else ys_withdir))
-        ys=[y for y in ys if y not in swvs]
         #print(x,ys,swvs)
         #print(data)
 
@@ -1434,9 +1433,25 @@ class PostgreSQLDatabase(AlchemyDatabase):
         with (returner_context(conn) if conn else self.engine_connect()) as conn:
             result=pd.read_sql(query,conn)
         return result
+    
+def cli_sql_to_xlsx(*args):
+    parser=argparse.ArgumentParser(description='Runs an SQL query and opens the result in Excel')
+    parser.add_argument('query', nargs='?', help='SQL query to run (if not supplied, will prompt)')
+    namespace=parser.parse_args(args)
+    db=get_database()
+    query = namespace.query or input("Enter SQL query: ").strip()
+    res=db.read_sql(query)
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as temp_file:
+        temp_file_path = temp_file.name
+        res.to_excel(temp_file_path, index=False)
+
+        import os
+        os.system(f"start excel {temp_file_path}")
 
 def cli_sql(*args):
-    parser=argparse.ArgumentParser(description='Runs a SQL query')
+    parser=argparse.ArgumentParser(description='Opens an SQL query exchange')
     #parser.add_argument('query',help='SQL query to run')
     #parser.add_argument('-c','--commit',action='store_true',help='Commit the transaction')
     namespace=parser.parse_args(args)
@@ -1993,5 +2008,6 @@ cli_database=cli_helper(cli_funcs={
     'test_db_connect':'datavac.io.database:cli_test_db_connection_speed',
     'quick_read_filename (qrf)':'datavac.io.meta_reader:cli_quick_read_filename',
     'sql':'datavac.io.database:cli_sql',
+    'sql_to_xlsx (sx)': 'datavac.io.database:cli_sql_to_xlsx',
     'rerun_analysis (ra)': 'datavac.io.database:cli_rerun_higher_analysis',
 })
