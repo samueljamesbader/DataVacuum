@@ -139,6 +139,7 @@ def compare_data(newer: Optional[Union[str,dict[str,pd.DataFrame]]]=None,
                                f"{len(oldtab)} vs {len(newtab)}")
             else:
                 # Temporary adjustments for old name scheme
+                # TODO: remove when all data is migrated to new name scheme
                 for tab in [oldtab, newtab]:
                     if 'matid' in tab.columns: tab.rename(columns={'matid':'sampleid'}, inplace=True)
                     if 'Mask' in tab.columns: tab.rename(columns={'Mask':'MaskSet'}, inplace=True)

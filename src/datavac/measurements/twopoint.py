@@ -101,6 +101,7 @@ class TLMSummary(HigherAnalysis):
     short_grouping: list[str] = dataclasses.field(default_factory=list)
     Z_column: str = 'Wtot [nm]'
     Lsep_column: str = 'Lsep [nm]'
+    half_Lsep_column: Optional[str] = None
     parallel_column: Optional[str] = None
     series_column: Optional[str] = None
     Iopen: float = 1e-9
@@ -111,13 +112,22 @@ class TLMSummary(HigherAnalysis):
     keep_columns: list[str] = dataclasses.field(default_factory=list)
     filter_query: Optional[str] = None
     subsample_reference_names: dataclasses.InitVar[list[str]] = ['Dies']
+    def __post_init__(self, *args, **kwargs):
+        if self.half_Lsep_column is not None and self.Lsep_column is None:
+            self.Lsep_column = f"2{self.half_Lsep_column}"
+        if hasattr(super(),'__post_init__'): return super().__post_init__(*args, **kwargs) # type: ignore
     def analyze(self, tlm_umt:UniformMeasurementTable) -> DataFrame:
         """Analyzes TLM data and returns a summary DataFrame."""
         tlm_data= tlm_umt.scalar_table_with_layout_params(
-            list(set([c for c in [self.Z_column, self.Lsep_column,
-               *(c1 for c1 in [self.parallel_column, self.series_column] if c1 is not None),
-               *self.outer_grouping, *self.short_grouping, *self.keep_columns]
-               ])),on_missing='ignore')
+            list(set([c for c in [self.Z_column, self.Lsep_column, self.half_Lsep_column,
+                                  self.parallel_column, self.series_column,'devtype', # TODO: generalize or document devtype
+                                  *self.outer_grouping, *self.short_grouping, *self.keep_columns]
+               if c is not None])),on_missing='ignore')
+        if self.half_Lsep_column is not None:
+            assert self.Lsep_column not in tlm_data.columns, \
+                f'Seems half_Lsep_column ("{self.half_Lsep_column}") is specified to generate Lsep_column "{self.Lsep_column}", '\
+                f'but "{self.Lsep_column}" is already in the data.  If half_Lsep_column is not None, Lsep_column should not exist yet.'
+            tlm_data=tlm_data.assign(**{self.Lsep_column: tlm_data[self.half_Lsep_column] * 2})
         if self.filter_query is not None:
             tlm_data=tlm_data.query(self.filter_query,engine='python')
         return tlm_summary(tlm_data,
