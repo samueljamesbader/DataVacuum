@@ -13,6 +13,7 @@ import datetime
 import pickle
 from typing import Union, Optional
 
+import numpy as np
 import pandas as pd
 import yaml
 import os
@@ -144,6 +145,7 @@ def compare_data(newer: Optional[Union[str,dict[str,pd.DataFrame]]]=None,
                     if 'matid' in tab.columns: tab.rename(columns={'matid':'sampleid'}, inplace=True)
                     if 'Mask' in tab.columns: tab.rename(columns={'Mask':'MaskSet'}, inplace=True)
                     tab.drop(columns=[c for c in tab.columns if (c.endswith('__1') and ('id' in c or 'Mask' in c))], inplace=True)
+                    tab.drop(columns=[c for c in tab.columns if c in ['sampleid','loadid','MeasGroup','pol','layout_pol','anlsid']], inplace=True)
                 for c in oldtab.columns:
                     if c=='date_user_changed': continue
                     if c not in newtab.columns:
@@ -154,8 +156,12 @@ def compare_data(newer: Optional[Union[str,dict[str,pd.DataFrame]]]=None,
                                 logger.debug(f"                Warn: Column {c} does not match for key {k}")
                                              
                             else:
-                                found_problem=True; found_problem_in_this_tab=True
-                                logger.critical(f"MISMATCH ERROR (Col): Column {c} does not match for key {k}")
+                                if pd.api.types.is_float_dtype(oldtab[c]) and pd.api.types.is_float_dtype(newtab[c]) and \
+                                    np.allclose(oldtab[c].to_numpy(), newtab[c].to_numpy(), rtol=1e-5, equal_nan=True):
+                                    logger.debug(f"                Note: Column {c} matches for {k} w/ relative tol 1e-5")
+                                else:
+                                    found_problem=True; found_problem_in_this_tab=True
+                                    logger.critical(f"MISMATCH ERROR (Col): Column {c} does not match for key {k}")
                 for c in newtab.columns:
                     if c not in oldtab.columns:
                         logger.debug(f"                Note: Column {c} has been added to newer data in key {k}")

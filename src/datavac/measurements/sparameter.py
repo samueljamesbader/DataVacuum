@@ -75,7 +75,7 @@ def simple_rf_mosfet_extraction(df,width):
     MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df['S21'])/np.abs(df['S12'])
     MSG = np.abs(df['S21'])/np.abs(df['S12'])
     df['K']=K
-    df['MAG [dB]']=10*np.log10(np.choose(MAG>0,[np.NaN,MAG]))
+    df['MAG [dB]']=10*np.log10(np.choose(MAG>0,[np.nan,MAG]))
     df['MSG [dB]']=10*np.log10(MSG)
     df['MAG-MSG [dB]']=10*np.log10(np.choose(K>=1,[MSG,MAG]))
 

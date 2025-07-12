@@ -1,6 +1,15 @@
-import numpy as np
-from numpy.linalg import lstsq
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    import numpy as np
+    NDArray2DFloat = np.ndarray[tuple[int, int], np.dtype[np.float64]]
+    NDArray1DFloat = np.ndarray[tuple[int], np.dtype[np.float64]]
+
+    NDArray2DInt = np.ndarray[tuple[int, int], np.dtype[np.int_]]
+    NDArray1DInt = np.ndarray[tuple[int], np.dtype[np.int_]]
+    NDArray2DBool = np.ndarray[tuple[int, int], np.dtype[np.bool_]]
 
 def multiy_singlex_linregress(x,ys):
     """ Run multiple single-variable linear regressions at once against the same x-variable.
@@ -14,6 +23,8 @@ def multiy_singlex_linregress(x,ys):
         intercepts - an array (length m) of intercepts
         rvalues - an array (length m) of rvalues (note: rvalue^2 is coefficient of determination)
     """
+    import numpy as np
+    from numpy.linalg import lstsq
     ys=ys.T
 
     # See https://numpy.org/doc/stable/reference/generated/numpy.linalg.lstsq.html
@@ -48,11 +59,12 @@ def VTCC(I: np.ndarray, V: np.ndarray, icc: float, itol: float = 1e-14):
     Returns:
         an array (of length n) of interpolated crossing voltages
     """
+    import numpy as np
     logI=np.log(np.abs(I)+itol)
     logicc=np.log(icc)
     return YatX(X=logI, Y=V, x=logicc)
 
-def YatX(X: np.ndarray, Y: np.ndarray, x: float, reverse_crossing: bool = False):
+def YatX(X: NDArray2DFloat, Y: NDArray2DFloat, x: float, reverse_crossing: bool = False) -> NDArray1DFloat:
     """ Finds the `Y` where `X` crosses x by linear interpolation.
 
     This function is vectorized, so `X` and `Y` are 2-D arrays of multiple sweeps.
@@ -70,6 +82,7 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float, reverse_crossing: bool = False)
     Returns:
         an array (of length n) of interpolated targets
     """
+    import numpy as np
     X=np.asarray(X); Y=np.asarray(Y);
     if reverse_crossing: X,Y=X[:,::-1],Y[:,::-1]
 
@@ -83,10 +96,7 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float, reverse_crossing: bool = False)
 
     # Cover the crossing-between case
     X1,X2=X[allinds,ind_belows][valid_crossing_between],X[allinds,ind_aboves][valid_crossing_between]
-    try:
-        Y1,Y2=Y[allinds,ind_belows][valid_crossing_between],Y[allinds,ind_aboves][valid_crossing_between]
-    except:
-        pass
+    Y1,Y2=Y[allinds,ind_belows][valid_crossing_between],Y[allinds,ind_aboves][valid_crossing_between]
 
     slope=(Y2-Y1)/(X2-X1)
     Yavg=(Y1+Y2)/2
@@ -98,6 +108,6 @@ def YatX(X: np.ndarray, Y: np.ndarray, x: float, reverse_crossing: bool = False)
     Ycc[valid_crossing_rightat]=Y[allinds,ind_aboves][valid_crossing_rightat]
 
     # NaN everything else
-    Ycc[~(valid_crossing_between|valid_crossing_rightat)]=np.NaN
+    Ycc[~(valid_crossing_between|valid_crossing_rightat)]=np.nan
 
     return Ycc

@@ -93,7 +93,7 @@ def get_project_config() -> ProjectConfiguration:
                     description='Id-Vg transfer curves',
                     reader_cards={'':[MockReaderCard(reader_func=generate,sample_func=sample_func)]},
                     meas_columns=[],
-                    extr_column_names=['SS [mV/dec]'],#, 'VTcc1_lin', 'VTcc1_sat'],
+                    only_extr_columns=['SS [mV/dec]'],#, 'VTcc1_lin', 'VTcc1_sat'],
                     layout_param_group='IdVg'
                     )
             ),

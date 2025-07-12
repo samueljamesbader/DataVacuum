@@ -127,7 +127,7 @@ class Waferplot(ReloadableDataModel):
         if pre_source is None:
             pre_source=diemap['patch_table'].copy()
             for field in fields:
-                pre_source[field]=np.asarray([np.NaN] * len(pre_source), dtype='object')
+                pre_source[field]=np.asarray([np.nan] * len(pre_source), dtype='object')
             #pre_source["DieXY"]=''
             return ColumnDataSource.from_df(pre_source)
         else:
@@ -229,7 +229,7 @@ class WaferplotGrid(ReloadableDataModel):
             pre_source=self._diemap['patch_table'].copy()
             for rv in self.row_values:
                 for cv in self.col_values:
-                    pre_source[self._cds_col_namer(rv, cv)]=np.asarray([np.NaN] * len(pre_source), dtype='object')
+                    pre_source[self._cds_col_namer(rv, cv)]=np.asarray([np.nan] * len(pre_source), dtype='object')
             #pre_source["DieXY"]=''
             self.source.data= ColumnDataSource(pre_source).data.copy()
         else:

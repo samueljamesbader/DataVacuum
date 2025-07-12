@@ -177,7 +177,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         class UMT_H(UMTMUMT_H):
             def __init__(self, umt: UniformMeasurementTable): self._umt = umt
             def __getitem__(self, item: str) -> np.ndarray:
-                assert item in self.headers
+                assert item in self._umt.headers
                 return np.vstack(self._umt._dataframe[item]) # type: ignore
             def __setitem__(self, item: str, value: Any):
                 raise NotImplementedError("Cannot set headers in UniformMeasurementTable")

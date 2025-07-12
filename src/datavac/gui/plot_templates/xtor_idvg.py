@@ -43,14 +43,14 @@ class StandardIdVgPlotter(FilterPlotter):
     def _extract_gm(self, stacked_data):
         if len(stacked_data[f'ID']):
             try:
-                nany=stacked_data['VG'].iloc[0]*np.NaN
+                nany=stacked_data['VG'].iloc[0]*np.nan
                 id=np.vstack([(id if len(id) else nany) for id in stacked_data[f'ID']])
                 vg=np.vstack(stacked_data[f'VG'])
                 stacked_data[f'GM']=list((np.gradient(id,axis=1).T/(vg[:,1]-vg[:,0])).T)
             except Exception as e:
                 logger.error(f"Couldn't do GM extraction: {e}")
                 logger.error(f"Usually this is because the data is not uniform.")
-                stacked_data['GM']=[id*np.NaN for id in stacked_data['ID']]
+                stacked_data['GM']=[id*np.nan for id in stacked_data['ID']]
         else:
             stacked_data[f'GM']=[]
 

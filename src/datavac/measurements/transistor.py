@@ -147,10 +147,10 @@ class IdVg(MeasurementWithLinearNormColumn):
 
         W=self.get_norm(measurements)
         VG: np.ndarray=measurements['VG'] # type: ignore
-        IDsat:np.ndarray[float]=measurements[f'fID@VD={VDsat_str}'] if (has_idsat:=(f'fID@VD={VDsat_str}' in measurements)) else VG*np.NaN # type: ignore
-        IDlin:np.ndarray[float]=measurements[f'fID@VD={VDlin_str}'] if (has_idlin:=(f'fID@VD={VDlin_str}' in measurements)) else VG*np.NaN # type: ignore
-        IGsat:np.ndarray[float]=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.NaN # type: ignore
-        IGlin:np.ndarray[float]=measurements[f'fIG@VD={VDlin_str}'] if (has_iglin:=(f'fIG@VD={VDlin_str}' in measurements)) else VG*np.NaN # type: ignore
+        IDsat:np.ndarray[float]=measurements[f'fID@VD={VDsat_str}'] if (has_idsat:=(f'fID@VD={VDsat_str}' in measurements)) else VG*np.nan # type: ignore
+        IDlin:np.ndarray[float]=measurements[f'fID@VD={VDlin_str}'] if (has_idlin:=(f'fID@VD={VDlin_str}' in measurements)) else VG*np.nan # type: ignore
+        IGsat:np.ndarray[float]=measurements[f'fIG@VD={VDsat_str}'] if (has_igsat:=(f'fIG@VD={VDsat_str}' in measurements)) else VG*np.nan # type: ignore
+        IGlin:np.ndarray[float]=measurements[f'fIG@VD={VDlin_str}'] if (has_iglin:=(f'fIG@VD={VDlin_str}' in measurements)) else VG*np.nan # type: ignore
         if IDsat.shape[1]==1 and np.isnan(IDsat[0]): has_idsat=False
         if IDlin.shape[1]==1 and np.isnan(IDlin[0]): has_idlin=False
         if IGsat.shape[1]==1 and np.isnan(IGsat[0]): has_igsat=False
@@ -179,12 +179,12 @@ class IdVg(MeasurementWithLinearNormColumn):
             gm=savgol_filter(IDsat,*gmsavgol,deriv=1)/DVG
             invswing=savgol_filter(np.log10(np.abs(IDsat.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
         else:
-            gm=VG*np.NaN
-            invswing=VG*np.NaN
+            gm=VG*np.nan
+            invswing=VG*np.nan
         if has_idlin:
             invswing_lin=savgol_filter(np.log10(np.abs(IDlin.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
         else:
-            invswing_lin=VG*np.NaN
+            invswing_lin=VG*np.nan
 
         all_inds=np.arange(len(VG))
         inds_gmpeak=np.argmax(gm,axis=1)
@@ -197,9 +197,9 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Ion/W [A/m]']=measurements['Ion [A]']/W
         measurements['Ion_lin [A]']=np.abs(IDlin[:,-1])
         measurements['Ion_lin/W [A/m]']=measurements['Ion_lin [A]']/W
-        measurements['Ioff [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idsat) else np.abs(IDsat[:,ind0])
+        measurements['Ioff [A]']=measurements['Ion [A]']*np.nan if (ind0 is False) or (not has_idsat) else np.abs(IDsat[:,ind0])
         measurements['Ioff/W [A/m]']=measurements['Ioff [A]']/W
-        measurements['Ioff_lin [A]']=measurements['Ion [A]']*np.NaN if (ind0 is False) or (not has_idlin) else np.abs(IDlin[:,ind0])
+        measurements['Ioff_lin [A]']=measurements['Ion [A]']*np.nan if (ind0 is False) or (not has_idlin) else np.abs(IDlin[:,ind0])
         measurements['Ioff_lin/W [A/m]']=measurements['Ioff_lin [A]']/W
         measurements['Ioffmin [A]']=np.min(np.abs(IDsat),axis=1)
         measurements['Ioffstart [A]']=np.abs(IDsat[:,0])
@@ -208,11 +208,11 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Ion/Ioffmin']=measurements['Ion [A]']/(np.abs(measurements['Ioffmin [A]'])+tol)
         measurements['Ion/Ioffstart']=measurements['Ion [A]']/(np.abs(measurements['Ioffstart [A]'])+tol)
         #for k,ind in indons.items():
-        #    measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.NaN if (ind is False)# or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
+        #    measurements[f'Ron{k} [ohm]']=measurements['Ion [A]']*np.nan if (ind is False)# or (not has_idlin) else np.abs(VDlin)/(np.abs(IDlin[:,ind])+tol)
         #    measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         for k,v in self.Vgons.items():
             measurements[f'Ron{k} [ohm]']=np.abs(VDlin)/np.abs(YatX(X=VG,Y=IDlin,x=v,reverse_crossing=(self.pol=='p'))+tol)\
-                if has_idlin else measurements['Ion [A]']*np.NaN
+                if has_idlin else measurements['Ion [A]']*np.nan
             measurements[f'RonW{k} [ohm.um]']=measurements[f'Ron{k} [ohm]']*W*1e6
         measurements[f'Ronstop [ohm]']=np.abs(VDlin)/(measurements['Ion_lin [A]']+tol)
         measurements[f'RonWstop [ohm.um]']=measurements[f'Ronstop [ohm]']*W*1e6
@@ -227,7 +227,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
-        sstartlin=1e3/invswing_lin[:,0]; sstartlin[sstartlin<0]=np.NaN
+        sstartlin=1e3/invswing_lin[:,0]; sstartlin[sstartlin<0]=np.nan
         measurements['SSstart_lin [mV/dec]']=sstartlin
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
@@ -274,8 +274,8 @@ class IdVd(SemiDevMeasurementGroup):
             try: VGoffstr=only([k for k in VGstrs if np.isclose(float(k),VGoff)])
             except:
                 for VDDlabel,VDD in self.VDDs.items():
-                    measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= np.NaN
-                measurements[f'Idmax{VGofflabel} [A]']=np.NaN
+                    measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= np.nan
+                measurements[f'Idmax{VGofflabel} [A]']=np.nan
             else:
                 for VDDlabel,VDD in self.VDDs.items():
                     measurements[f'Ileak{VGofflabel}{VDDlabel} [A]']= \
@@ -283,7 +283,7 @@ class IdVd(SemiDevMeasurementGroup):
                 measurements[f'Idmax{VGofflabel} [A]']=np.max(np.abs(measurements[f'fID@VG={VGoffstr}']),axis=1)
         if has_ig:
             Igmax=np.max(np.vstack([np.max(np.abs(measurements[f'fIG@VG={vgs}']),axis=1) for vgs in VGstrs]).T,axis=1)
-        else: Igmax=np.NaN
+        else: Igmax=np.nan
         measurements['Igmax [A]']=Igmax
 
     def __str__(self):

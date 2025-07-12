@@ -17,7 +17,7 @@ dependencies = [
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
     "scipy >= 1.10.0",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
-    "numpy ~= 1.26.2",
+    "numpy ~= 2.3.1",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
     # TODO: pandas 2.2 leads to some odd warnings about chained assignment when loading data
     #pandas >= 2.1.0

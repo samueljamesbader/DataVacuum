@@ -1,7 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
+from datavac.io.measurement_table import UniformMeasurementTable
 from datavac.util.util import only
 
 
@@ -30,7 +32,7 @@ class MeasurementGroup():
     meas_columns: list[DVColumn]
     """The measurement columns that are read in for this measurement group."""
 
-    extr_column_names: list[str]
+    only_extr_columns: Optional[list[str]] = None
     """The columns names that are extracted and kept.
     
     Must be a subset of names in get_available_extr_columns().
@@ -56,6 +58,13 @@ class MeasurementGroup():
     def __post_init__(self):
         assert len(self.reader_cards)<=1, \
             "All reader cards in a measurement group must belong to the same trove."     
+    
+    @cached_property
+    def extr_column_names(self) -> list[str]:
+        if self.only_extr_columns is not None:
+            return self.only_extr_columns
+        else: 
+            return list(self.available_extr_columns().keys())
 
     def available_extr_columns(self) -> dict[str,DVColumn]:
         """Returns the columns that are available for extraction in this measurement group."""
@@ -110,7 +119,7 @@ class MeasurementGroup():
             measurements: The measurements to extract from.
             **kwargs: Additional UniformMeasurementTables corresponding to the dependencies
         """
-        raise NotImplementedError("extract_by_umt must be implemented in the subclass")
+        raise NotImplementedError(f"extract_by_umt must be implemented in the subclass (called from {self.__class__.__name__})")
         #pass
 
     def trove_name(self) -> str:
@@ -155,3 +164,7 @@ class SemiDevMeasurementGroup(MeasurementGroup):
         if self.layout_param_group:
             ssrs.append(f'LayoutParams -- {self.layout_param_group}')
         return ssrs
+
+class GenericSemiDevMeasurementGroup(SemiDevMeasurementGroup):
+    def extract_by_umt(self, measurements: UniformMeasurementTable, **kwargs) -> None:
+        pass

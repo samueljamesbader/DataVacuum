@@ -1,6 +1,7 @@
+from __future__ import annotations
 import ast
 from dataclasses import dataclass
-from typing import Sequence, Optional
+from typing import TYPE_CHECKING, Sequence, Optional
 
 from datavac.config.data_definition import DVColumn
 from datavac.measurements.measurement_group import SemiDevMeasurementGroup
@@ -12,6 +13,9 @@ from scipy.fft import rfftfreq, rfft
 from datavac.io.measurement_table import UniformMeasurementTable
 from datavac.util.maths import YatX
 
+if TYPE_CHECKING:
+    from datavac.util.maths import NDArray2DFloat, NDArray2DBool, NDArray1DFloat, NDArray1DInt, NDArray2DInt
+
 
 @dataclass(eq=False, repr=False)
 class InverterDC(SemiDevMeasurementGroup):
@@ -19,18 +23,18 @@ class InverterDC(SemiDevMeasurementGroup):
     vlo: float = 0.0
     def extract_by_umt(self, measurements: 'UniformMeasurementTable'):
         assert self.vlo==0
-        Vim=YatX(X=measurements[f'fVout@VDD={self.vhi}'],Y=measurements['Vin'],
+        Vim=YatX(X=measurements.h[f'fVout@VDD={self.vhi}'],Y=measurements.h['Vin'],
                   x=(self.vhi+self.vlo)/2,reverse_crossing=True)
         measurements['Vim [V]']=Vim
-        Vm=YatX(X=measurements[f'fVout@VDD={self.vhi}']-measurements['Vin'],
-                Y=(measurements[f'fVout@VDD={self.vhi}']+measurements['Vin'])/2,
+        Vm=YatX(X= measurements.h[f'fVout@VDD={self.vhi}']-measurements.h['Vin'],
+                Y=(measurements.h[f'fVout@VDD={self.vhi}']+measurements.h['Vin'])/2,
                 x=0,reverse_crossing=True)
         measurements['Vm [V]']=Vm
 
         dVin=np.mean(np.diff(measurements['Vin'],axis=1))
         gain=np.diff(measurements[f'fVout@VDD={self.vhi}'],axis=1)/dVin
-        Vinm=(measurements['Vin'][:,:-1]+measurements['Vin'][:,1:])/2
-        Voutm=(measurements[f'fVout@VDD={self.vhi}'][:,:-1]+measurements[f'fVout@VDD={self.vhi}'][:,1:])/2
+        Vinm=(measurements.h['Vin'][:,:-1]+measurements.h['Vin'][:,1:])/2
+        Voutm=(measurements.h[f'fVout@VDD={self.vhi}'][:,:-1]+measurements.h[f'fVout@VDD={self.vhi}'][:,1:])/2
         measurements['max_gain']=np.max(-gain,axis=1)
         after_vmid=(Vinm.T>Vm).T
         nan_after_vmid=np.ones_like(after_vmid,dtype=float); nan_after_vmid[ after_vmid]=np.nan
@@ -48,18 +52,20 @@ class InverterDC(SemiDevMeasurementGroup):
 
     def available_extr_columns(self) -> dict[str, DVColumn]:
         return asnamedict(
-            DVColumn('VIL [V]', 'float', 'Inverter DC VIL'),
-            DVColumn('VIH [V]', 'float', 'Inverter DC VIH'),
-            DVColumn('VOL [V]', 'float', 'Inverter DC VOL'),
-            DVColumn('VOH [V]', 'float', 'Inverter DC VOH'),
-            DVColumn('NML [V]', 'float', 'Inverter DC NML'),
-            DVColumn('NMH [V]', 'float', 'Inverter DC NMH'),
+            DVColumn('VIL [V]', 'float', 'Input Low Voltage (by gain=-1)'),
+            DVColumn('VIH [V]', 'float', 'Input High Voltage (by gain=-1)'),
+            DVColumn('VOL [V]', 'float', 'Output Low Voltage (by gain=-1)'),
+            DVColumn('VOH [V]', 'float', 'Output High Voltage (by gain=-1)'),
+            DVColumn('NML [V]', 'float', 'Noise Margin Low (VOL-VIL)'),
+            DVColumn('NMH [V]', 'float', 'Noise Margin High (VOH-VIH)'),
+            DVColumn('Vim [V]', 'float', 'Input Mid Voltage (by output crossing (vhi+vlo)/2)'),
+            DVColumn( 'Vm [V]', 'float', 'Mid Voltage (input=output)'),
             DVColumn('max_gain', 'float', 'Maximum gain of the inverter')
         )
 
 
-def get_digitized_curves(time:np.ndarray[float], curves:dict[str,np.ndarray[float]], vmid: float,
-                         tcluster_thresh: Optional[float] = None) -> dict[str,np.ndarray[bool]]:
+def get_digitized_curves(time:NDArray2DFloat, curves:dict[str,NDArray2DFloat], vmid: float,
+                         tcluster_thresh: Optional[float] = None) -> dict[str,NDArray2DBool]:
 
     # Note curves should be the k.split("_")[0] of the other curves dict
 
@@ -100,14 +106,14 @@ class OscopeFormulaLogic(SemiDevMeasurementGroup):
     vhi: float = 1
     vlo: float = 0
     channel_mapping:Optional[dict[str,Sequence[str]]]=None
-    tcluster_thresh: float = None
+    tcluster_thresh: Optional[float] = None
 
     def extract_by_umt(self, measurements: UniformMeasurementTable):
 
         # Will be populated as we go with correctness evaluations
         truth_table_pass=pd.Series([pd.NA]*len(measurements),dtype='boolean')
 
-        for formula, grp in measurements.scalar_table_with_layout_params([self.formula_col]).groupby(self.formula_col):
+        for formula, grp in measurements.scalar_table_with_layout_params([self.formula_col]).groupby(self.formula_col): # type: ignore
             # Hopefully temporary, but since "|" is used as a delimiter for CSV uploading,
             # it can't appear in the formula in the layout params table
             formula:str=formula.replace("%OR%","|")
@@ -121,11 +127,11 @@ class OscopeFormulaLogic(SemiDevMeasurementGroup):
 
             # Create a dictionary of curves needed to evaluate the formula's correctness
             channel_mapping={h:[h] for h in measurements.headers} if self.channel_mapping is None else self.channel_mapping
-            curves={name:measurements[ch][list(grp.index),:] for ch, names in channel_mapping.items()
+            curves={name:measurements.h[ch][list(grp.index),:] for ch, names in channel_mapping.items()
                     for name in names if ch in measurements.headers
                                             and name in [n.split("_")[0] for n in inp_names+out_names]}
 
-            digitized_curves=get_digitized_curves(measurements[self.time_col][list(grp.index)],
+            digitized_curves=get_digitized_curves(measurements.h[self.time_col][list(grp.index)],
                                                   {k.split("_")[0]:c for k,c in curves.items()},
                                                   vmid=(self.vhi+self.vlo)/2, tcluster_thresh=self.tcluster_thresh)
 
@@ -176,16 +182,16 @@ class OscopeRingOscillator(SemiDevMeasurementGroup):
     vlo: float = 0.0
 
     @property
-    def vmid(self): return (self.vhi+self.vlo)/2
+    def vmid(self)->float: return (self.vhi+self.vlo)/2
 
     def get_div_by(self, measurements: UniformMeasurementTable):
         return measurements.scalar_table_with_layout_params([self.div_by_col])[self.div_by_col]\
             if self.div_by_col else 1
 
     def extract_by_umt(self, measurements: UniformMeasurementTable):
-        time: np.ndarray[float]=measurements[self.time_col]
-        signal: np.ndarray[float]=measurements[self.signal_col]
-        enable: np.ndarray[float]=measurements[self.enable_col]\
+        time: NDArray2DFloat=measurements.h[self.time_col]
+        signal: NDArray2DFloat=measurements.h[self.signal_col]
+        enable: NDArray2DFloat=measurements.h[self.enable_col]\
             if self.enable_col else np.ones_like(signal, dtype=bool)
 
         # Find the first block where enable is true from all measurements
@@ -196,18 +202,18 @@ class OscopeRingOscillator(SemiDevMeasurementGroup):
         if en1d_stop==en1d_start: en1d_stop=-1
 
         # Signal within first enabled block
-        val_signal = signal[:,en1d_start:en1d_stop]
+        val_signal:NDArray2DFloat = signal[:,en1d_start:en1d_stop]
 
         # FFT within first enabled block
         N = val_signal.shape[1]
-        dt = np.mean(time[:,-1]-time[:,0])/(time.shape[-1]-1)
-        fft_vals=rfft((val_signal.T - np.mean(val_signal,axis=1)).T)
+        dt = float(np.mean(time[:,-1]-time[:,0])/(time.shape[-1]-1))
+        fft_vals:NDArray2DFloat=rfft((val_signal.T - np.mean(val_signal,axis=1)).T) # type: ignore
         freqs=rfftfreq(N,dt)
 
         # Get frequency of signal
         measurements['f_out_fft [Hz]']=freqs[np.argmax(np.abs(fft_vals),axis=1)]
         measurements['f_out_fine [Hz]']=fine_freq_of_signal(val_signal>self.vmid,
-                                            dt=dt, expected_interval=1/(2*measurements['f_out_fft [Hz]']*dt))
+                                            dt=dt, expected_interval=1/(2*measurements.s['f_out_fft [Hz]']*dt)) # type: ignore
 
         # If the signal is known to be divided, multiply back up
         measurements['f_osc [Hz]']=measurements['f_out_fine [Hz]']*self.get_div_by(measurements)
@@ -239,17 +245,17 @@ class OscopeDivider(SemiDevMeasurementGroup):
         correct_division=pd.Series([pd.NA]*len(measurements),dtype='boolean')
         internal_phase  =pd.Series([-1]*len(measurements),dtype='int32')
 
-        for divby, grp in measurements.scalar_table_with_layout_params([self.div_by_col],on_missing='ignore').groupby(self.div_by_col):
-
-            digcs=get_digitized_curves(measurements[self.time_col][grp.index],
-                                       {'in':measurements[self.input_col][grp.index],
-                                        'out':measurements[self.output_col][grp.index]},
+        for divby, grp in measurements.scalar_table_with_layout_params([self.div_by_col],on_missing='ignore').groupby(self.div_by_col): # type: ignore
+            divby:int
+            digcs=get_digitized_curves(measurements.h[self.time_col][grp.index],
+                                       {'in':measurements.h[self.input_col][grp.index],
+                                        'out':measurements.h[self.output_col][grp.index]},
                                        vmid=(self.vhi+self.vlo)/2)
 
             # Compute a 3-D array, where the first index runs over possible "initial settings" of the counter
             # and each 2-D array is a potentially correct output for that initial setting
-            transition_count = np.pad(np.cumsum(np.diff(digcs['in'],axis=1)!=0,axis=1),
-                                      ((0, 0), (1, 0)), mode='constant', constant_values=0)
+            transition_count:NDArray2DInt = np.pad(np.cumsum(np.diff(digcs['in'],axis=1)!=0,axis=1),
+                                                      ((0, 0), (1, 0)), mode='constant', constant_values=0)
             potential_correct_outputs=np.array([
                 (np.mod(transition_count+sh, 2*divby)<divby)
                 for sh in range(2*divby)
@@ -276,13 +282,13 @@ class OscopeDivider(SemiDevMeasurementGroup):
             DVColumn('internal_phase', 'int32', 'Internal phase of the divider, -1 if not correct')
         )
 
-def fft_freq_of_sig(signal: np.ndarray[float], dt: float) -> np.ndarray[float]:
+def fft_freq_of_sig(signal: NDArray2DFloat, dt: float) -> NDArray1DFloat:
     N = signal.shape[1]
-    fft_vals=rfft((signal.T-np.mean(signal,axis=1)).T)
+    fft_vals:NDArray2DFloat=rfft((signal.T-np.mean(signal,axis=1)).T) # type: ignore
     freqs=rfftfreq(N,dt)
-    return freqs[np.argmax(np.abs(fft_vals),axis=1)]
+    return freqs[np.argmax(np.abs(fft_vals),axis=1)] # type: ignore
 
-def fine_freq_of_signal(binary_signal:np.ndarray[bool], dt:float, expected_interval:float):
+def fine_freq_of_signal(binary_signal:NDArray2DBool, dt:float, expected_interval:NDArray1DFloat):
     arng=np.arange(binary_signal.shape[1]-1)
     flipmat=(np.diff(binary_signal,axis=1)!=0)
     glitch_free=[]

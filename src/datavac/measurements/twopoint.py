@@ -68,10 +68,10 @@ class ResistorIV(IV):
             ptmask=V[0]!=0
 
         G=I[:,ptmask]/V[:,ptmask]
-        G[abs(I[:,ptmask])<self.Imin]=np.NaN
-        G[G<0]=np.NaN
+        G[abs(I[:,ptmask])<self.Imin]=np.nan
+        G[G<0]=np.nan
         Gmean=np.mean(G,axis=1)
-        Gmean[np.sum(np.logical_not(np.isclose(G.T,Gmean,rtol=.1).T),axis=1)!=0]=np.NaN
+        Gmean[np.sum(np.logical_not(np.isclose(G.T,Gmean,rtol=.1).T),axis=1)!=0]=np.nan
         R=1/Gmean
 
         measurements['R']=R
@@ -245,7 +245,7 @@ def tlm_summary(tab,
             goodfit=(rval**2>R2min_rvs)
             if not rval**2>R2min_rvs:
                 #print(f"R^2={rval**2} too low for {str(outer_key+inner_key)}")
-                slope,intercept=np.NaN,np.NaN
+                slope,intercept=np.nan,np.nan
             if subtract_short:
                 intercept-=rshort
             Rc=intercept/2

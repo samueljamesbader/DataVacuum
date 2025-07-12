@@ -45,7 +45,7 @@ class StandardIdVdPlotter(FilterPlotter):
             except Exception as e:
                 logger.error(f"Couldn't do RO extraction: {e}")
                 logger.error(f"Usually this is because the data is not uniform.")
-                stacked_data['RO']=[id*np.NaN for id in stacked_data['ID']]
+                stacked_data['RO']=[id*np.nan for id in stacked_data['ID']]
         else:
             stacked_data[f'RO']=[]
 

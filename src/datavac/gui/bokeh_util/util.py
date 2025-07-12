@@ -24,7 +24,7 @@ def make_serializable(df):
             df[k]=df[k].astype('float32')
         if str(df[k].dtype) in ['boolean']:
             df[k]=df[k].astype('object')
-            df[k]=df[k].where(~pd.isna(df[k]),np.NaN)
+            df[k]=df[k].where(~pd.isna(df[k]),np.nan)
     return df
 
 def smaller_legend(fig):
