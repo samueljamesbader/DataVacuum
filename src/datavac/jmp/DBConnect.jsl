@@ -1,4 +1,4 @@
-Names Default To Here(1); dv=::dv;
+Names Default To Here(1); dv=:::dv;
 
 // Get the SSL rootcert path
 ADDIN_HOME = Get Path Variable("ADDIN_HOME(%ADDINID%)");

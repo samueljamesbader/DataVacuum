@@ -1,4 +1,4 @@
-Names Default To Here( 1 ); dv=::dv;
+Names Default To Here( 1 ); dv=:::dv;
 
 // dv:PyConn()
 // Returns a Python Connection object, initializing it if it doesn't yet exist.

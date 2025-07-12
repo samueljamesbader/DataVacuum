@@ -16,8 +16,8 @@ jmp_folder.mkdir(exist_ok=True)
 def copy_in_file(filename,addin_folder,addin_id):
     with open(filename,'r') as f1:
         f1lines=f1.readlines()
-        assert f1lines[0].replace(" ","").strip()=='NamesDefaultToHere(1);dv=::dv;',\
-            f"All JSL files to copy into add-in must start with 'Names Default To Here(1); dv=::dv;'.  See {filename}."
+        assert f1lines[0].replace(" ","").strip()=='NamesDefaultToHere(1);dv=:::dv;',\
+            f"All JSL files to copy into add-in must start with 'Names Default To Here(1); dv=:::dv;'.  See {filename}."
         f1content="".join(['Names Default To Here(1);\ndv=Namespace("%ADDINID%");\n',*f1lines[1:]])
         with open((addin_folder/filename.name),'w') as f2:
             f2.write(f1content\
@@ -149,9 +149,9 @@ def cli_compile_jmp_addin(*args):
                 f'dv:addin_home=Get Path Variable("ADDIN_HOME({addin_id})");\n',
                 f'Include( "$ADDIN_HOME({addin_id})/env_vars.jsl" );\n',
                 f'If((dv:DATAVACUUM_JMP_DEFER_INIT!="YES")|force_init,\n',
-                # TODO:  Change ::dv to :::dv here and everywhere so that add-ins work inside of JMP projects
+                # Using :::dv so that add-ins work inside of JMP projects
                 # See https://community.jmp.com/t5/Discussions/Unable-to-run-addins-within-Project/td-p/383815
-                f'::dv=dv;\n',
+                f':::dv=dv;\n',
                 *[f'  Include( "$ADDIN_HOME({addin_id})/{Path(filename).name}" );\n'
                     for filename in inc_files],
                 f'  dv:force_init=0;\n',

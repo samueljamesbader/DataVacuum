@@ -53,8 +53,6 @@ def PCONF(inject_configuration:Optional[ProjectConfiguration]=None) -> ProjectCo
     if _pconf is None:
         conf_mod=os.environ.get('DATAVACUUM_CONFIG_MODULE',None)
         conf_pth=os.environ.get('DATAVACUUM_CONFIG_PATH',None)
-        print("CONF_MOD",conf_mod)
-        print("CONF_PTH",conf_pth)
         assert (conf_mod is not None) or (conf_pth is not None), \
             "Must set one of DATAVACUUM_CONFIG_MODULE or DATAVACUUM_CONFIG_PATH"
         if conf_mod is not None:
