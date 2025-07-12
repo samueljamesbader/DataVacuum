@@ -155,7 +155,7 @@ class ContextDownload(RequestHandler):
         self.set_header('Content-Disposition', f'attachment; filename={depname}.dvcontext.env')
         self.write(f"# Context file for '{depname}'\n")
         self.write(f"# Downloaded {datetime.datetime.now()}\n")
-        for name in ['DATAVACUUM_DEPLOYMENT_NAME','DATAVACUUM_DEPLOYMENT_URI','DATAVACUUM_CONFIG_PKG']:
+        for name in ['DATAVACUUM_DEPLOYMENT_NAME','DATAVACUUM_DEPLOYMENT_URI','DATAVACUUM_CONFIG_MODULE']:
             self.write(f"{name}={os.environ[name]}\n")
 
 if __name__=='__main__':

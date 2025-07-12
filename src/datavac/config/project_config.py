@@ -53,6 +53,8 @@ def PCONF(inject_configuration:Optional[ProjectConfiguration]=None) -> ProjectCo
     if _pconf is None:
         conf_mod=os.environ.get('DATAVACUUM_CONFIG_MODULE',None)
         conf_pth=os.environ.get('DATAVACUUM_CONFIG_PATH',None)
+        print("CONF_MOD",conf_mod)
+        print("CONF_PTH",conf_pth)
         assert (conf_mod is not None) or (conf_pth is not None), \
             "Must set one of DATAVACUUM_CONFIG_MODULE or DATAVACUUM_CONFIG_PATH"
         if conf_mod is not None:
@@ -61,6 +63,7 @@ def PCONF(inject_configuration:Optional[ProjectConfiguration]=None) -> ProjectCo
                 raise Exception(f"Config module {conf_mod} not found") from e
             if conf_pth is not None:
                 assert mod.__file__ is not None
+                assert Path(conf_pth).exists(), f"Config path {conf_pth} does not exist"
                 assert Path(conf_pth).samefile(Path(mod.__file__)), \
                     f"DATAVACUUM_CONFIG_MODULE and DATAVACUUM_CONFIG_PATH are both set but "\
                     f"config module {conf_mod} does not match config path {conf_pth}"

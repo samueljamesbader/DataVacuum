@@ -117,7 +117,7 @@ dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0}, {Default Local},
 
 	// Run the query in Python
 	dv:PyConn() << Send(dt,Python Name("viewdf"));
-	error=dv:PySub("db=get_database();sweepdf=db.get_meas_data_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'],only_sweeps="||headers_str||")");
+	error=dv:PySub("sweepdf=get_sweeps_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'],only_sweeps="||headers_str||")");
 	//Show(error);
 	//Show(error!=0);
 	If(!IsEmpty(error),

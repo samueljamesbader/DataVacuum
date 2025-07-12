@@ -66,9 +66,12 @@ def entrypoint_datavac_cli():
     from datavac.database.db_cli import DB_CLI
     from datavac.config.contexts import CONTEXT_CLI
     from datavac.appserve.dvsecrets.vaults.vault import VAULT_CLI
+    from datavac.jmp.compile_addin import cli_compile_jmp_addin
+    UTIL_CLI= CLIIndex(util_cli_funcs)
     CLIIndex({
         'database (db)': DB_CLI,
         'context (cn)': CONTEXT_CLI,
-        'util (ut)': CLIIndex(util_cli_funcs),
+        'util (ut)': UTIL_CLI,
         'vault (v)': VAULT_CLI,
+        'compile_jmp (cj)': cli_compile_jmp_addin,
     })(*sys.argv)

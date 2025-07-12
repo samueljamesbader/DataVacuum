@@ -7,20 +7,20 @@ While(Pat Match(file_path,"\","%BACKSLASH%"),1);
 While(Pat Match(file_path,"%BACKSLASH%","\\"),1);
 
 // Get the connection info
-dbstring=dv:PySub("from datavac.appserve.dvsecrets import get_db_connection_info as gdci;"||
-				" dci=';'.join(f'{k}={v}' for k,v in gdci().items() if 'ssl' not in k);",
+dbstring=dv:PySub("from datavac.database.db_connect import get_db_connection_info as gdci;"||
+				" dci=gdci().to_connection_string();",
 			"dci");
 conn_info=AssociativeArray();
 For each( {keqv, ind}, Words(dbstring,";"),
 	conn_info[Words(keqv,"=")[1]]=Words(keqv,"=")[2]);
-use_ssl=(conn_info["Server"]!="localhost");
+use_ssl=(conn_info["host"]!="localhost");
 
 dv:conn_str_no_pass =
     "ODBC:DRIVER={PostgreSQL Unicode(x64)};" ||
-    "DATABASE=" || conn_info["Database"] || ";" ||
-    "SERVER="   || conn_info["Server"]   || ";" ||
-    "PORT="     || conn_info["Port"]     || ";" ||
-    "UID="      || conn_info["Uid"]      || ";" ||
+    "DATABASE=" || conn_info["database"] || ";" ||
+    "SERVER="   || conn_info["host"]   || ";" ||
+    "PORT="     || conn_info["port"]     || ";" ||
+    "UID="      || conn_info["username"]      || ";" ||
     "PWD="      || "%_PWD_%"                 || ";" ||
     If( use_ssl, "SSLmode=verify-full;", "SSLmode=disable;") ||
     "ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;" ||
@@ -32,7 +32,7 @@ dv:conn_str_no_pass =
     "D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;";
 
 conn_str_with_pass = dv:conn_str_no_pass;
-Pat Match(conn_str_with_pass,"%_PWD_%",conn_info["Password"]);
+Pat Match(conn_str_with_pass,"%_PWD_%",conn_info["password"]);
 
 Write("About to try connecting to DB\!N");
 New SQL Query(

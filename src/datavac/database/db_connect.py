@@ -51,6 +51,17 @@ class PostgreSQLConnectionInfo():
                 for part in conn_str.split(';') if '=' in part}
         return PostgreSQLConnectionInfo(**parts)
     
+    def to_connection_string(self) -> str:
+        """Returns a connection string representation of the connection info."""
+        parts = [
+            f"username={self.username}",
+            f"password={self.password}",
+            f"host={self.host}",
+            f"port={self.port}",
+            f"database={self.database}"
+        ]
+        return ';'.join(parts)
+    
     def __str__(self) -> str:
         """Returns a string representation of the connection info."""
         return f"[{self.username}@{self.host}:{self.port} for '{self.database}']"

@@ -6,7 +6,7 @@ from datavac.config.data_definition import HigherAnalysis
 from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
 from datavac.util.dvlogging import time_it
 from datavac.util.util import returner_context
-from sqlalchemy import Connection, select, Select, Column, Table
+from sqlalchemy import INTEGER, Connection, select, Select, Column, Table, values
 from datavac.measurements.measurement_group import MeasurementGroup
 from datavac.io.measurement_table import MultiUniformMeasurementTable
 
@@ -201,7 +201,7 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
             headers = []
         assert np.all(df.index == df['measid'])
         umts.append(UniformMeasurementTable(dataframe=df, headers=headers,
-                                            meas_group=meas_group, meas_length=None))
+                                            meas_group=meas_group, meas_length=None)) # type: ignore
     return MultiUniformMeasurementTable(umts)
 
 
@@ -230,6 +230,67 @@ def get_data_from_meas_group(meas_group: MeasurementGroup, scalar_columns:Option
         df=_unstack_header_helper(df, ['loadid','measid'], drop_index=False)
 
     return df
+
+def get_sweeps_for_jmp(mg_name: str, loadids: list[int], measids: list[int],
+                       only_sweeps: Optional[list[str]]=None) -> pd.DataFrame:
+    import pandas as pd; import numpy as np
+    from datavac.config.data_definition import DDEF
+    from datavac.database.db_connect import get_engine_ro
+    mg= DDEF().measurement_groups[mg_name]
+    sweeptab=mg.dbtable('sweep')
+    ids_cte=select(values(Column('loadid', INTEGER),Column('measid', INTEGER),name="lm_id_tab")\
+                   .data(list(zip(loadids,measids)))).cte()
+    
+    sel=select(sweeptab.c.loadid, sweeptab.c.measid, sweeptab.c.sweep, sweeptab.c.header) \
+        .select_from(sweeptab.join(ids_cte, (sweeptab.c.loadid==ids_cte.c.loadid) & (sweeptab.c.measid==ids_cte.c.measid)))
+    if only_sweeps is not None:
+        sel=sel.where(sweeptab.c.header.in_(only_sweeps))
+
+    with get_engine_ro().connect() as conn:
+        df = pd.read_sql(con=conn, sql=sel, dtype={'sweep': 'object', 'header': 'string'})
+        
+    _decode_sweeps(df, mg)
+    df=_unstack_header_helper(df, ['loadid','measid'], drop_index=False)
+    if not len(df): return df
+    data = df; del df
+
+    # Infer names of X and Y columns and sweep variables
+    from datavac.util.tables import stack_multi_sweeps
+    from datavac.util.util import only
+    headers=[k for k in data.columns if k not in ['loadid','measid']]
+    if all(('@' not in k) for k in headers):
+        # Assume column names of form X, Y... doesn't actually matter which is independent, so say first
+        # actually, it does matter in one situation: if X is something that might be NaN instead of array,
+        # then the data.where() below will have an issue, so let's try to pick a good column for now.
+        x=next((h for h in headers if h.lower() in ['x','time']),headers[0])
+        swvs=[]
+        ys_withdir=[h for h in headers if h!=x]
+    else:
+        # Assume column names of form X, fY1@SWVR=val, fY2@SWVR=val ...
+        possible_xs=[k for k in headers if '@' not in k]
+        x=only(possible_xs,f"None or multiple possible x values in {possible_xs}")
+        swvs=list(set([eq.split("=")[0] for k in headers if '@' in k for eq in k.split("@")[1].split(",")]))
+        ys_withdir=[k.split("@")[0] for k in headers if '@' in k]
+    directed=all(y[0] in ('f','r') for y in ys_withdir)
+    ys=list(set([y[1:] for y in ys_withdir] if directed else ys_withdir))
+    ys=[y for y in ys if y not in swvs]
+
+    # Restack the data so different sweep variables are columns rather than parts of headers
+    data=stack_multi_sweeps(data,x=x,ys=ys,swvs=swvs,restrict_dirs=(('f','r') if directed else ('',))).reset_index(drop=True)
+
+    # The above (both the unstack and the stack each) results in NaN values where there is no data for a given sweep
+    # eg for IdVg if sometimes the source current is measured and sometimes not,
+    # then there will be NaNs in the I_S column.
+    # In order to be able to explode data, we will want to replace each NaN with an *array* of NaN's
+    # of the same length as the independent variable.
+    data=data.where(data.notna(),pd.Series([np.full(len(c),np.nan) for c in data[x]]),axis=0)
+    try:
+        data = data.explode([x,*ys],ignore_index=True)\
+            [['loadid','measid',*[k for k in data.columns if k not in ['loadid','measid']]]]
+    except:
+        print({y:len(data.iloc[0][y]) for y in ys})
+        raise
+    return data
 
 def get_data_from_analysis(an: HigherAnalysis, scalar_columns:Optional[list[str]]=None,
                            conn:Optional[Connection]=None, **factors) -> pd.DataFrame:

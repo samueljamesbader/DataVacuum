@@ -1,26 +1,14 @@
 import argparse
-import importlib.resources as irsc
-import logging
 import os
 from pathlib import Path
 import shutil
-import xml.etree.ElementTree as gfg
 from textwrap import dedent
-
-import dotenv
-import requests
-import warnings
 import sys
-import re
-
 import yaml
-from urllib3.exceptions import InsecureRequestWarning
 
 from datavac.util.dvlogging import logger
-from datavac.appserve.dvsecrets.db_secrets import get_ssl_rootcert_for_db, get_db_connection_info
-from datavac.util.conf import CONFIG
 from datavac.util.paths import USER_CACHE
-from datavac.util.util import get_resource_path, only, import_modfunc
+from datavac.util.util import get_resource_path
 
 jmp_folder=USER_CACHE/"JMP"
 jmp_folder.mkdir(exist_ok=True)
@@ -38,7 +26,8 @@ def copy_in_file(filename,addin_folder,addin_id):
                      .replace("%LOCALADDINFOLDER%",str(addin_folder)))
 
 def make_db_connect(addin_folder,addin_id, env_values):
-    if (rootcertfile:=import_modfunc(CONFIG['database']['credentials']['get_ssl_rootcert_for_db'])()):
+    from datavac.config.project_config import PCONF
+    if (rootcertfile:=PCONF().cert_depo.get_ssl_rootcert_path_for_db()):
         shutil.copy(rootcertfile,addin_folder/"rootcertfile.crt")
 
 def cli_compile_jmp_addin(*args):
@@ -58,8 +47,10 @@ def cli_compile_jmp_addin(*args):
         envname=(env if len(env) else "LOCAL")
         addin_id=f'datavacuum_helper.{envname.lower()}'
         #print(f"Using {envname}")
-
-        if (jmp_conf:=Path(env_values["DATAVACUUM_CONFIG_DIR"])/"jmp.yaml").exists():
+        from datavac.config.project_config import PCONF
+        CONFIG_DIR=PCONF().CONFIG_DIR
+        assert CONFIG_DIR is not None, "No project configuration directory, are you in the right context?"
+        if (jmp_conf:=Path(CONFIG_DIR/"jmp.yaml")).exists():
             with open(jmp_conf,'r') as f:
                 jmp_conf=yaml.safe_load(f)
         else: jmp_conf={}
@@ -85,8 +76,6 @@ def cli_compile_jmp_addin(*args):
                                    'PYTHON_DLL':str(potential_dlls[0]),
                                    'DATAVACUUM_JMP_DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),
                                   }
-            # TODO: Remove DB connection info from JMP add-in, rely on shareable secrets
-            connection_info=get_db_connection_info()
 
             f.write("Names Default To Here(1);\n")
             f.write(f"dv = Namespace(\"{addin_id}\");\n")
@@ -95,9 +84,6 @@ def cli_compile_jmp_addin(*args):
                     varvalue=env_values[varvalue[1:-1]]
                 f.write(f"dv:{varname}=\"{varvalue}\";\n")
 
-            #for varname, connstrname in [('DATABASE','Database'),('SERVER','Server'),('PORT','Port'),
-            #                             ('UID','Uid'),('PWD','Password')]:
-            #    f.write(f"dv:DATAVACUUM_DB_{varname}=\"{connection_info[connstrname]}\";\n")
 
         with open(addin_folder/"jmp16_pyinit.py",'w') as f:
 
@@ -117,9 +103,12 @@ def cli_compile_jmp_addin(*args):
                 f.write(f"os.environ['{x}']=r\"{env_values.get(x,None)}\"\n" if env_values.get(x,None) else "")
             f.write(dedent("""
                 os.environ['DATAVACUUM_FROM_JMP']='YES'
+                for k,v in os.environ.items():
+                    if 'DATAVAC' in k:
+                        print(f"{k.ljust(35)}={v}")
                 import numpy as np
                 import pandas as pd
-                from datavac.appserve.user_side import is_access_key_valid as iakv
+                from datavac.appserve.dvsecrets.user_side import is_access_key_valid as iakv
                 access_key_bad=False
                 if 'localhost' in os.environ['DATAVACUUM_DEPLOYMENT_URI']:
                     print("Local deployment so not checking for access key")
@@ -127,7 +116,8 @@ def cli_compile_jmp_addin(*args):
                     print("No valid access key")
                     access_key_bad=True
                 if not access_key_bad:
-                    from datavac.io.database import get_database; db = get_database(populate_metadata=False);
+                    from datavac.database.db_get import get_sweeps_for_jmp
+                    from datavac.database.db_cli import cli_print_database; cli_print_database();
                     print("DataVacuum Python-side DB setup")
             """))
             #f.write("print(np.r_[1,2])\n")
@@ -211,6 +201,7 @@ def cli_compile_jmp_addin(*args):
             }] if env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO")=='YES' else []),
             {'General':general_commands},*jmp_conf.get('menus',[])]
         with (open(addin_folder/"addin.jmpcust",'wb') as f):
+            import xml.etree.ElementTree as gfg
             root=gfg.Element("jm:menu_and_toolbar_customizations")
             root.set("xmlns:jm","http://www.jmp.com/ns/menu")
             root.set("version","3")
@@ -265,7 +256,7 @@ def cli_compile_jmp_addin(*args):
 
             make_db_connect(addin_folder=addin_folder,addin_id=addin_id,env_values=env_values)
 
-        shutil.make_archive(addin_folder/f"DataVac_{envname.capitalize()}",'zip', addin_folder)
+        shutil.make_archive(str(addin_folder/f"DataVac_{envname.capitalize()}"),'zip', addin_folder)
         shutil.move(addin_folder/f"DataVac_{envname.capitalize()}.zip",addin_folder/f"DataVac_{envname.capitalize()}.jmpaddin")
 
         logger.debug(f"Add-in for {envname} compiled")
