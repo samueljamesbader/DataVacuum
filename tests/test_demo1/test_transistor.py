@@ -1,6 +1,5 @@
-import numpy as np
-
 def test_IdVg():
+    import numpy as np
     from datavac.trove.trove_util import quick_read_filename
     from datavac.examples.demo1.example_data import get_transistor
 

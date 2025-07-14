@@ -27,7 +27,7 @@ from datavac.config.layout_params import LP
 #        data[f'fVDS@ID={ID}']
 
 def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np.ndarray]]):
-    from datavac.examples.demo1.dvconfig import EXAMPLE_DATA_DIR
+    from datavac.examples.demo1.demo1_dvconfig import EXAMPLE_DATA_DIR
     data=pd.concat([pd.DataFrame(subdata).assign(**{'Site':site,'MeasNo':i}) for i,(site,subdata) in enumerate(data_dicts.items())])
     (EXAMPLE_DATA_DIR/lot).mkdir(parents=True,exist_ok=True)
     data.to_csv(EXAMPLE_DATA_DIR/lot/f"{lot}_{sample}_{meas_name}.csv",index=False)
@@ -35,7 +35,7 @@ def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np
 def read_csv(file:str|Path, mg_name: str, only_sampleload_info: dict = {},
              read_info_so_far: Optional[dict] = None) -> list[pd.DataFrame]:
     assert len(only_sampleload_info) == 0, "Only sampleload_info is not supported in this example"
-    from datavac.examples.demo1.dvconfig import EXAMPLE_DATA_DIR
+    from datavac.examples.demo1.demo1_dvconfig import EXAMPLE_DATA_DIR
     rawcsv=pd.read_csv(EXAMPLE_DATA_DIR/file)
     data=[{'RawData':grp.drop(columns=['Site','MeasNo']).to_dict('list'),
            'Site':grp['Site'].iloc[0],

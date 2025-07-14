@@ -1,8 +1,8 @@
 from __future__ import annotations
 import functools
 import graphlib
-from typing import TYPE_CHECKING, Any, Optional
-from datavac.config.data_definition import HigherAnalysis
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
+from datavac.config.data_definition import DDEF, HigherAnalysis
 from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
 from datavac.util.dvlogging import time_it
 from datavac.util.util import returner_context
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
 def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:list[Table],
-                 table_depends:dict[Table,list[Table]], pre_filters:dict[str,list],
-                 join_hints:dict[Table,str]={}) -> tuple[Select, dict[str, str]]:
+                 table_depends:dict[Table,list[Table]], pre_filters:Mapping[str,Sequence],
+                 join_hints:dict[Table,str]={},order_by:Optional[list[str]]=None) -> tuple[Select, dict[str, str]]:
     """ Creates an SQL Alchemy Select joining the tables needed to get the desired factors
 
     Args:
@@ -25,6 +25,7 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
         pre_filters: filters (column name to list of allowed values) to apply to the data 
         join_hints: mapping of table to join clause to use when joining that table
             (generally not needed; if tables have foreign keys, sqlalchemy will infer)
+        order_by: list of column names to order the results by (or None for no ordering)
 
     Returns:
         An SQLAlchemy Select and a dictionary mapping column names to their intended pandas types
@@ -42,7 +43,7 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
             s=s.where(get_col(pf).in_(values))
         return s
     if columns is not None:
-        cols:list[Column]=[get_col(f) for f in columns]
+        cols:list[Column]=[get_col(f) for f in [*columns,*(order_by if order_by is not None else [])]]
     else:
         col_names = set()
         cols: list[Column] = []
@@ -59,9 +60,12 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
     all_needs = include_all_descendants(starter_needs, table_depends)
     ordered_needed_tables = [t for t in ordered_tables if t in all_needs]
     thejoin=functools.reduce((lambda x,y: x.join(y,onclause=join_hints.get(y,None))),ordered_needed_tables) # type: ignore
-    sel=apply_wheres(select(*cols).select_from(thejoin))
+    sel=apply_wheres(select(*[c for c in cols if columns is None or c.name in columns]).select_from(thejoin))
+    if order_by is not None:
+        sel=sel.order_by(*[get_col(c).asc() for c in order_by])
     dtypes={c.name:sql_to_pd_types[c.type.__class__] for c in cols
-                                             if c.type.__class__ in sql_to_pd_types}
+                                             if c.type.__class__ in sql_to_pd_types
+                                             and ((columns is None) or (c.name in columns))}
     return sel, dtypes
 
 def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, include_sweeps: bool = True)\
@@ -199,7 +203,8 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
         else:
             df=df.reset_index(drop=True)
             headers = []
-        assert np.all(df.index == df['measid'])
+        #assert np.all(df.index == df['measid']), f"Indices for {df.index} does not match measids {list(df['measid'])}"
+        df=df.drop(columns=['measid','rawgroup'], errors='ignore')
         umts.append(UniformMeasurementTable(dataframe=df, headers=headers,
                                             meas_group=meas_group, meas_length=None)) # type: ignore
     return MultiUniformMeasurementTable(umts)
@@ -207,7 +212,7 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
 
 def get_data_from_meas_group(meas_group: MeasurementGroup, scalar_columns:Optional[list[str]]=None,
                              include_sweeps:bool=False, unstack_headers:bool = False, conn:Optional[Connection]=None,
-                             fnc_tables=[],other_tables=[],**factors) -> pd.DataFrame:
+                             fnc_tables=[],other_tables=[], ensure_consistent_order:bool=False,**factors) -> pd.DataFrame:
     import pandas as pd
     from datavac.database.db_connect import get_engine_ro
 
@@ -215,12 +220,13 @@ def get_data_from_meas_group(meas_group: MeasurementGroup, scalar_columns:Option
         f"Measurement group {meas_group.name} does not involve sweeps, but they were requested."
     assert not ((not include_sweeps) and unstack_headers), \
         f"Unstacking headers only makes sense when sweeps are included in the data."
+
     td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=include_sweeps)
     sel, dtypes = joined_select_from_dependencies(columns=(scalar_columns+(['header','sweep'] if include_sweeps else [])
                                                            if scalar_columns is not None else None),
                                                   absolute_needs=list(td), table_depends=td,
                                                   pre_filters=dict(**factors,**({'header': include_sweeps} if isinstance(include_sweeps,list) else {})),
-                                                  join_hints=jh)
+                                                  join_hints=jh, order_by=['loadid','measid'] if ensure_consistent_order else None)
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
         df = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
 
@@ -293,13 +299,14 @@ def get_sweeps_for_jmp(mg_name: str, loadids: list[int], measids: list[int],
     return data
 
 def get_data_from_analysis(an: HigherAnalysis, scalar_columns:Optional[list[str]]=None,
-                           conn:Optional[Connection]=None, **factors) -> pd.DataFrame:
+                           conn:Optional[Connection]=None, ensure_consistent_order: bool=False, **factors) -> pd.DataFrame:
     import pandas as pd
     from datavac.database.db_connect import get_engine_ro
     td, jh = get_table_depends_and_hints_for_analysis(an)
     sel, dtypes = joined_select_from_dependencies(columns=scalar_columns,
                                                   absolute_needs=list(td), table_depends=td,
-                                                  pre_filters=factors, join_hints=jh)
+                                                  pre_filters=factors, join_hints=jh,
+                                                  order_by=['anlsid','anlssubid'] if ensure_consistent_order else None)
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
         df = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
     return df
@@ -307,7 +314,7 @@ def get_data_from_analysis(an: HigherAnalysis, scalar_columns:Optional[list[str]
 
 def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
              include_sweeps: bool = False, unstack_headers: bool = False,
-             conn: Optional[Connection] = None, **factors) -> pd.DataFrame:
+             conn: Optional[Connection] = None, ensure_consistent_order:bool=False, **factors) -> pd.DataFrame:
     """Retrieves data for a given measurement group or analysis name.
     
     Args:
@@ -322,12 +329,64 @@ def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
     from datavac.config.data_definition import DDEF
     if (mg:=DDEF().measurement_groups.get(mg_or_an_name)) is not None:
         return get_data_from_meas_group(mg, scalar_columns=scalar_columns, include_sweeps=include_sweeps,
-                                        unstack_headers=unstack_headers, conn=conn, **factors)
+                                        unstack_headers=unstack_headers, conn=conn,
+                                        ensure_consistent_order=ensure_consistent_order, **factors)
     elif (an:=DDEF().higher_analyses.get(mg_or_an_name)) is not None:
         assert not include_sweeps, \
             "Higher analyses do not support sweeps, please set include_sweeps=False"
         assert not unstack_headers, \
             "Higher analyses do not support unstacking headers, please set unstack_headers=False"
-        return get_data_from_analysis(an, scalar_columns=scalar_columns, conn=conn, **factors)
+        return get_data_from_analysis(an, scalar_columns=scalar_columns, conn=conn,
+                                      ensure_consistent_order=ensure_consistent_order, **factors)
     else:
         raise ValueError(f"Measurement group or analysis '{mg_or_an_name}' not found in data definition.")
+
+def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:Mapping[str,Sequence]={},
+                fnc_tables:list[str]=[],other_tables:list[str]=[]):
+    import pandas as pd
+    mgoa_name=meas_group_or_analysis; del meas_group_or_analysis
+
+    # Get the relevant table dependencies and join hints
+    if mgoa_name in DDEF().measurement_groups:
+        mg=DDEF().measurement_groups[mgoa_name]
+        coretab=mg.dbtable('meas')
+        td, jh = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False)
+    elif mgoa_name in DDEF().higher_analyses:
+        an=DDEF().higher_analyses[mgoa_name]
+        coretab=an.dbtables('aidt')
+        td, jh = get_table_depends_and_hints_for_analysis(an)
+    else:
+        raise ValueError(f"Measurement group or analysis '{mgoa_name}' not found in data definition.")
+    
+    # Define a select with the pre_filtered data and set it up as a CTE named tmp
+    sel, dtypes = joined_select_from_dependencies(columns=factor_names,
+                                                  absolute_needs=[coretab], table_depends=td,
+                                                  pre_filters=pre_filters, join_hints=jh)
+    query="WITH tmp AS (" + str(sel.compile(compile_kwargs={"literal_binds": True})) + ")\n"
+
+    # Now we're going to build a series of select statements that query the distinct values of each factor
+    # (but we use GROUP BY instead of DISTINCT ON because it's wayyy faster)
+    # and each of those selects also defines a row number within its selection (ie 0,1,2,3 for each unique value)
+    # and that row number will be called "ind___{factor_name}"
+    # Then we do a full outer join on those indices, so the resulting table will have two columns for each factor,
+    # one column that's just indices and one column that's the unique factor values.  Because it's a full outer
+    # join, it will be as long as the factor with the most unique values.  But the other factors will have NULLs,
+    # and will also have NULL indices, so in post, we can easily grab all the unique values for each factor,
+    # ignoring rows where the index for that factor is NULL
+    query+="SELECT * FROM \n"
+    for i,f in enumerate(factor_names):
+        # Note: by the time we get here, self.joined_table has already validated that f is the name
+        # of a column in the joined table, so these names are guaranteed to be valid
+        f=f.replace('%','%%') # escape % in case it's in the name
+        query+=f"""(SELECT ROW_NUMBER() over (order by null) as "ind___{f}", tmp."{f}" """\
+                                                        f""" FROM tmp GROUP BY tmp."{f}") t{i}\n"""
+        if i!=0: query+=f""" ON t0."ind___{factor_names[0]}"=t{i}."ind___{f}" """
+        if i!=len(factor_names)-1: query+=" FULL OUTER JOIN "
+
+    # Execute it
+    from datavac.database.db_connect import get_engine_ro
+    with get_engine_ro().begin() as conn:
+        with time_it("Executing SQL in get_factors",threshold_time=.01):
+            records=pd.read_sql(query,conn)
+    if not len(records): return {f:set() for f in factor_names}
+    else: return {f:set(records.loc[records[f'ind___{f}'].notna(),f]) for f in factor_names}

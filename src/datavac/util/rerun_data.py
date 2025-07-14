@@ -80,7 +80,8 @@ def rerun_data():
             read_and_enter_data(**ud)
         PCONF().RERUN_DIR.mkdir(exist_ok=True,parents=False)
         destfile=PCONF().RERUN_DIR/(datetime.datetime.now().strftime(timefmt)+".pkl")
-        dat={mgoa:get_data(mgoa) for mgoa in list(DDEF().measurement_groups)+list(DDEF().higher_analyses)}
+        dat={mgoa:get_data(mgoa,ensure_consistent_order=True)
+             for mgoa in list(DDEF().measurement_groups)+list(DDEF().higher_analyses)}
         metadat={'rerun_yaml':yaml_dict,
                  'rerun_time':datetime.datetime.now()}
         with open(destfile, 'wb') as f:
@@ -142,6 +143,11 @@ def compare_data(newer: Optional[Union[str,dict[str,pd.DataFrame]]]=None,
                 # Temporary adjustments for old name scheme
                 # TODO: remove when all data is migrated to new name scheme
                 for tab in [oldtab, newtab]:
+                    if k=='Probecheck Manipulator': 
+                        1+1
+                    if 'loadid' in tab.columns and 'measid' in tab.columns:
+                        tab.sort_values(['loadid','measid'], inplace=True)
+                        tab.reset_index(drop=True,inplace=True)
                     if 'matid' in tab.columns: tab.rename(columns={'matid':'sampleid'}, inplace=True)
                     if 'Mask' in tab.columns: tab.rename(columns={'Mask':'MaskSet'}, inplace=True)
                     tab.drop(columns=[c for c in tab.columns if (c.endswith('__1') and ('id' in c or 'Mask' in c))], inplace=True)
@@ -195,7 +201,7 @@ def cli_rerun_data(*args):
 if __name__ == '__main__':
     import sys
     #cli_rerun_data(*sys.argv[1:])
-    rerun_data()
+    #rerun_data()
     compare_data(older='Norm')
     #compare_data(older='Norm')
     #compare_data(newer='Norm',older='Golden')

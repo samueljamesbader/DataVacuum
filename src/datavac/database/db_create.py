@@ -85,7 +85,7 @@ def _setup_foundation(conn:Connection):
 
     conn.execute(text(make_schemas+set_search_path+create_blob_store))
 
-def create_meas_group_view(mg_name: str, conn: Optional[Connection], just_DDL_string: bool = False) -> str:
+def create_meas_group_view(mg_name: str, conn: Optional[Connection]=None, just_DDL_string: bool = False) -> str:
     from datavac.database.db_get import get_table_depends_and_hints_for_meas_group, joined_select_from_dependencies
     mg=DDEF().measurement_groups[mg_name]
     meas_tab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['meas']
@@ -97,10 +97,12 @@ def create_meas_group_view(mg_name: str, conn: Optional[Connection], just_DDL_st
     ddl=f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""
     if not just_DDL_string:
         assert conn is not None, "Connection must be provided if not just generating DDL string."
-        conn.execute(text(ddl))
+        # sel.compile converts % in column names to %%
+        # https://github.com/sqlalchemy/sqlalchemy/discussions/8077
+        conn.execute(text(ddl.replace("%%","%")))
     return ddl
 
-def create_analysis_view(an_name: str, conn: Connection):
+def create_analysis_view(an_name: str, conn: Optional[Connection]=None, just_DDL_string: bool = False) -> str:
     from datavac.database.db_get import get_table_depends_and_hints_for_analysis, joined_select_from_dependencies
     an=DDEF().higher_analyses[an_name]
     anls_tab=DBSTRUCT().get_higher_analysis_dbtables(an.name)['anls']
@@ -109,7 +111,13 @@ def create_analysis_view(an_name: str, conn: Connection):
                                         table_depends=td, pre_filters={},join_hints=jh)
     seltextl=sel.compile(conn, compile_kwargs={"literal_binds": True})
     view_namewsq = f'{DBSTRUCT().jmp_schema}."{an_name}"'
-    conn.execute(text(f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""))
+    ddl=f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""
+    if not just_DDL_string:
+        assert conn is not None, "Connection must be provided if not just generating DDL string."
+        # sel.compile converts % in column names to %%
+        # https://github.com/sqlalchemy/sqlalchemy/discussions/8077
+        conn.execute(text(ddl.replace("%%","%"))) 
+    return ddl
 
 
 def create_all():

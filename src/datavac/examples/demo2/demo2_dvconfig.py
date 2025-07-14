@@ -3,7 +3,7 @@ from functools import cache
 from typing import TYPE_CHECKING, Any, cast
 from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
 from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
-from datavac.config.layout_params import LayoutParameters
+from datavac.config.layout_params import LP, LayoutParameters
 from datavac.config.project_config import ProjectConfiguration
 from datavac.examples.demo2 import EXAMPLE_DATA_DIR, dbname
 from datavac.measurements.transistor import IdVg
@@ -31,10 +31,21 @@ def get_split_table():
         """),skipinitialspace=True).convert_dtypes().set_index('LotSample',verify_integrity=True)
     return split_table
 
+def completer(partial_sampleload_info: dict[str, Any]) -> dict[str, Any]:
+    partial_sampleload_info = partial_sampleload_info.copy()
+    if 'LotSample' not in partial_sampleload_info:
+        if 'Lot' in partial_sampleload_info and 'Sample' in partial_sampleload_info:
+            partial_sampleload_info['LotSample'] = f"{partial_sampleload_info['Lot']}_{partial_sampleload_info['Sample']}"
+    else:
+        if 'Lot' not in partial_sampleload_info:
+            partial_sampleload_info['Lot'] = partial_sampleload_info['LotSample'].split('_')[0]
+        if 'Sample' not in partial_sampleload_info:
+            partial_sampleload_info['Sample'] = partial_sampleload_info['LotSample'].split('_')[1]
+    return partial_sampleload_info
+
 def generate(LotSample: str, mg_name: str) -> list[pd.DataFrame]:
     import pandas as pd
     from datavac.examples.data_mock.mock_devices import Transistor4T
-    Lnom= 1e-6  # Nominal length in meters
     dbdf= get_masks()['MainMask'][0]
     split_table=get_split_table()
     
@@ -42,13 +53,17 @@ def generate(LotSample: str, mg_name: str) -> list[pd.DataFrame]:
     for _,dbdf_row in dbdf.iterrows():
         radius = dbdf_row['DieRadius [mm]']
 
-        t=Transistor4T(
-            VT0={'low':.3,'nom':.4,'high':.5}[split_table.loc[LotSample, 'VTSkew']]+.1*radius/150, # type: ignore
-            L=Lnom*split_table.loc[LotSample, 'CDSkew'], # type: ignore
-            n=1+(.2/split_table.loc[LotSample, 'CDSkew']), # type: ignore
-        )
-        data.append({'RawData': {k:v.astype('float32') for k,v in t.generate_potential_idvg(VDs=[.05,1],VGrange=[0,1]).items()},
-                     'Structure': 'nMOS1','DieXY': dbdf_row['DieXY'],})
+        for structure,layinfo in LP()._tables_by_meas['IdVg'].iterrows():
+            Lnom = layinfo['L [um]']*1e-6
+            Wnom = layinfo['W [um]']*1e-6
+            t=Transistor4T(
+                VT0={'low':.3,'nom':.4,'high':.5}[split_table.loc[LotSample, 'VTSkew']]+.1*radius/150, # type: ignore
+                L=Lnom*split_table.loc[LotSample, 'CDSkew'], # type: ignore
+                n=1+(.2/split_table.loc[LotSample, 'CDSkew']), # type: ignore
+                W=Wnom
+            )
+            data.append({'RawData': {k:v.astype('float32') for k,v in t.generate_potential_idvg(VDs=[.05,1],VGrange=[0,1]).items()},
+                         'Structure': structure,'DieXY': dbdf_row['DieXY'],})
     return [pd.DataFrame(data).convert_dtypes()]
 def sample_func() -> dict[str,dict[str,Any]]:
     from datavac.config.project_config import PCONF
@@ -65,8 +80,9 @@ class MockLayoutParams(LayoutParameters):
         import pandas as pd
         self._tables_by_meas: dict[str, pd.DataFrame] = {
             'IdVg': pd.DataFrame({
-                'Structure': ['nMOS1'],
-                'W [um]': [1],
+                'Structure': ['nMOS1','nMOS2'],
+                'W [um]': [1,2],
+                'L [um]': [1,1],
             }).set_index('Structure', verify_integrity=True),} 
 class SemiDeviceDataDefinitionFakeLayout(SemiDeviceDataDefinition):
     def get_flow_names(self) -> list[str]:
@@ -87,6 +103,9 @@ def get_project_config() -> ProjectConfiguration:
         deployment_name='datavac_demo2',
         data_definition=SemiDeviceDataDefinitionFakeLayout(
             sample_identifier_column=DVColumn('LotSample','string','Lot and Sample identifier'),
+            sample_info_columns=[
+                DVColumn('Lot', 'string', 'Lot name'),
+                DVColumn('Sample', 'string', 'Sample name'),],
             measurement_groups=asnamedict(
                 IdVg(
                     name='IdVg', norm_column='W [um]',
@@ -97,40 +116,10 @@ def get_project_config() -> ProjectConfiguration:
                     layout_param_group='IdVg'
                     )
             ),
+            sample_info_completer= completer,
             layout_params_func=MockLayoutParams,
             get_masks_func=get_masks,
             troves={'': MockTrove()},
         ),
         vault=DemoVault(dbname=dbname),
     )
-
-if __name__ == '__main__':
-
-    from datavac.config.project_config import PCONF
-    from datavac.database.db_create import ensure_clear_database, create_all
-    from datavac.database.db_semidev import upload_mask_info
-    from datavac.database.db_upload_meas import upload_measurement, upload_extraction
-    from datavac.database.db_upload_other import upload_sample_descriptor, upload_subsample_reference
-    from datavac.database.db_upload_meas import read_and_enter_data
-
-    ddef=cast(SemiDeviceDataDefinitionFakeLayout,PCONF().data_definition)
-
-    ensure_clear_database()
-    create_all()
-    #upload_mask_info(get_masks())
-
-    upload_sample_descriptor('SplitTable MainFlow', get_split_table())
-    #upload_subsample_reference('LayoutParams -- IdVg',ddef.get_layout_params_table('IdVg').reset_index(drop=False))
-    read_and_enter_data()
-        
-    from datavac.database.db_util import read_sql
-    #print(read_sql("""select * from vac."Loads_" """))
-    #print(read_sql("""select * from vac."Meas -- IdVg" """))
-    #print(read_sql("""select * from vac."ReLoad_" """))
-    #print(read_sql("""select * from vac."Extr -- IdVg" """))
-    print(read_sql("""select * from jmp."IdVg" """))
-
-
-    #for sample, data_by_mg in sample_to_mg_to_data.items():
-    #    upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg)
-    #print(read_sql("""select * from vac."ReLoad_" """))

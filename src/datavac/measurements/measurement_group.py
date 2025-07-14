@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from functools import cached_property
+from functools import cached_property, wraps
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
 from datavac.io.measurement_table import UniformMeasurementTable
@@ -165,6 +165,44 @@ class SemiDevMeasurementGroup(MeasurementGroup):
             ssrs.append(f'LayoutParams -- {self.layout_param_group}')
         return ssrs
 
-class GenericSemiDevMeasurementGroup(SemiDevMeasurementGroup):
-    def extract_by_umt(self, measurements: UniformMeasurementTable, **kwargs) -> None:
+# TODO: Remove
+class NoExtrSemiDevMeasurementGroup(SemiDevMeasurementGroup):
+    def extract_by_umt(self, measurements: UniformMeasurementTable, **kwargs) -> None: pass
+
+
+
+from typing import TypeVar
+T=TypeVar('T', bound=MeasurementGroup)
+class ExtractionAddon:
+    def additional_extract_by_umt(self, measurements:UniformMeasurementTable, **kwargs):
         pass
+    def additional_available_extr_columns(self) -> dict[str, DVColumn]:
+        return {}
+    def apply_to(self, other: T) -> T:
+        from copy import copy
+        newmg=copy(other)
+
+        @wraps(other.extract_by_umt)
+        def extract_by_umt(measurements: UniformMeasurementTable, **kwargs):
+            other.extract_by_umt(measurements, **kwargs)
+            self.additional_extract_by_umt(measurements, **kwargs)
+        @wraps(other.available_extr_columns)
+        def available_extr_columns() -> dict[str, DVColumn]:
+            return {**other.available_extr_columns(), **self.additional_available_extr_columns()}
+        newmg.extract_by_umt=extract_by_umt
+        newmg.available_extr_columns=available_extr_columns
+        return newmg
+    def compose_after(self, other: 'ExtractionAddon') -> 'ExtractionAddon':
+        """Composes this addon after another one."""
+        class ComposedAddon(ExtractionAddon):
+            def additional_extract_by_umt(self, measurements:UniformMeasurementTable, **kwargs):
+                other.additional_extract_by_umt(measurements, **kwargs)
+                self.additional_extract_by_umt(measurements, **kwargs)
+            def additional_available_extr_columns(self) -> dict[str, DVColumn]:
+                return {**other.additional_available_extr_columns(), **self.additional_available_extr_columns()}
+        return ComposedAddon()
+    def __radd__(self, other: T) -> T:
+        if isinstance(other, MeasurementGroup):
+            return self.apply_to(other)
+        elif isinstance(other, ExtractionAddon):
+            return self.compose_after(other)

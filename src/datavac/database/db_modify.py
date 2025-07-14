@@ -1,3 +1,4 @@
+from functools import reduce
 from typing import Any, Optional
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import get_engine_rw, get_engine_so
@@ -5,8 +6,8 @@ from datavac.database.db_structure import DBSTRUCT
 from datavac.config.data_definition import DDEF, HigherAnalysis
 from datavac.database.db_util import namews
 from datavac.util.dvlogging import logger
-from datavac.util.util import only
-from sqlalchemy import Connection, MetaData, delete, literal, select, Table, text
+from datavac.util.util import only, returner_context
+from sqlalchemy import INTEGER, Column, Connection, MetaData, delete, literal, select, Table, text, values
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert
 
 def _table_mismatch(described_table: Table, db_metadata: MetaData):
@@ -117,8 +118,11 @@ def update_analysis_tables(specific_analyses:Optional[list[str]]=None, force=Fal
                     delete_prior_analyses(None, only_analyses=[an_name], conn=conn)
                     need_to_create_aidt = True
                     conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{an_name}" """))
-                    db_metadata.tables[namews(desired_tabs['aidt'])].drop(conn,checkfirst=True)
-                    db_metadata.remove(db_metadata.tables[namews(desired_tabs['aidt'])])
+                    drops=[db_metadata.tables[namews(t)]
+                               for t in desired_tabs.values()
+                                    if namews(t) in db_metadata.tables]
+                    db_metadata.drop_all(conn,drops,checkfirst=True)
+                    for drop in drops: db_metadata.remove(drop)
                 else: need_to_create_aidt = False
             else: need_to_create_aidt = True
             if need_to_create_aidt: desired_tabs['aidt'].create(conn)
@@ -193,4 +197,41 @@ def heal():
                 analyses = list(grp['Analysis'].unique())
                 perform_and_enter_analysis(sample_info=sample_info, only_analyses=analyses)
             
-            
+def run_new_analysis(an_name: str):
+    """Runs a new analysis on all data in the database."""
+    import pandas as pd
+    from datavac.database.db_upload_meas import perform_and_enter_analysis
+    from datavac.database.db_create import create_analysis_view
+    from datavac.database.db_connect import get_engine_rw
+
+    an= DDEF().higher_analyses[an_name]
+    sels=[]
+    for mgoa_name in an.required_dependencies:
+        if mgoa_name in DDEF().measurement_groups:
+            trove= DDEF().measurement_groups[mgoa_name].trove()
+            loadtab=trove.dbtables('loads')
+            sels.append(select(loadtab.c.sampleid).where(loadtab.c.MeasGroup==literal(mgoa_name)))
+        elif mgoa_name in DDEF().higher_analyses:
+            an2 = DDEF().higher_analyses[mgoa_name]
+            sels.append(select(an2.dbtables('aidt').c.sampleid))
+        else:
+            raise ValueError(f"Unknown measurement group or analysis {mgoa_name} in {an_name}")
+    assert len(sels)>0, f"No required dependencies for {an_name}"
+    sampleid_subquery = reduce(lambda x,y: x.intersect(y), sels)
+    
+    sampletab=DBSTRUCT().get_sample_dbtable()
+    query=select(*sampletab.c).select_from(sampletab.join(sampleid_subquery,
+                                                         sampletab.c.sampleid==sampleid_subquery.c.sampleid))
+    with get_engine_rw().connect() as conn:
+        sample_infos = pd.read_sql(query, conn)
+
+        reantab=DBSTRUCT().get_higher_analysis_reload_table()
+        sampleid_cte=select(
+            values(Column('sampleid', INTEGER),name="needed_sampleids").data(
+                [(s,) for s in sample_infos['sampleid']])).cte()
+        conn.execute(pgsql_insert(reantab).from_select(['sampleid','Analysis'],
+                                              select(sampleid_cte.c.sampleid,literal(an_name)))\
+                             .on_conflict_do_nothing())
+    with get_engine_rw().begin() as conn:
+        for sampleinfo in sample_infos.to_dict(orient='records'):
+            perform_and_enter_analysis(sample_info=sampleinfo, only_analyses=[an_name], conn=conn) # type: ignore

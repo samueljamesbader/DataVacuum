@@ -1,5 +1,7 @@
 from typing import Optional
+from datavac.config.data_definition import HigherAnalysis
 from datavac.database.db_upload_meas import enter_sample
+from datavac.measurements.measurement_group import MeasurementGroup
 import pandas as pd
 from datavac.database.db_util import namewsq
 from datavac.util.dvlogging import logger
@@ -22,6 +24,7 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
     from datavac.config.data_definition import DDEF
     from sqlalchemy import text
     from datavac.database.db_connect import get_engine_rw
+    from datavac.database.db_create import create_meas_group_view, create_analysis_view
     ssr = PCONF().data_definition.subsample_references[ssr_name]
     ssrtab = DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
     with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
@@ -39,43 +42,42 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
         else:
             logger.debug(f"Content changed for {ssr_name}, updating")
 
-            # Remove foreign key constraints and delete old data if necessary
-            for mg in DDEF().measurement_groups.values():
-                if ssr_name in mg.subsample_reference_names:
-                    meastab=DBSTRUCT().get_measurement_group_dbtables(mg.name)['meas']
+            # Statements to temporarily remove foreign key constraints
+            removal_statements: list[str] = []
+            readdit_statements: list[str] = []
+
+            # Statements to recreate views
+            mg_views_to_recreate: list[str] = []
+            an_views_to_recreate: list[str] = []
+
+            # Populate the above statements lists
+            for mgoa in list(DDEF().measurement_groups.values())+list(DDEF().higher_analyses.values()):
+                if ssr_name in mgoa.subsample_reference_names:
+                    if isinstance(mgoa, MeasurementGroup):
+                        coretab=DBSTRUCT().get_measurement_group_dbtables(mgoa.name)['meas']
+                        mg_views_to_recreate.append(create_meas_group_view(mgoa.name, just_DDL_string=True))
+                    else:
+                        coretab=DBSTRUCT().get_higher_analysis_dbtables(mgoa.name)['anls']
+                        an_views_to_recreate.append(create_analysis_view(mgoa.name, just_DDL_string=True))
                     if dump_extractions_and_analyses:
                         raise NotImplementedError()
-                    conn.execute(text(f'ALTER TABLE {namewsq(meastab)}'\
-                                      f' DROP CONSTRAINT IF EXISTS "fk_{ssr.key_column.name} -- {mg.name}";'))
-            for an in DDEF().higher_analyses.values():
-                if ssr_name in an.subsample_reference_names:
-                    antab=DBSTRUCT().get_higher_analysis_dbtable(an.name)
-                    if dump_extractions_and_analyses:
-                        raise NotImplementedError()
-                    conn.execute(text(f'ALTER TABLE {namewsq(antab)}'\
-                                      f' DROP CONSTRAINT IF EXISTS "fk_{ssr.key_column.name} -- {an.name}";'))
+                    removal_statements.append(f'ALTER TABLE {namewsq(coretab)}'\
+                                      f' DROP CONSTRAINT IF EXISTS "fk_{ssr.key_column.name} -- {mgoa.name}";')
+                    readdit_statements.append(f'ALTER TABLE {namewsq(coretab)}' \
+                                      f' ADD CONSTRAINT "fk_{ssr.key_column.name} -- {mgoa.name}" FOREIGN KEY ("{ssr.key_column.name}")' \
+                                      f' REFERENCES {namewsq(ssrtab)} ("{ssr.key_column.name}") ON DELETE CASCADE;')
+                    
+            # Remove foreign key constraints
+            if len(removal_statements):
+                conn.execute(text(';\n'.join(removal_statements)))
 
             # Bring in the new table
             conn.execute(delete(ssrtab))
             conn.execute(text(f'INSERT INTO {namewsq(ssrtab)} SELECT * from tmplay;'))
 
             # Recreate foreign key constraints
-            for mg in DDEF().measurement_groups.values():
-                if ssr_name in mg.subsample_reference_names:
-                    meastab=DBSTRUCT().get_measurement_group_dbtables(mg.name)['meas']
-                    conn.execute(text(f'ALTER TABLE {namewsq(meastab)}' \
-                                      f' ADD CONSTRAINT "fk_{ssr.key_column.name} -- {mg.name}" FOREIGN KEY ("{ssr.key_column.name}")' \
-                                      f' REFERENCES {namewsq(ssrtab)} ("{ssr.key_column.name}") ON DELETE CASCADE;'))
-                    from datavac.database.db_create import create_meas_group_view
-                    create_meas_group_view(mg.name, conn)
-            for an in DDEF().higher_analyses.values():
-                if ssr_name in an.subsample_reference_names:
-                    antab=DBSTRUCT().get_higher_analysis_dbtable(an.name)
-                    conn.execute(text(f'ALTER TABLE {namewsq(antab)}' \
-                                      f' ADD CONSTRAINT "fk_{ssr.key_column.name} -- {an.name}" FOREIGN KEY ("{ssr.key_column.name}")' \
-                                      f' REFERENCES {namewsq(ssrtab)} ("{ssr.key_column.name}") ON DELETE CASCADE;'))
-                    from datavac.database.db_create import create_analysis_view
-                    create_analysis_view(mg.name, conn)
+            if len(removal_statements):
+                conn.execute(text(';\n'.join(readdit_statements+mg_views_to_recreate+an_views_to_recreate)))
 
         conn.execute(text(f'DROP TABLE tmplay;'))
 

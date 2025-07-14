@@ -226,7 +226,7 @@ class OscopeRingOscillator(SemiDevMeasurementGroup):
             measurements['t_stage [ps]']=measurements['t_stage [s]']*1e12
     def available_extr_columns(self) -> dict[str, DVColumn]:
         return asnamedict(
-            DVColumn('f_out_fft [Hz]', 'float', 'DUT output signal frequency computed by FFT'),
+            DVColumn('f_out_fft [Hz]', 'float', 'DUT output signal frequency computed by FFT (generally not as precise as f_out_fine)'),
             DVColumn('f_out_fine [Hz]', 'float', 'DUT output signal frequency refined by counting transitions, if clean'),
             DVColumn('f_osc [Hz]', 'float', 'Oscillator frequency (f_out_fine scaled by the divider ratio to get ring oscillator itself)'),
             DVColumn('t_stage [s]', 'float', 'Delay time per stage (in seconds), based on f_osc'),

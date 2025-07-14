@@ -47,6 +47,9 @@ class OpenIV(IV):
         I=measurements['I']
         V=measurements['V']
         measurements['Imax [A]']=np.max(np.abs(I),axis=1)
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        return {**super().available_extr_columns(),
+                **asnamedict(DVColumn('Imax [A]', 'float64', 'Maximum current in A')),}
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -54,6 +57,7 @@ class ResistorIV(IV):
     R_if_bad: Optional[float] = None
     Vmax: Optional[float] = None
     Imin: float = 1e-12
+    para_ser_column: Optional[str] = None
 
     def extract_by_umt(self, measurements:UniformMeasurementTable):
         import numpy as np
@@ -76,20 +80,23 @@ class ResistorIV(IV):
 
         measurements['R']=R
         if self.R_if_bad is not None: measurements.s['R']=measurements.s['R'].fillna(self.R_if_bad).astype('float64')
-        try:
-            if 'para_ser' in (mtab:=measurements.scalar_table_with_layout_params(['para_ser'],on_missing='ignore')):
-                measurements['Runit']=measurements['R']*mtab['para_ser']
-        except Exception as e:
-            if "No layout parameters" in str(e): pass
-            else: raise e
+        if self.para_ser_column is not None:
+            try:
+                if 'para_ser' in (mtab:=measurements.scalar_table_with_layout_params(['para_ser'],on_missing='ignore')):
+                    measurements['Runit']=measurements['R']*mtab['para_ser']
+            except Exception as e:
+                if "No layout parameters" in str(e): pass
+                else: raise e
         measurements['Imax [A]']=np.max(np.abs(I[:,ptmask]),axis=1)
 
         measurements['Vmax_analysis']=self.Vmax or np.inf
     def available_extr_columns(self) -> dict[str, DVColumn]:
         return {**super().available_extr_columns(),
-                **asnamedict(DVColumn('R', 'float64','Resistance in ohm')), # TODO: Change this to 'R [ohm]'
-                **asnamedict(DVColumn('Imax [A]', 'float64','Maximum current in A')),
-                **asnamedict(DVColumn('Vmax_analysis', 'float64','Maximum voltage used for analysis in V'))}
+                **asnamedict(
+                    DVColumn('R', 'float64','Resistance in ohm'), # TODO: Change this to 'R [ohm]'
+                    DVColumn('Imax [A]', 'float64','Maximum current in A'),
+                    DVColumn('Vmax_analysis', 'float64','Maximum voltage used for analysis in V'),
+                    *([DVColumn('Runit', 'float64','Resistance per unit in ohm')] if self.para_ser_column else []))}
 
 @dataclasses.dataclass(eq=False, repr=False)
 class TLMIV(ResistorIV):

@@ -243,8 +243,10 @@ class DBStructure():
                                f"but only the following are available: {list(avail.keys())},\nerrored on {str(e)}") from e
             anls=Table(f'Analysis -- {an_name}', self.metadata,
                 Column('anlsid', INTEGER, ForeignKey(aidt.c.anlsid, **_CASC), nullable=False),
+                Column('anlssubid', INTEGER, nullable=False),
                 *subsample_reference_columns,
                 *anls_columns,
+                PrimaryKeyConstraint('anlsid', 'anlssubid'),
                 schema=self.int_schema)
         return {'aidt': aidt, 'anls': anls}
 

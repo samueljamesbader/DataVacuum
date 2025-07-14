@@ -37,7 +37,8 @@ def load_environment_from_context():
     global CONFIG, CONTEXT_PATH
 
     if (envcont:=os.environ.get('DATAVACUUM_CONTEXT','')).startswith('builtin:'):
-        os.environ['DATAVACUUM_CONFIG_MODULE']='datavac.examples.'+envcont.split(":")[1]+'.dvconfig'
+        biname=envcont.split(":")[1]
+        os.environ['DATAVACUUM_CONFIG_MODULE']=f'datavac.examples.{biname}.{biname}_dvconfig'
         if 'DATAVACUUM_CONFIG_PATH' in os.environ: del os.environ['DATAVACUUM_CONFIG_PATH']
     else:
 
@@ -56,7 +57,8 @@ def load_environment_from_context():
             if context_name is not None:
                 os.environ['DATAVACUUM_CONTEXT']=context_name
                 if context_name.startswith('builtin:'):
-                    os.environ['DATAVACUUM_CONFIG_MODULE']='datavac.examples.'+context_name.split(":")[1]+'.dvconfig'
+                    biname=context_name.split(":")[1]
+                    os.environ['DATAVACUUM_CONFIG_MODULE']=f'datavac.examples.{biname}.{biname}_dvconfig'
                     if 'DATAVACUUM_CONFIG_PATH' in os.environ: del os.environ['DATAVACUUM_CONFIG_PATH']
                 else:
                     load_dotenv(CONTEXT_PATH/f"{context_name}.dvcontext.env",override=True)

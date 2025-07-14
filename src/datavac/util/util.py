@@ -53,8 +53,13 @@ def import_modfunc(dotpath):
 
 def get_resource_path(dotpath):
     pkg,relpath=dotpath.split("::")
-    with irsc.as_file(irsc.files(pkg)) as pkg_path:
-        return pkg_path/relpath
+    try:
+        with irsc.as_file(irsc.files(pkg)) as pkg_path:
+            if not (pkg_path/relpath).exists():
+                raise FileNotFoundError(f"Resource {pkg_path/relpath} not found while evaluating '{dotpath}'.")
+            return pkg_path/relpath
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError(f"Package {pkg} not found while evaluating '{dotpath}'.")
 
 
 @contextmanager

@@ -246,7 +246,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Igmax/W [A/m]']=measurements['Igmax [A]']/W
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(eq=False,repr=False,kw_only=True)
 class IdVd(SemiDevMeasurementGroup):
     norm_column: str
     pol: str = 'n'
@@ -285,13 +285,27 @@ class IdVd(SemiDevMeasurementGroup):
             Igmax=np.max(np.vstack([np.max(np.abs(measurements[f'fIG@VG={vgs}']),axis=1) for vgs in VGstrs]).T,axis=1)
         else: Igmax=np.nan
         measurements['Igmax [A]']=Igmax
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        return {**super().available_extr_columns(),
+                **asnamedict(
+                    *[c for VGofflabel,VGoff in self.VGoffs.items()
+                        for VDDlabel,VDD in self.VDDs.items()
+                        for c in [
+                            DVColumn(f'Ileak{VGofflabel}{VDDlabel} [A]', 'float64',
+                                     f'Leakage current at VG={VGoff} V, VDD={VDD} V'),
+                            DVColumn(f'Idmax{VGofflabel} [A]', 'float64',
+                                     f'Max drain current at VG={VGoff} V'),
+                      ]],
+                      DVColumn('Igmax [A]', 'float64',
+                               'Max gate current across all VG offsets and VDDs')
+                )}
 
     def __str__(self):
         return 'IdVd'
 
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False,repr=False,kw_only=True)
 class KelvinRon(MeasurementWithLinearNormColumn):
     # Columns should include 'VG', 'fRon@ID=...', 'fVSSense@ID=...', 'fVD2p@ID=...', 'fVDSense@ID=...'
 
@@ -366,6 +380,19 @@ class KelvinRon(MeasurementWithLinearNormColumn):
                     (measurements['fVD2p@ID='+str(main_ron_id)][:,-1]
                      -measurements['fVDSense@ID='+str(main_ron_id)][:,-1]) / float(main_ron_id)
             #measurements['RonZ [Ωμm]']=measurements['Ron [Ω]']*measurements['Znorm [nm]']/1e3
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        return {**super().available_extr_columns(),
+                **asnamedict(
+                    DVColumn('Ronstop [ohm]', 'float64', 'Ron at VGstop'),
+                    DVColumn('VGstop [V]', 'float64', 'VG at stop'),
+                    DVColumn('Rs_ext [ohm]', 'float64', 'External source resistance'),
+                    DVColumn('Rd_ext [ohm]', 'float64', 'External drain resistance'),
+                    *[c for vglabel, vgon in self.VGons.items()
+                        for c in [
+                            DVColumn(f'Ron{vglabel} [ohm]', 'float64', f'Ron at VG={vgon} V'),
+                            DVColumn(f'Ron{vglabel}W [ohm.um]', 'float64', f'Normalized Ron*W at VG={vgon} V'),
+                        ]])
+        }
 
 
     @staticmethod

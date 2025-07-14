@@ -1,6 +1,5 @@
-import numpy as np
-
 def test_logic():
+    import numpy as np
     from datavac.examples.demo1.example_data import get_ring, get_inverter
     from datavac.trove.trove_util import quick_read_filename
 

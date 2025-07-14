@@ -113,6 +113,13 @@ def cli_sql(*args):
                 print(result)
         inp=input("Query?: ").strip()
 
+def cli_run_new_analysis(*args):
+    from datavac.database.db_modify import run_new_analysis
+    parser = argparse.ArgumentParser(description="Runs a new analysis on all data in the database.")
+    parser.add_argument('analysis_name', type=str, help='Name of the analysis to run')
+    namespace = parser.parse_args(args)
+    run_new_analysis(namespace.analysis_name)
+
 DB_CLI = CLIIndex({
     'print': cli_print_database,
     #'force': cli_force_database,
@@ -122,5 +129,6 @@ DB_CLI = CLIIndex({
     'update-layout-params (ulp)': cli_update_layout_params,
     'update-measurement-groups (umg)': cli_update_measurement_groups,
     'update-analysis-tables (uat)': cli_update_analysis_tables,
+    'run-new-analysis (rna)': cli_run_new_analysis,
     'sql': cli_sql,
     })

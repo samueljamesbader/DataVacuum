@@ -5,7 +5,6 @@ from functools import cache, cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Callable, Sequence, Tuple
 
-from datavac.config.layout_params import LayoutParameters
 from datavac.util.caching import cache_but_copy
 from datavac.util.lazydict import FunctionLazyDict
 from datavac.util.util import only
@@ -20,6 +19,7 @@ if TYPE_CHECKING:
     from datavac.trove import ReaderCard, Trove
     from datavac.io.measurement_table import UniformMeasurementTable, MeasurementTable
     from datavac.measurements.measurement_group import MeasurementGroup
+    from datavac.config.layout_params import LayoutParameters
 
 
 class ModelingType(Enum):
@@ -125,8 +125,18 @@ class HigherAnalysis():
     """The function that performs the analysis (alternative to subclassing and overriding analyze())."""
 
     only_anls_columns: Optional[list[str]] = None
+    
     required_dependencies: Mapping[str,str] = field(default_factory=dict)
+    """Mapping of required dependencies by name (MeasurementGroup or HigherAnalysis).
+    
+    The keys are the names of the MeasurementGroups or HigherAnalyses,
+    and the values are the kwarg names with which each will be provided to the analysis function."""
     optional_dependencies: Mapping[str,str] = field(default_factory=dict)
+    """Mapping of optional dependencies by name (MeasurementGroup or HigherAnalysis).
+    
+    The keys are the names of the MeasurementGroups or HigherAnalyses,
+    and the values are the kwarg names with which each will be provided to the analysis function"""
+
     subsample_reference_names: list[str] = field(default_factory=list)
 
     @cached_property
@@ -287,7 +297,7 @@ class DataDefinition():
 @dataclass(kw_only=True,eq=False)
 class SemiDeviceDataDefinition(DataDefinition):
 
-    layout_params_func: Callable[[],LayoutParameters] = LayoutParameters
+    layout_params_func: Callable[[],LayoutParameters] = None # type: ignore
     get_masks_func: Optional[Callable[[],dict[str,Any]]] = None
 
     sample_references: dict[str,SampleReference]\
@@ -301,6 +311,9 @@ class SemiDeviceDataDefinition(DataDefinition):
     
     def __post_init__(self):
         super().__post_init__()
+        if self.layout_params_func is None:
+            from datavac.config.layout_params import LayoutParameters
+            self.layout_params_func=LayoutParameters
         self.sample_descriptors=FunctionLazyDict(
             getter=lambda name: SampleDescriptor(
                 name=name,
