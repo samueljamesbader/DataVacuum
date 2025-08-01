@@ -77,7 +77,7 @@ def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, inc
             include_sweeps: Whether to include the sweep table in the dependencies.
         Returns:
             A tuple containing:
-            - A dictionary mapping tables to their dependencies (ie which tables they need to be joined with).
+            - A dictionary mapping tables to their dependencies (ie which jtables they need to be joined with).
             - A dictionary mapping tables to their join hints (ie how to join them).
         """
         trove_name = meas_group.trove_name()
@@ -130,6 +130,18 @@ def get_table_depends_and_hints_for_analysis(an: HigherAnalysis)\
 
         return table_depends, {}
 
+def get_available_columns_for_mgoa(mgoa_name: str) -> list[str]:
+    """Returns a list of available columns for a given measurement group or higher analysis name."""
+    from datavac.config.data_definition import DDEF
+    mg = DDEF().measurement_groups.get(mgoa_name)
+    if mg is not None:
+        td, _ = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False)
+        return [c.name for t in td for c in t.columns]
+    an = DDEF().higher_analyses.get(mgoa_name)
+    if an is not None:
+        td, _ = get_table_depends_and_hints_for_analysis(an)
+        return [c.name for t in td for c in t.columns]
+    raise ValueError(f"Measurement group or analysis '{mgoa_name}' not found in data definition.")
 
 def _unstack_header_helper(data,unstacking_indices, drop_index=True) -> pd.DataFrame:
     """Unstacks the 'header' column in the data DataFrame, creating a wide format DataFrame with headers as columns.
@@ -194,12 +206,9 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
     for rg, df in data.groupby("rawgroup"):
         if include_sweeps and meas_group.involves_sweeps:
             _decode_sweeps(df, meas_group)
+            scalar_columns=list(df.columns)
             df=_unstack_header_helper(df, ['loadid','measid'], drop_index=False)
-            headers=[]
-            for c in df.columns:
-                if c in ['loadid','measid']: continue
-                if c=='rawgroup': break
-                headers.append(c)
+            headers=[c for c in df.columns if c not in scalar_columns]
         else:
             df=df.reset_index(drop=True)
             headers = []
@@ -210,9 +219,17 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
     return MultiUniformMeasurementTable(umts)
 
 
-def get_data_from_meas_group(meas_group: MeasurementGroup, scalar_columns:Optional[list[str]]=None,
-                             include_sweeps:bool=False, unstack_headers:bool = False, conn:Optional[Connection]=None,
-                             fnc_tables=[],other_tables=[], ensure_consistent_order:bool=False,**factors) -> pd.DataFrame:
+def get_data_from_meas_group(
+    meas_group: MeasurementGroup,
+    scalar_columns: Optional[list[str]] = None,
+    include_sweeps: bool = False,
+    unstack_headers: bool = False,
+    conn: Optional[Connection] = None,
+    fnc_tables=None,
+    other_tables=None,
+    ensure_consistent_order: bool = False,
+    **factors
+) -> 'pd.DataFrame':
     import pandas as pd
     from datavac.database.db_connect import get_engine_ro
 
@@ -342,7 +359,7 @@ def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
         raise ValueError(f"Measurement group or analysis '{mg_or_an_name}' not found in data definition.")
 
 def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:Mapping[str,Sequence]={},
-                fnc_tables:list[str]=[],other_tables:list[str]=[]):
+                fnc_tables:Sequence[str]=[],other_tables:Sequence[str]=[]):
     import pandas as pd
     mgoa_name=meas_group_or_analysis; del meas_group_or_analysis
 

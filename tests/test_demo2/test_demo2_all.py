@@ -11,17 +11,19 @@ def test_demo2():
     from datavac.database.db_get import get_data, get_factors
 
 
-    from datavac.examples.demo2.demo2_dvconfig import SemiDeviceDataDefinitionFakeLayout
     from datavac.examples.demo2.demo2_dvconfig import get_split_table
 
     #ddef=cast(SemiDeviceDataDefinitionFakeLayout,PCONF().data_definition)
 
     ensure_clear_database()
     create_all()
-    #upload_mask_info(get_masks())
 
-    upload_sample_descriptor('SplitTable MainFlow', get_split_table())
+    #upload_mask_info(get_masks())
+    #upload_sample_descriptor('SplitTable MainFlow', get_split_table())
     #upload_subsample_reference('LayoutParams -- IdVg',ddef.get_layout_params_table('IdVg').reset_index(drop=False))
+    #print("hi")
+    assert len(read_sql("SELECT * FROM vac.\"SplitTable -- MainFlow\"")) # Ensure the split table is created
+
     read_and_enter_data()
         
     #print(read_sql("""select * from vac."Loads_" """))

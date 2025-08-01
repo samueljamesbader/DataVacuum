@@ -82,7 +82,7 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
         conn.execute(text(f'DROP TABLE tmplay;'))
 
 
-def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Connection] = None):
+def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Connection] = None, clear_all_previous: bool = False):
     """ Upload a sample descriptor to the database.
 
     Args:
@@ -94,6 +94,7 @@ def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Con
     from datavac.database.db_structure import DBSTRUCT
     from datavac.database.postgresql_upload_utils import upload_csv
     from datavac.config.project_config import PCONF
+    from datavac.config.data_definition import DDEF
     from datavac.database.db_connect import get_engine_rw
     sampletab=DBSTRUCT().get_sample_dbtable()
     sdtab=DBSTRUCT().get_sample_descriptor_dbtable(sd_name)
@@ -103,6 +104,7 @@ def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Con
                             .where(sampletab.c[samplename_col].in_(list(data.index)))).all()
         for samplename, row in data.iterrows():
             if samplename not in [r[1] for r in res]:
+                # TODO: make a "bulk" enter_samples function that only requires one execution
                 enter_sample(conn, **PCONF().data_definition.sample_info_completer(
                     dict(**{samplename_col:samplename},**{k:v for k,v in row.items() if k in sampletab.c}))) # type: ignore
         res=conn.execute(select(sampletab.c.sampleid,sampletab.c[samplename_col])\
@@ -110,5 +112,7 @@ def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Con
         data=pd.merge(left=data,right=pd.DataFrame(res,columns=['sampleid',samplename_col]),
                  how='left',left_index=True,right_on=samplename_col).drop(columns=[samplename_col]).set_index('sampleid')
         #print(data)
-        conn.execute(delete(sdtab).where(sdtab.c.sampleid.in_(list(data.index))))
+        dlt_state=delete(sdtab)
+        if not clear_all_previous: dlt_state=dlt_state.where(sdtab.c.sampleid.in_(list(data.index)))
+        conn.execute(dlt_state)
         upload_csv(data.reset_index(), conn, DBSTRUCT().int_schema, sd_name,)

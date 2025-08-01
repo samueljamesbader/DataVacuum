@@ -33,7 +33,8 @@ def enter_sample(conn: Connection, **sample_info: dict[str,Any]):
     """
     samplename_col=PCONF().data_definition.sample_identifier_column.name
     sampletab=DBSTRUCT().get_sample_dbtable()
-    update_info=sample_info.copy()
+    needed_cols=[c.name for c in sampletab.c if c.name!='sampleid']
+    update_info={k:v for k,v in sample_info.items() if k in needed_cols}
     #update_info.update(date_user_changed=datetime.now())
     sampleid=conn.execute(pgsql_insert(sampletab)\
                        .values(**update_info)\

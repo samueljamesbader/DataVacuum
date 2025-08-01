@@ -1,3 +1,4 @@
+from typing import Callable
 import panel as pn
 from pathlib import Path
 from panel.theme.material import MaterialDarkTheme
@@ -16,7 +17,7 @@ class Indexer():
             def run_app():
                 try:
                     module_path, class_name = dotpath.rsplit(':',maxsplit=1)
-                    cls: PanelApp=getattr(importlib.import_module(module_path),class_name)
+                    cls: Callable[...,PanelApp]=getattr(importlib.import_module(module_path),class_name)
                 except AttributeError as e:
                     raise Exception(f"Failed to load App {appname} from module {module_path}," \
                                     f" class {class_name}. Make sure the module and class are correct in index.yaml?")
@@ -42,10 +43,10 @@ class AppIndex(PanelApp):
     def get_page(self):
         template = self.page
         if pn.state.user_info:
-            template.header.append(pn.pane.Markdown(f"## Welcome {pn.state.user_info.get('given_name','')}"))
+            template.header.append(pn.pane.Markdown(f"## Welcome {pn.state.user_info.get('given_name','')}")) # type: ignore
         main_row=pn.FlexBox()
         #main_row.append(pn.Spacer(sizing_mode='stretch_both'))
-        for cat,apps in pn.state.cache['index'].categorized_applications.items():
+        for cat,apps in pn.state.cache['index'].categorized_applications.items(): # type: ignore
             if cat=='': continue # Skip the Index itself
             c=pn.Card(title=cat)
             for appname,app in apps.items():
@@ -54,12 +55,8 @@ class AppIndex(PanelApp):
             main_row.append(c)
         main_row.append(pn.Spacer(sizing_mode='stretch_both'))
         #main_row=pn.pane.Markdown("# System down for extended maintenance ~Sam",sizing_mode='stretch_both')
-        template.main.append(main_row)
+        template.main.append(main_row) # type: ignore
         template.sidebar_width=200
-        template.sidebar.append(pn.pane.Markdown("# Status\nAll systems nominal"))
+        template.sidebar.append(pn.pane.Markdown("# Status\nAll systems nominal")) # type: ignore
         #template.servable()
         return template
-
-
-if __name__.startswith('bokeh_app'):
-    AppIndex.get_page()

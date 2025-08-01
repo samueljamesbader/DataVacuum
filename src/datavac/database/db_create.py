@@ -1,7 +1,7 @@
 from typing import Optional
 from datavac.config.data_definition import DDEF
 from datavac.config.project_config import PCONF
-from datavac.database.db_connect import DBConnectionMode, get_db_connection_info,\
+from datavac.database.db_connect import DBConnectionMode, avoid_db_if_possible, get_db_connection_info,\
       get_engine_so, raw_psycopg2_connection_do, raw_psycopg2_connection_so, have_do_creds
 from datavac.database.db_structure import DBSTRUCT
 from datavac.util.dvlogging import logger
@@ -122,34 +122,35 @@ def create_analysis_view(an_name: str, conn: Optional[Connection]=None, just_DDL
 
 def create_all():
     """Create all database tables and schemas."""
-    with get_engine_so().begin() as conn:
-        _setup_foundation(conn)
+    with avoid_db_if_possible():
+        with get_engine_so().begin() as conn:
+            _setup_foundation(conn)
 
-    for sr_name in PCONF().data_definition.sample_references:
-        DBSTRUCT().get_sample_reference_dbtable(sr_name)
-        
-    DBSTRUCT().get_sample_dbtable()
+        for sr_name in PCONF().data_definition.sample_references:
+            DBSTRUCT().get_sample_reference_dbtable(sr_name)
+            
+        DBSTRUCT().get_sample_dbtable()
 
-    for sd_name in PCONF().data_definition.sample_descriptors:
-        DBSTRUCT().get_sample_descriptor_dbtable(sd_name)
+        for sd_name in PCONF().data_definition.sample_descriptors:
+            DBSTRUCT().get_sample_descriptor_dbtable(sd_name)
 
-    for ssr_name in PCONF().data_definition.subsample_references:
-        DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
+        for ssr_name in PCONF().data_definition.subsample_references:
+            DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
 
-    for mg_name in PCONF().data_definition.measurement_groups:
-        DBSTRUCT().get_measurement_group_dbtables(mg_name)
-        
-    for an_name in PCONF().data_definition.higher_analyses:
-        DBSTRUCT().get_higher_analysis_dbtables(an_name)
-
-    DBSTRUCT().get_higher_analysis_reload_table()
-
-    DBSTRUCT().metadata.create_all(get_engine_so(), checkfirst=True)
-
-    with get_engine_so().begin() as conn:
         for mg_name in PCONF().data_definition.measurement_groups:
-             create_meas_group_view(mg_name, conn)
+            DBSTRUCT().get_measurement_group_dbtables(mg_name)
+            
         for an_name in PCONF().data_definition.higher_analyses:
-            create_analysis_view(an_name, conn)
-    
-    DDEF().populate_initial()
+            DBSTRUCT().get_higher_analysis_dbtables(an_name)
+
+        DBSTRUCT().get_higher_analysis_reload_table()
+
+        DBSTRUCT().metadata.create_all(get_engine_so(), checkfirst=True)
+
+        with get_engine_so().begin() as conn:
+            for mg_name in PCONF().data_definition.measurement_groups:
+                 create_meas_group_view(mg_name, conn)
+            for an_name in PCONF().data_definition.higher_analyses:
+                create_analysis_view(an_name, conn)
+        
+        DDEF().populate_initial()

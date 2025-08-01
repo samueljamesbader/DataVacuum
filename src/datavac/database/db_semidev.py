@@ -3,6 +3,7 @@ from __future__ import annotations
 import pickle
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+from datavac.database.db_util import namews
 from datavac.util.dvlogging import logger
 from datavac.util.util import returner_context
 
@@ -66,3 +67,72 @@ def update_layout_params(conn: Optional[Connection] = None, dump_extractions_and
             _update_layout_param_group(layout_param_group, conn,
                                        dump_extractions_and_analyses=dump_extractions_and_analyses)
 
+def upload_splits(specific_splits: Optional[list[str]]=None, conn: Optional[Connection] = None):
+    from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
+    from datavac.database.db_connect import get_engine_rw
+    from datavac.database.db_upload_other import upload_sample_descriptor
+    split_manager = cast(SemiDeviceDataDefinition, DDEF()).split_manager
+    with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
+        for flow_name in split_manager.get_flow_names(force_external=True):
+            if specific_splits is not None and flow_name not in specific_splits:
+                continue
+            split_table = split_manager.get_split_table(flow_name, force_external=True)
+            assert len(split_table)
+            logger.info(f"Uploading split table for flow {flow_name} with {len(split_table)} rows")
+            upload_sample_descriptor(f'SplitTable -- {flow_name}', split_table.set_index(DDEF().SAMPLE_COLNAME),
+                                     conn=conn, clear_all_previous=True)
+            
+def create_split_table_view(sp_name: str, conn: Optional[Connection]=None, just_DDL_string: bool = False) -> str:
+    from datavac.config.data_definition import DDEF
+    from datavac.database.db_structure import DBSTRUCT
+    from sqlalchemy import select, text
+    sp_tab=DBSTRUCT().get_sample_descriptor_dbtable(f"SplitTable -- {sp_name}")
+    sample_tab=DBSTRUCT().get_sample_dbtable()
+    sel=select(*[c for c in sample_tab.c if c.name!='sampleid'],
+               *[c for c in sp_tab.c if c.name!='sampleid']).select_from(
+        sp_tab.join(sample_tab,sp_tab.c.sampleid==sample_tab.c.sampleid)
+    ).order_by(sp_tab.c.sampleid)
+    seltextl=sel.compile(conn, compile_kwargs={"literal_binds": True})
+    view_namewsq = f'{DBSTRUCT().jmp_schema}."{sp_name}"'
+    ddl=f"""CREATE OR REPLACE VIEW {view_namewsq} AS {seltextl}"""
+    if not just_DDL_string:
+        assert conn is not None, "Connection must be provided if not just generating DDL string."
+        # sel.compile converts % in column names to %%
+        # https://github.com/sqlalchemy/sqlalchemy/discussions/8077
+        print("CREATING SPLIT TABLE VIEW",ddl)
+        conn.execute(text(ddl.replace("%%","%"))) 
+    return ddl
+
+def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, conn: Optional[Connection] = None):
+    from datavac.config.data_definition import SemiDeviceDataDefinition, DDEF
+    from datavac.database.db_structure import DBSTRUCT
+    from datavac.database.db_modify import _table_mismatch
+    from datavac.database.db_connect import get_engine_so
+    from datavac.database.db_connect import avoid_db_if_possible
+    from sqlalchemy import MetaData
+    from sqlalchemy import text
+    ddef = cast(SemiDeviceDataDefinition, DDEF())
+    split_manager= ddef.split_manager
+    with avoid_db_if_possible():
+        if specific_splits is None:
+            specific_splits = list(split_manager.get_flow_names(force_external=True))
+        all_desired_tabs = [DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp}') for sp in specific_splits]
+    with (returner_context(conn) if conn else get_engine_so().begin()) as conn:
+        db_metadata = MetaData(schema=DBSTRUCT().int_schema)
+        db_metadata.reflect(bind=conn, only=[tab.name for tab in all_desired_tabs], views=True)
+        for sp_name in specific_splits:
+            with avoid_db_if_possible():
+                desired_tab = DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp_name}')
+            if namews(desired_tab) in db_metadata.tables:
+                if force or _table_mismatch(desired_tab, db_metadata):
+                    need_to_create = True
+                    conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{sp_name}" """))
+                    drops=[desired_tab]
+                    db_metadata.drop_all(conn,drops,checkfirst=True)
+                    for drop in drops: db_metadata.remove(drop)
+                else: need_to_create = False
+            else: need_to_create = True
+            if need_to_create: desired_tab.create(conn)
+            if need_to_create:
+                upload_splits(specific_splits=[sp_name], conn=conn)
+                create_split_table_view(sp_name, conn)

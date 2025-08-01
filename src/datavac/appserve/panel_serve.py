@@ -2,26 +2,25 @@ import datetime
 import logging
 import os
 from pathlib import Path
+from typing import Optional
 from yaml import safe_load
 
 import panel as pn
-import panel.theme
+#from panel.theme import Theme
 from panel.theme.material import MaterialDefaultTheme
 
-from datavac.io.OLDdatabase import get_database
-from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes, \
-    AccessKeyDownload
+from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes, AccessKeyDownload
 from datavac.util.dvlogging import logger
 from datavac.appserve.index import Indexer
 from datavac.util.util import import_modfunc
 
 
 
-def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefaultTheme):
+def launch(index_yaml_file: Optional[Path] = None):
 
-    # TODO: Make this use CONFIG
+    from datavac.config.project_config import PCONF; PCONF() # Ensure the project configuration is loaded
     index_yaml_file=index_yaml_file or\
-                    Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"server_index.yaml"
+                    Path(os.environ['DATAVACUUM_CONFIG_PATH']).parent/"server_index.yaml"
     with open(index_yaml_file, 'r') as f:
         f=f.read()
         for k,v in os.environ.items():
@@ -29,9 +28,8 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
         theyaml=safe_load(f)
         additional_static_dirs={k:(v['path'],v['role']) for k,v in theyaml.get('additional_static_dirs',{}).items()}
         categorized_applications=theyaml['index']
-        theme_module,theme_class=theyaml['theme'].split(":")
-        theme=import_modfunc(theyaml['theme'])
-        port=theyaml['port']
+        theme=import_modfunc(theyaml['theme']) if 'theme' in theyaml else MaterialDefaultTheme
+        port=theyaml.get('port',3000)
 
 
     for sf in theyaml.get('setup_functions',[]):
@@ -48,7 +46,7 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     kwargs={}
     possible_oauth_providers=['none','azure']
     # TODO: make this use dvsecrets get_auth_info
-    auth_info=import_modfunc(theyaml['authentication']['get_auth_info'])()
+    auth_info=PCONF().vault.get_auth_info()
     try:
         oauth_provider=auth_info['oauth_provider']
         assert oauth_provider in possible_oauth_providers
@@ -68,8 +66,8 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
         else:
             logger.warning("Launching with NO user authentication protocol!")
 
-    pn.state.cache['index']=index=Indexer(categorized_applications=categorized_applications)
-    pn.state.cache['theme']=theme
+    pn.state.cache['index']=index=Indexer(categorized_applications=categorized_applications) # type: ignore
+    pn.state.cache['theme']=theme # type: ignore
     def authorize(user_info,request_path):
         if oauth_provider=='none': return True
         try:
@@ -81,7 +79,7 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
 
             if user_info:
                 logger.info(f"Login attempt to '{slug}'")
-                if (required_role:=index.slug_to_role[slug]) is None:
+                if (required_role:=index.slug_to_role[slug]) in [None,'None']:
                     logger.info(f"Role not required for '{slug}', accepting login.")
                     return True
                 elif required_role in user_info.get('roles',[]):
@@ -115,13 +113,12 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     else: extra_patterns_kwargs={'extra_patterns':[]}
 
     extra_patterns_kwargs['extra_patterns']+=\
-        [('/'+k,import_modfunc(v)) for k,v in theyaml['additional_handlers'].items()]
+        [('/'+k,import_modfunc(v)) for k,v in theyaml.get('additional_handlers',{}).items()]
     if not len(extra_patterns_kwargs['extra_patterns']): extra_patterns_kwargs={}
     print("\n\n\n\n")
     print("Extra Patterns kwargs",extra_patterns_kwargs)
     print("\n\n\n\n")
 
-    db=get_database()
 
     #def alter_logs():
     #    print("altering logs")
@@ -142,13 +139,12 @@ def launch(index_yaml_file: Path = None, theme: pn.theme.Theme = MaterialDefault
     #                       period='10m')
     # use_xheaders=True: https://docs.bokeh.org/en/2.4.2/docs/user_guide/server.html#reverse-proxying-with-nginx-and-ssl
     pn.serve(
-        index.slug_to_app,
+        index.slug_to_app, # type: ignore
         port=port,websocket_origin='*',show=False,
         static_dirs=additional_static_dirs, **extra_patterns_kwargs, use_xheaders=True,
         **kwargs)
 
 from tornado.web import RequestHandler
-from datavac.util.conf import get_current_context_name
 class ContextDownload(RequestHandler):
     def get(self):
         depname=os.environ['DATAVACUUM_DEPLOYMENT_NAME']

@@ -5,6 +5,7 @@ from functools import cache, cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Callable, Sequence, Tuple
 
+from datavac.config.sample_splits import DictSampleSplitManager, SampleSplitManager
 from datavac.util.caching import cache_but_copy
 from datavac.util.lazydict import FunctionLazyDict
 from datavac.util.util import only
@@ -298,6 +299,7 @@ class DataDefinition():
 class SemiDeviceDataDefinition(DataDefinition):
 
     layout_params_func: Callable[[],LayoutParameters] = None # type: ignore
+    split_manager: SampleSplitManager = field(default_factory=lambda: DictSampleSplitManager({}))
     get_masks_func: Optional[Callable[[],dict[str,Any]]] = None
 
     sample_references: dict[str,SampleReference]\
@@ -317,9 +319,9 @@ class SemiDeviceDataDefinition(DataDefinition):
         self.sample_descriptors=FunctionLazyDict(
             getter=lambda name: SampleDescriptor(
                 name=name,
-                description=f'Sample descriptor for flow {name.split(maxsplit=1)[1]}.',
-                info_columns=self.get_split_table_columns(name.split(maxsplit=1)[1])),
-            keylister=lambda: [f'SplitTable {f}' for f in self.get_flow_names()])
+                description=f'Sample descriptor for flow {name.split('-- ',maxsplit=1)[1]}.',
+                info_columns=self.split_manager.get_split_table_columns(name.split('-- ',maxsplit=1)[1])),
+            keylister=lambda: [f'SplitTable -- {f}' for f in self.split_manager.get_flow_names()])
         self.subsample_references = FunctionLazyDict(
             getter=lambda name: self._subsample_reference(name),
             keylister=lambda: self._subsample_reference_names())
@@ -335,13 +337,13 @@ class SemiDeviceDataDefinition(DataDefinition):
         from datavac.config.layout_params import LP
         return list(LP()._tables_by_meas.keys())
     
-    def get_split_table_columns(self, flow_name: str) -> list[DVColumn]:
-        """Returns the columns of the split table for the given flow name."""
-        raise NotImplementedError("This method should be implemented in subclasses to return the split table columns.")
-    def get_flow_names(self) -> list[str]:
-        """Returns a list of all flow names (each flow name will correspond to a split table)."""
-        #raise NotImplementedError("This method should be implemented in subclasses to return the flow names.")
-        return []
+    #def get_split_table_columns(self, flow_name: str) -> list[DVColumn]:
+    #    """Returns the columns of the split table for the given flow name."""
+    #    raise NotImplementedError("This method should be implemented in subclasses to return the split table columns.")
+    #def get_flow_names(self) -> list[str]:
+    #    """Returns a list of all flow names (each flow name will correspond to a split table)."""
+    #    #raise NotImplementedError("This method should be implemented in subclasses to return the flow names.")
+    #    return []
 
     @cache
     def _get_mask_yaml(self):
@@ -431,9 +433,13 @@ class SemiDeviceDataDefinition(DataDefinition):
     def populate_initial(self, conn: Optional[Connection] = None):
         super().populate_initial(conn=conn)
 
-        from datavac.database.db_semidev import upload_mask_info, update_layout_params
+        from datavac.database.db_semidev import upload_mask_info, update_layout_params, upload_splits, update_split_tables
         upload_mask_info(self.get_masks(),conn=conn)
-        update_layout_params(dump_extractions_and_analyses=False)
+        update_layout_params(conn=conn, dump_extractions_and_analyses=False)
+        update_split_tables(conn=conn)
+        #for sp_name in self.split_manager.get_flow_names(force_external=True):
+        #    from datavac.database.db_semidev import create_split_table_view
+        #    create_split_table_view(sp_name, conn=conn, just_DDL_string=False)
                
 def DDEF() -> DataDefinition:
     """Returns the current data definition."""

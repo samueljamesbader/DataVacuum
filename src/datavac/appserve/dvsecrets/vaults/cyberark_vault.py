@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from functools import cache
-from typing import TYPE_CHECKING, Callable, Optional
+import os
+from typing import TYPE_CHECKING, Callable, Optional, overload
 from datavac.appserve.dvsecrets.vaults.vault import Vault
 from datavac.config.project_config import PCONF
 from datavac.database.db_connect import DBConnectionMode, PostgreSQLConnectionInfo
@@ -43,6 +44,29 @@ class CyberArkVault(Vault):
                                                        DBConnectionMode.SCHEMA_OWNER:"super"}[usermode]}',
                                 ['UserName','Content','Address','Port','Database'])))) # type: ignore
     
+    def get_access_key_sign_seed(self) -> bytes:
+        return self.get_from_vault('AccessKeySignSeed','Content').encode()
+    
+    def get_auth_info(self):
+        # TODO: remove or generalize
+        deployment_uri=os.environ['DATAVACUUM_DEPLOYMENT_URI']
+        if ('localhost' in deployment_uri) and not (os.environ.get("DATAVACUUM_OAUTH_PROVIDER",None)=='azure'):
+            return {'oauth_provider':'none',}
+        else:
+            return {
+                'oauth_provider':'azure',
+                'oauth_key':self.get_from_vault('DataVacuumSSO','ApplicationID'),
+                'oauth_extra_params':{'tenant_id':self.get_from_vault('DataVacuumSSO','ActiveDirectoryID')},
+                'oauth_secret':self.get_from_vault('DataVacuumSSO','Content'),
+                'oauth_redirect_uri':deployment_uri,
+                'cookie_secret':self.get_from_vault('BokehCookieSecret','Content'),}
+        
+    @overload
+    def get_from_vault(self, account_name: str, components: None) -> dict: ...
+    @overload
+    def get_from_vault(self, account_name: str, components: str) -> str: ...
+    @overload
+    def get_from_vault(self, account_name: str, components: list[str]) -> list[str]: ...
     
     def get_from_vault(self, account_name: str, components: Optional[str | list[str]] =None ) \
             -> dict | str | list[str]:

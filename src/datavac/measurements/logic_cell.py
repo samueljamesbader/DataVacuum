@@ -65,6 +65,7 @@ class InverterDC(SemiDevMeasurementGroup):
 
 
 def get_digitized_curves(time:NDArray2DFloat, curves:dict[str,NDArray2DFloat], vmid: float,
+                         curve_names_for_flip_finding:Optional[Sequence[str]]=None,
                          tcluster_thresh: Optional[float] = None) -> dict[str,NDArray2DBool]:
 
     # Note curves should be the k.split("_")[0] of the other curves dict
@@ -76,15 +77,16 @@ def get_digitized_curves(time:NDArray2DFloat, curves:dict[str,NDArray2DFloat], v
     raw_bin_for_clusters= {k: c>vmid for k, c in curves.items()}
     arng=np.vstack([np.arange(time.shape[1]-1) for i in range(time.shape[0])])
     #import pdb; pdb.set_trace()
-    iflips=sorted([i for k in raw_bin_for_clusters for i in arng[np.diff(raw_bin_for_clusters[k])!=0]])
+    iflips=sorted([i for k in (curve_names_for_flip_finding if curve_names_for_flip_finding is not None else curves)
+                   for i in arng[np.diff(raw_bin_for_clusters[k])!=0]])
     iflips = [0,*iflips,time.shape[1]-1]
 
     # If a clustering threshold is specified in time, translate it to points
     if tcluster_thresh is not None:
         iclusterthresh = int(round(tcluster_thresh/tstep))
-    # Otherwise calculate a good threshold as a fraction of the max interval between any flips
+    # Otherwise calculate a good threshold as a fraction of the max interval between any flips (not including endpoints)
     else:
-        iclusterthresh=int(round(np.max(np.diff(iflips))/4))
+        iclusterthresh=int(round(np.max(np.diff(iflips[1:-1]))/4))
 
     # Cluster the individual transitions within the clustering threshold to find a discrete transition set
     clusters=[[iflips[0]]]
@@ -133,7 +135,10 @@ class OscopeFormulaLogic(SemiDevMeasurementGroup):
 
             digitized_curves=get_digitized_curves(measurements.h[self.time_col][list(grp.index)],
                                                   {k.split("_")[0]:c for k,c in curves.items()},
-                                                  vmid=(self.vhi+self.vlo)/2, tcluster_thresh=self.tcluster_thresh)
+                                                  vmid=(self.vhi+self.vlo)/2, tcluster_thresh=self.tcluster_thresh,
+                                                  curve_names_for_flip_finding=\
+                                                      list(set(k.rsplit('_',maxsplit=1)[0] for k in inp_names)-set(k.rsplit('_',maxsplit=1)[0] for k in out_names))
+                                                  )
 
             nd=len(list(digitized_curves.values())[0])
 
@@ -309,7 +314,7 @@ def fine_freq_of_signal(binary_signal:NDArray2DBool, dt:float, expected_interval
                 assert np.isclose(md,expected_interval[row],rtol=.2), f"Unexpectedly large interval refinement {md} vs {expected_interval[row]}"
                 fine_freq.append(1/(md*dt*2))
             else:
-                print(f"glitch at {row} with iflips={iflips}, expected_interval={expected_interval[row]}")
+                #logger.info(f"glitch at {row} with iflips={iflips}, expected_interval={expected_interval[row]}")
                 glitch_free.append(False)
                 fine_freq.append(np.nan)
         except IndexError:

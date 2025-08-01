@@ -12,7 +12,6 @@ from nacl.encoding import Base64Encoder
 from nacl.exceptions import BadSignatureError
 from panel.auth import AzureAdLoginHandler, OAuthProvider
 
-from datavac.appserve.dvsecrets.db_secrets import get_access_key_sign_seed, get_auth_info
 from datavac.util.dvlogging import logger
 
 # TODO: Check if any recent Panel updates provide a way to not require this anymore
@@ -29,37 +28,39 @@ class AzureAdLogoutHandler(AzureAdLoginHandler):
         self.write("Your cookies should be clear!")
 
 def monkeypatch_oauthprovider():
-    OAuthProvider.logout_handler = property(lambda self: AzureAdLogoutHandler)
+    OAuthProvider.logout_handler = property(lambda self: AzureAdLogoutHandler) # type: ignore
     logger.debug("Oauth provider monkey-patched to support logout")
 
 
 
-
-
-from panel.io.server import fullpath, COMPONENT_PATH, ComponentResourceHandler
+### This part should be unnecessary now that in 1.7.5, Panel supports authentication for static files
+from panel.util import fullpath
+from panel.io.resources import COMPONENT_PATH
+from panel.io.server import ComponentResourceHandler
 from tornado.web import StaticFileHandler, authenticated
-from panel.config import config
+### from panel.config import config
 class AuthedStaticFileHandler(StaticFileHandler):
 
     def initialize(self,path:str,role:str,*args,**kwargs):
-        self.require_auth=(get_auth_info()['oauth_provider']!="none")
+        from datavac.config.project_config import PCONF
+        self.require_auth=(PCONF().vault.get_auth_info()['oauth_provider']!="none")
         assert role is not None
         self.required_role:str=role
         super().initialize(path,*args,**kwargs)
 
-    def get_login_url(self) -> str:
-        return self.application.auth_provider.login_url
-
-    async def prepare(self):
-        logger.debug("Preparing AuthedStatic etc")
-        if self.require_auth:
-            # For OAuth, it's async
-            self.current_user = await self.application.auth_provider.get_user_async(self)
-        else:
-            # For BasicAuth (ie password), it's synchronous
-            if self.application.auth_provider.get_user:
-                self.current_user = self.application.auth_provider.get_user(self)
-        return super().prepare()
+###    def get_login_url(self) -> str:
+###        return self.application.auth_provider.login_url
+###
+###    async def prepare(self):
+###        logger.debug("Preparing AuthedStatic etc")
+###        if self.require_auth:
+###            # For OAuth, it's async
+###            self.current_user = await self.application.auth_provider.get_user_async(self)
+###        else:
+###            # For BasicAuth (ie password), it's synchronous
+###            if self.application.auth_provider.get_user:
+###                self.current_user = self.application.auth_provider.get_user(self)
+###        return super().prepare()
 
     @authenticated
     async def get(self,path,*args,**kwargs):
@@ -67,7 +68,7 @@ class AuthedStaticFileHandler(StaticFileHandler):
         authorized=(not self.require_auth)
 
         if self.require_auth:
-            user_info=self.user_info
+            user_info=self.get_current_user()
             if user_info:
                 logger.info(f"Login attempt to {path} under '{self.root}'")
                 if self.required_role in user_info.get('roles',[]):
@@ -88,35 +89,18 @@ class AuthedStaticFileHandler(StaticFileHandler):
             self.absolute_path = self.validate_absolute_path(self.root, absolute_path)
             self.set_status(403)
 
-    @authenticated
-    async def post(self,*args,**kwargs):
-        raise NotImplementedError("Haven't implemented POST access for AuthedStaticFileHandler")
 
-    def _decode_cookie(self, cookie_name, cookie=None):
-        """ Modified from panel.io.state in Panel 1.3.6"""
-        from tornado.web import decode_signed_value
-
-        cookie = self.cookies.get(cookie_name)
-        if cookie is None:
-            return None
-        # in the below line, the .value is different from panel
-        cookie = decode_signed_value(config.cookie_secret, cookie_name, cookie.value)
-        return self._decrypt_cookie(cookie)
-
-    @property
-    def encryption(self):
-        return _pnstate.encryption
-
-from panel.io.state import _state as _pnstate
-AuthedStaticFileHandler.user_info=_pnstate.user_info
-AuthedStaticFileHandler._decrypt_cookie=_pnstate._decrypt_cookie
-
+### from panel.io.state import _state as _pnstate
+### AuthedStaticFileHandler.user_info=_pnstate.user_info
+### AuthedStaticFileHandler._decrypt_cookie=_pnstate._decrypt_cookie
+### 
 ### Copied this from panel.io.server, but modified to use my AuthedStaticFileHandler
 def authed_get_static_routes(static_dirs):
     """
     Returns a list of tornado routes of StaticFileHandlers given a
     dictionary of slugs and file paths to serve.
     """
+    from datavac.config.project_config import PCONF
     patterns = []
     for slug, path in static_dirs.items():
         if type(path) is not str:
@@ -131,7 +115,7 @@ def authed_get_static_routes(static_dirs):
         path = fullpath(path)
         if not os.path.isdir(path):
             raise ValueError("Cannot serve non-existent path %s" % path)
-        need_auth=(get_auth_info()['oauth_provider']!='none')
+        need_auth=(PCONF().vault.get_auth_info()['oauth_provider']!='none')
         WhichStaticFileHandler=AuthedStaticFileHandler if need_auth else StaticFileHandler
         patterns.append(
             (r"%s/(.*)" % slug, WhichStaticFileHandler, {"path": path, "role": role} if need_auth else {"path": path})
@@ -215,7 +199,7 @@ import panel as pn
 from io import StringIO
 class AccessKeyDownload(PanelApp):
     def get_page(self):
-        self.page.main.append(pn.Row(
+        self.page.main.append(pn.Row( # type: ignore
             pn.layout.HSpacer(),
                 pn.Column(
                     pn.pane.Markdown(
@@ -234,11 +218,12 @@ class AccessKeyDownload(PanelApp):
 
     @staticmethod
     def generate_access_key() -> StringIO:
-        user=pn.state.user_info['unique_name']
+        from datavac.config.project_config import PCONF
+        user=pn.state.user_info['unique_name'] # type: ignore
         gentime=str(datetime.now())
         bitstoverify=(gentime+user).encode()
 
-        sign_seed=get_access_key_sign_seed()
+        sign_seed=PCONF().vault.get_access_key_sign_seed()
         signing_key=nacl.signing.SigningKey(seed=sign_seed,encoder=Base64Encoder)
 
         sig=signing_key.sign(bitstoverify).signature
@@ -257,13 +242,14 @@ class AccessKeyDownload(PanelApp):
 
     @staticmethod
     def validate_access_key(bytestring:bytes) -> dict:
+        from datavac.config.project_config import PCONF
         key=yaml.safe_load(bytestring.decode())
         user=key['User']
         gentime=key['Generated']
         sig=base64.b64decode(key['Signature'].encode())
         bitstoverify=(gentime+user).encode()
 
-        sign_seed=get_access_key_sign_seed()
+        sign_seed=PCONF().vault.get_access_key_sign_seed()
         verify_key=nacl.signing.SigningKey(seed=sign_seed,encoder=Base64Encoder).verify_key
 
         verify_key.verify(bitstoverify,sig)

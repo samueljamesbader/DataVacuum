@@ -30,7 +30,7 @@ dependencies = [
     # BSD-3-Clause license, no CVE risk as of 11/16/2023 (searched "holoviz")
     "param ~= 2.2.0",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
-    "panel == 1.7.2",
+    "panel == 1.7.5",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
     "bokeh ~= 3.6.2",
     # custom PSF-based license (https://matplotlib.org/stable/project/license.html), no CVE risk as of 11/21/2024

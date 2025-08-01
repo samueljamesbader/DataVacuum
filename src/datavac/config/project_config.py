@@ -39,8 +39,10 @@ def PCONF(inject_configuration:Optional[ProjectConfiguration]=None) -> ProjectCo
     """Returns the project configuration singleton by importing it from the configured module or path.
 
     Normal usage will check the environment variables DATAVACUUM_CONFIG_MODULE and DATAVACUUM_CONFIG_PATH.
-    (Only one of these should be set.)  The module or path should contain a function 'get_project_config'
-    that returns a ProjectConfiguration instance.
+    The module or path should contain a function 'get_project_config' that returns a ProjectConfiguration.
+
+    Except in the case of `inject_configuration`, the DATAVACUUM_CONFIG_PATH environment variable
+    will be set to the path of the configuration module, so that it can be used in other parts of the code.
 
     Args:
         inject_configuration: If provided, this configuration will be used instead of checking the

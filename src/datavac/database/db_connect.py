@@ -182,6 +182,10 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     logger.error(f"Failed to fetch database connection info for usermode '{usermode}': {last_error}")
     raise last_error
 
+def get_readonly_db_connection_string() -> str:
+    """Fetches the connection string for the database for the specified usermode."""
+    return get_specific_db_connection_info(DBConnectionMode.READ_ONLY).to_connection_string()
+
 def _get_db_connection_info_from_environment(usermode: DBConnectionMode) -> 'PostgreSQLConnectionInfo':
     """Fetches the connection information for the database from the environment.
     Args:
@@ -203,3 +207,17 @@ def have_do_creds() -> bool:
         return connection_info is not None
     except KeyError: return False
     except NotImplementedError: return False
+
+_can_try_db = True
+@contextmanager
+def avoid_db_if_possible():
+    global _can_try_db
+    can_try_db = _can_try_db
+    try:
+        _can_try_db = False
+        yield
+    finally:
+        _can_try_db = can_try_db
+
+def can_try_db() -> bool:
+    return _can_try_db

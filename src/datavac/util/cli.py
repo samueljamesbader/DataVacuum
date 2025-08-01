@@ -62,6 +62,10 @@ def util_cli_funcs():
         'rerun_data (rd)': cli_rerun_data,
     }
 
+def cli_launch_apps():
+    from datavac.appserve.panel_serve import launch
+    launch()
+
 def entrypoint_datavac_cli():
     from datavac.database.db_cli import DB_CLI
     from datavac.config.contexts import CONTEXT_CLI
@@ -74,4 +78,5 @@ def entrypoint_datavac_cli():
         'util (ut)': UTIL_CLI,
         'vault (v)': VAULT_CLI,
         'compile_jmp (cj)': cli_compile_jmp_addin,
+        'launch_apps (la)': cli_launch_apps,
     })(*sys.argv)

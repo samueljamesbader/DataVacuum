@@ -120,6 +120,22 @@ def cli_run_new_analysis(*args):
     namespace = parser.parse_args(args)
     run_new_analysis(namespace.analysis_name)
 
+def cli_heal(*args):
+    from datavac.database.db_modify import heal
+    parser = argparse.ArgumentParser(description="Heals the database by readding known-removed data")
+    namespace = parser.parse_args(args)
+    heal()
+
+def cli_update_split_tables(*args):
+    from datavac.database.db_semidev import update_split_tables
+    parser = argparse.ArgumentParser(description="Update split tables in the database.")
+    parser.add_argument('--specific-splits', '-s', type=str, nargs='*', default=None,
+                        help="Specific splits to update, if None all splits are updated")
+    parser.add_argument('--force', '-f', action='store_true',
+                        help="Force update of split tables even if they are up-to-date")
+    namespace = parser.parse_args(args)
+    update_split_tables(specific_splits=namespace.specific_splits, force=namespace.force)
+
 DB_CLI = CLIIndex({
     'print': cli_print_database,
     #'force': cli_force_database,
@@ -129,6 +145,8 @@ DB_CLI = CLIIndex({
     'update-layout-params (ulp)': cli_update_layout_params,
     'update-measurement-groups (umg)': cli_update_measurement_groups,
     'update-analysis-tables (uat)': cli_update_analysis_tables,
+    'update-split-tables (ust)': cli_update_split_tables,
+    'heal (h)': cli_heal,
     'run-new-analysis (rna)': cli_run_new_analysis,
     'sql': cli_sql,
     })

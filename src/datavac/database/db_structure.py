@@ -125,7 +125,7 @@ class DBStructure():
         return t if (t is not None) else \
             Table(sd.name, self.metadata,
                   Column('sampleid', INTEGER, ForeignKey(self.get_sample_dbtable().c.sampleid, **_CASC), nullable=False),
-                    *[Column(c.name, c.sql_dtype, nullable=False) for c in sd.info_columns],
+                    *[Column(c.name, c.sql_dtype, nullable=True) for c in sd.info_columns],
                     schema=self.int_schema)
     
     def get_measurement_group_dbtables(self, mg_name: str) -> dict[str,Table]:

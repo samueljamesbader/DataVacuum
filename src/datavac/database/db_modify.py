@@ -63,9 +63,10 @@ def update_measurement_group_tables(specific_groups:Optional[list[str]]=None, # 
         specific_groups:list[str] = list(PCONF().data_definition.measurement_groups)
 
     all_desired_tabs = [tab for mg in specific_groups for tab in DBSTRUCT().get_measurement_group_dbtables(mg).values()]
+    all_desired_tab_names = set(tab.name for tab in all_desired_tabs)
     with get_engine_so().begin() as conn:
         db_metadata = MetaData(schema=DBSTRUCT().int_schema)
-        db_metadata.reflect(bind=conn, only=[tab.name for tab in all_desired_tabs], views=True)
+        db_metadata.reflect(bind=conn, only=(lambda tn,md:(tn in all_desired_tab_names)), views=True)
 
         for mg_name in specific_groups:
             desired_tabs= DBSTRUCT().get_measurement_group_dbtables(mg_name)

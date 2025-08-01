@@ -16,6 +16,14 @@ class Vault():
         """Fetches the connection information for the database from the vault."""
         raise NotImplementedError("Subclass should implement")
     
+    def get_access_key_sign_seed(self) -> bytes:
+        """Fetches the seed for signing access keys from the vault."""
+        raise NotImplementedError("Subclass should implement")
+    
+    def get_auth_info(self) -> dict[str,str]: 
+        """Fetches the website authentication information from the vault."""
+        raise NotImplementedError("Subclass should implement")
+    
     def get_llm_connection_factory(self) -> Callable[...,BaseChatModel]:
         """Fetches the connection secrets for an LLM from the vault, returning an LLM factory function."""
         #raise NotImplementedError("Subclass should implement")

@@ -1,12 +1,11 @@
 from enum import Enum
 from io import StringIO
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 import bokeh
 from bokeh.models import ColumnDataSource, LinearColorMapper, LogColorMapper, FactorRange
 from bokeh.plotting import figure
 from bokeh.transform import jitter
-from datavac.util.conf import CONFIG
 from pandas import DataFrame
 from panel import GridBox
 from panel.io import hold
@@ -22,9 +21,9 @@ from datavac.gui.bokeh_util import palettes
 from datavac.gui.bokeh_util.util import make_serializable, make_color_col, smaller_legend
 from datavac.gui.bokeh_util.wafer import waferplot, Waferplot
 from datavac.gui.panel_util.inst_params import CompositeWidgetWithInstanceParameters
-from datavac.io.OLDdatabase import get_database, Database
 from datavac.util.dvlogging import logger, time_it
 from datavac.util.units import Normalizer
+from datavac.database.db_get import get_data, get_factors
 
 
 class SelectionHint(Enum):
@@ -70,12 +69,12 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
     _need_to_update_saf: bool = hvparam.Boolean(True) # type: ignore
     _need_to_recreate_figure: bool = hvparam.Event() # type: ignore
     _is_visible: bool = hvparam.Boolean(False) # type: ignore
-    only_update_when_visible=hvparam.Boolean(False)
+    only_update_when_visible: bool =hvparam.Boolean(False) # type: ignore
 
     filter_settings:dict[str,list[str]]=hvparam.Parameter() # type: ignore
     _widget_hints: dict = {}
-    meas_groups=hvparam.Parameter()
-    color_by=hvparam.Selector()
+    meas_groups:list[str]=hvparam.Parameter() # type: ignore
+    color_by:Optional[str]=hvparam.Selector() # type: ignore
     norm_by=hvparam.Selector()
 
     # Subclasses may decide how to use...
@@ -85,10 +84,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
 
     layout_function: Callable = hvparam.Callable(default=make_default_layout) # type: ignore
 
-    def __init__(self, *args, database: Optional[Database]=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args,**kwargs)
         self._pre_filters:dict[str,Any]={}
-        self.database=database if database is not None else get_database()
 
         self._filter_param_widgets = self._make_filter_params(self.filter_settings)
         self._view_param_widgets = self._make_view_params({k:None for k in self._built_in_view_settings})
@@ -195,7 +193,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
 
         logger.debug(f"Pre-filter params: {pre_filter_params} for {(self._prefilter_measgroup or self.meas_groups[0])}, in {self.__class__.name}")
         with time_it("Getting factors"):
-            all_factors=self.database.get_factors((self._prefilter_measgroup or self.meas_groups[0]),
+            all_factors=get_factors((self._prefilter_measgroup or self.meas_groups[0]),
                   list(self.filter_settings),pre_filters=pre_filter_params,fnc_tables=self.get_fnc_tables()[0],other_tables= self.get_other_tables()[0])
         # Get the factors of pre_filtered data
         from panel.io import hold
@@ -290,13 +288,15 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         data: list[DataFrame] = []
         for sc, rc, meas_group, fncts, ots\
                  in zip(scalar_columns, raw_columns, self.get_meas_groups(), self.get_fnc_tables(), self.get_other_tables()):
-            allowed_factors_for_this=CONFIG.get_full_columnset(meas_group)\
-                                        +sum([CONFIG.get_full_columnset(fnct) for fnct in fncts],[])\
-                                        +sum([CONFIG.get_full_columnset(ot) for ot in ots],[])
-            data.append(self.database.get_data(meas_group,
-                                                     scalar_columns=sc, include_sweeps=rc,
-                                                     unstack_headers=(rc != False), fnc_tables=fncts, other_tables=ots,
-                                                     **{k:v for k,v in factors.items() if k in allowed_factors_for_this}))
+            from datavac.config.data_definition import DDEF
+            from datavac.database.db_get import get_available_columns_for_mgoa
+            assert len(ots)==0, "Other tables not implemented yet"
+            allowed_factors_for_this = get_available_columns_for_mgoa(meas_group)+\
+                                        [c.name for fnct in fncts for c in DDEF().sample_descriptors[fnct].info_columns]
+            data.append(get_data(meas_group,
+                                 scalar_columns=sc, include_sweeps=rc,
+                                 unstack_headers=(rc != False), fnc_tables=fncts, other_tables=ots,
+                                 **{k:v for k,v in factors.items() if k in allowed_factors_for_this}))
         logger.info(f"Got data from hose, lengths {[len(d) for d in data]}")
 
         for d in data:
@@ -357,6 +357,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         logger.debug(f"Downloading for {self.__class__.name}")
         # TODO: assumes data is in _pre_sources['curves'] which is correct for the example curve plotters but not
         # TODO: eg for the scalar plotters. Should probably have a curve plotter subclass to catch this.
+        assert self._pre_sources is not None and len(self._pre_sources)==1
         data=self._pre_sources[0]
         rcs=self.get_raw_column_names()[0]
         scs=self.get_scalar_column_names()[0]
@@ -387,13 +388,13 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
 
 class ScalarFilterPlotter(FilterPlotter):
 
-    plot_pairs=hvparam.Parameter()
+    plot_pairs:Sequence[tuple[str,str]]=hvparam.Parameter() # type: ignore
     fig_kwargs=hvparam.Parameter()
-    plot_var_to_meas_group=hvparam.Parameter()
-    merge_on_columns=hvparam.List()
+    plot_var_to_meas_group:Mapping[str,str]=hvparam.Parameter() # type: ignore
+    merge_on_columns: Sequence[str]=hvparam.List() # type: ignore
     shownames=hvparam.Parameter()
     stars=hvparam.Parameter({})
-    categoricals=hvparam.Parameter({})
+    categoricals:list[str]=hvparam.Parameter({}) # type: ignore
     fig_arrangement=hvparam.Parameter('row')
 
 
@@ -458,6 +459,7 @@ class ScalarFilterPlotter(FilterPlotter):
         # Otherwise, analyze the real data
         else:
             assert len(pre_sources)==1
+            assert self._sources is not None
 
             # Compile it all to right columns
             try:
@@ -748,11 +750,11 @@ class ImageFilterPlotter(FilterPlotter):
     colvar=hvparam.Selector()
     default_rowvar=hvparam.String()
     default_colvar=hvparam.String()
-    additional_rcopts=hvparam.List(default=[])
+    additional_rcopts:Sequence[str]=hvparam.List(default=[]) # type: ignore
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args,**kwargs)
-        rcopts=list(self.filter_settings.keys())+self.additional_rcopts
+        rcopts=list(self.filter_settings.keys())+list(self.additional_rcopts)
         if self.param.rowvar.objects==[]:
             self.param.rowvar.objects=rcopts
         if self.rowvar is None:
@@ -763,7 +765,7 @@ class ImageFilterPlotter(FilterPlotter):
             self.colvar=self.default_colvar or rcopts[1]
 
     def get_scalar_column_names(self):
-        return [super().get_scalar_column_names()[0]+['image_filename']+self.additional_rcopts]
+        return [super().get_scalar_column_names()[0]+['image_filename']+list(self.additional_rcopts)]
     def get_raw_column_names(self):
         return [[]]
 

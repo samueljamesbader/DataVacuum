@@ -5,6 +5,7 @@ from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
 from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
 from datavac.config.layout_params import LP, LayoutParameters
 from datavac.config.project_config import ProjectConfiguration
+from datavac.config.sample_splits import DictSampleSplitManager
 from datavac.examples.demo2 import EXAMPLE_DATA_DIR, dbname
 from datavac.measurements.transistor import IdVg
 from datavac.trove.mock_trove import MockReaderCard, MockTrove
@@ -84,12 +85,6 @@ class MockLayoutParams(LayoutParameters):
                 'W [um]': [1,2],
                 'L [um]': [1,1],
             }).set_index('Structure', verify_integrity=True),} 
-class SemiDeviceDataDefinitionFakeLayout(SemiDeviceDataDefinition):
-    def get_flow_names(self) -> list[str]:
-        return ['MainFlow']
-    def get_split_table_columns(self, flow_name: str) -> list[DVColumn]:
-        #from datavac.database.db_structure import pd_to_sql_types
-        return [DVColumn(c,dtype.name,c) for c,dtype in get_split_table().dtypes.items()] # type: ignore
 
 def get_masks():
     from datavac.io.make_diemap import make_fullwafer_diemap
@@ -101,11 +96,12 @@ def get_project_config() -> ProjectConfiguration:
     from datavac.measurements.measurement_group import SemiDevMeasurementGroup
     return ProjectConfiguration(
         deployment_name='datavac_demo2',
-        data_definition=SemiDeviceDataDefinitionFakeLayout(
+        data_definition=SemiDeviceDataDefinition(
             sample_identifier_column=DVColumn('LotSample','string','Lot and Sample identifier'),
             sample_info_columns=[
                 DVColumn('Lot', 'string', 'Lot name'),
                 DVColumn('Sample', 'string', 'Sample name'),],
+            split_manager=DictSampleSplitManager(split_tables={'MainFlow': get_split_table()}),
             measurement_groups=asnamedict(
                 IdVg(
                     name='IdVg', norm_column='W [um]',
