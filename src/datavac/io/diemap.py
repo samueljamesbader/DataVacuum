@@ -21,10 +21,10 @@ def get_die_geometry(mask, conn=None):
     from datavac.database.db_connect import get_engine_ro
     from datavac.config.data_definition import DDEF
     from datavac.config.data_definition import SemiDeviceDataDefinition
-    masktab=cast(SemiDeviceDataDefinition,DDEF()).subsample_references['MaskSet'].dbtable()
+    masktab=cast(SemiDeviceDataDefinition,DDEF()).sample_references['MaskSet'].dbtable()
     if mask not in _diegeoms:
         with (returner_context(conn) if conn else get_engine_ro().begin()) as conn:
-            res=conn.execute(select(masktab.c.info_pickle).where(masktab.c.Mask==mask)).all()
+            res=conn.execute(select(masktab.c.info_pickle).where(masktab.c.MaskSet==mask)).all()
         assert len(res)==1, f"Couldn't get info from database about mask {mask}"
         # Must ensure restricted write access to DB since this allows arbitrary code execution
         _diegeoms[mask]=pickle.loads(res[0][0])

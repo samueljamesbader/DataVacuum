@@ -31,6 +31,8 @@ dependencies = [
     "param ~= 2.2.0",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
     "panel == 1.7.5",
+    # MIT license, no CVE risk as of 8/03/2025
+    "watchfiles ~= 1.1.0",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
     "bokeh ~= 3.6.2",
     # custom PSF-based license (https://matplotlib.org/stable/project/license.html), no CVE risk as of 11/21/2024

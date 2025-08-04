@@ -6,11 +6,13 @@ def cli_print_database(*args):
     parser= argparse.ArgumentParser(description="Print the current database connection information.")
     parser.add_argument('--disallow-escalation','-da', action='store_true',
                         help="Disallow escalation of the database connection mode.")
+    parser.add_argument('--only-modes','-o',nargs='+',default=None)
     namespace = parser.parse_args(args)
 
     from datavac.database.db_connect import DBConnectionMode
     from datavac.config.project_config import PCONF
     for mode in DBConnectionMode:
+        if namespace.only_modes is not None and mode.name not in namespace.only_modes: continue
         from datavac.database.db_connect import get_db_connection_info, get_specific_db_connection_info
         try:
             if namespace.disallow_escalation:
@@ -33,7 +35,7 @@ def cli_create_all(*args):
     create_all()
 
 def cli_ensure_clear_database(*args):
-    parser = argparse.ArgumentParser(description="Forces the database to adhere to the current data definition.")
+    parser = argparse.ArgumentParser(description="Clears out the database, removing all data and objects.")
     namespace = parser.parse_args(args)
     from datavac.database.db_create import ensure_clear_database
     ensure_clear_database()
@@ -41,7 +43,7 @@ def cli_ensure_clear_database(*args):
 
 def cli_read_and_enter_data(*args): 
     parser = argparse.ArgumentParser(description="Read and enter data.")
-    parser.add_argument('--trove', '-t', type=str, nargs='+', default=None,
+    parser.add_argument('--trove', '-t', type=str, nargs='+', default=[''],
                         help="Restrict to specified trove(s)")
     parser.add_argument('--meas-group', '-g', type=str, nargs='+', default=None,
                         help="Restrict to specified measurement group(s)")
@@ -123,8 +125,9 @@ def cli_run_new_analysis(*args):
 def cli_heal(*args):
     from datavac.database.db_modify import heal
     parser = argparse.ArgumentParser(description="Heals the database by readding known-removed data")
+    parser.add_argument('--trove-names', '-t', type=str, nargs='+', default=None)
     namespace = parser.parse_args(args)
-    heal()
+    heal(trove_names=namespace.trove_names)
 
 def cli_update_split_tables(*args):
     from datavac.database.db_semidev import update_split_tables

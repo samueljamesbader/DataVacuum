@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Generator, Union, cast
 from datavac.config.data_definition import DVColumn
 from datavac.trove import ReaderCard, Trove
 if TYPE_CHECKING:
@@ -11,11 +11,11 @@ if TYPE_CHECKING:
 class MockTrove(Trove):
     load_info_columns:list[DVColumn] = []
 
-    def read(self,
+    def iter_read(self,
              only_meas_groups: list[str] = None,
              only_sampleload_info: dict[str, list[str]] = {},
              info_already_known: dict = {}, **kwargs)\
-            -> tuple[dict[str, dict[str, MultiUniformMeasurementTable]], dict[str, dict[str, str]]]:
+            -> Generator[tuple[str,dict[str, dict[str, MultiUniformMeasurementTable]], dict[str, dict[str, str]]]]:
         from datavac.config.project_config import PCONF
         from datavac.io.measurement_table import MultiUniformMeasurementTable
         completer=PCONF().data_definition.sample_info_completer
@@ -40,7 +40,7 @@ class MockTrove(Trove):
                         MultiUniformMeasurementTable.from_read_data(rc.read(
                             mg_name=mg_name,only_sampleload_info={k:[v] for k,v in sample_info.items()}),mg)
                     sample_to_sampleload_info[sample] = sample_info
-        return sample_to_mg_to_data, sample_to_sampleload_info           
+        yield '', sample_to_mg_to_data, sample_to_sampleload_info           
 
 
 @dataclass

@@ -86,7 +86,9 @@ def get_digitized_curves(time:NDArray2DFloat, curves:dict[str,NDArray2DFloat], v
         iclusterthresh = int(round(tcluster_thresh/tstep))
     # Otherwise calculate a good threshold as a fraction of the max interval between any flips (not including endpoints)
     else:
-        iclusterthresh=int(round(np.max(np.diff(iflips[1:-1]))/4))
+        if len(iflips)>3:
+            iclusterthresh=int(round(np.max(np.diff(iflips[1:-1]))/4))
+        else: iclusterthresh=0
 
     # Cluster the individual transitions within the clustering threshold to find a discrete transition set
     clusters=[[iflips[0]]]

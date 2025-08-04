@@ -143,12 +143,13 @@ def update_analysis_tables(specific_analyses:Optional[list[str]]=None, force=Fal
                 create_analysis_view(an_name, conn)
 
 
-def heal():
+def heal(trove_names:Optional[list[str]]=None):
     import pandas as pd
     from datavac.database.db_upload_meas import read_and_enter_data
     from datavac.database.db_upload_meas import perform_and_enter_extraction, perform_and_enter_analysis
     sampletab=DBSTRUCT().get_sample_dbtable()
-    for trove in PCONF().data_definition.troves.values():
+    trove_names= trove_names if trove_names is not None else list(PCONF().data_definition.troves.keys())
+    for trove in (v for k,v in PCONF().data_definition.troves.items() if k in trove_names):
         load_grouping = trove.natural_grouping or DDEF().SAMPLE_COLNAME
 
         if len(PCONF().data_definition.troves)>1:
@@ -165,7 +166,7 @@ def heal():
                     sampleload_info: dict[str,Any] = {load_grouping: [lgval]}
                 else:
                     sampleload_info: dict[str,Any] = {load_grouping: [lgval], DDEF().SAMPLE_COLNAME: list(grp['sampleid'].unique())}
-                read_and_enter_data(only_meas_groups=meas_groups,only_sampleload_info=sampleload_info)
+                read_and_enter_data(trove_names=[trove.name],only_meas_groups=meas_groups,only_sampleload_info=sampleload_info)
         logger.debug(f"Done with reloads")
 
 
@@ -194,6 +195,7 @@ def heal():
         if not len(pd_rean): logger.debug(f"No re-analyses required")
         else:
             for samplename, grp in pd_rean.groupby(DDEF().SAMPLE_COLNAME):
+                logger.debug(f"Re-analyzing {samplename} for {grp['Analysis'].unique()}")
                 sample_info = {c.name: only(grp[c.name].unique()) for c in sampletab.c if c.name!='sampleid'}
                 analyses = list(grp['Analysis'].unique())
                 perform_and_enter_analysis(sample_info=sample_info, only_analyses=analyses)

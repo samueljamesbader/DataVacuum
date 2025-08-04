@@ -115,9 +115,9 @@ def launch(index_yaml_file: Optional[Path] = None):
     extra_patterns_kwargs['extra_patterns']+=\
         [('/'+k,import_modfunc(v)) for k,v in theyaml.get('additional_handlers',{}).items()]
     if not len(extra_patterns_kwargs['extra_patterns']): extra_patterns_kwargs={}
-    print("\n\n\n\n")
-    print("Extra Patterns kwargs",extra_patterns_kwargs)
-    print("\n\n\n\n")
+    #print("\n\n\n\n")
+    #print("Extra Patterns kwargs",extra_patterns_kwargs)
+    #print("\n\n\n\n")
 
 
     #def alter_logs():

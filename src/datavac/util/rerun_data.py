@@ -75,7 +75,7 @@ def rerun_data():
 
         ensure_clear_database()
         create_all()
-        assert only(DDEF().troves.keys()) =='', "Multi-trove not implemented yet for rerun_data"
+        #assert only(DDEF().troves.keys()) =='', "Multi-trove not implemented yet for rerun_data"
         for ud in yaml_dict['regression_data']['uploads']:
             read_and_enter_data(**ud)
         PCONF().RERUN_DIR.mkdir(exist_ok=True,parents=False)
@@ -134,7 +134,7 @@ def compare_data(newer: Optional[Union[str,dict[str,pd.DataFrame]]]=None,
                 found_problem=True; found_problem_in_this_tab=True
                 logger.critical(f"MISMATCH ERROR (Tab): Samples in key {k} do not match, "
                                f"old: {old_samples} vs new: {new_samples}")
-            newtab=newtab[newtab[DDEF().sample_identifier_column.name].isin(old_samples)]
+            newtab=newtab[newtab[DDEF().sample_identifier_column.name].isin(old_samples)].copy()
             if len(oldtab) and (len(oldtab) != len(newtab)):
                 found_problem=True; found_problem_in_this_tab=True
                 logger.critical(f"MISMATCH ERROR (Tab): Length of data for key {k} does not match: "

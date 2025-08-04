@@ -55,7 +55,7 @@ def ensure_clear_database():
             with con.cursor() as cur:
                 logger.debug("Database exists, clearing it.")
 
-                # Drop all schemas except 'pg_catalog' and 'information_schema'
+                # Drop all user-defined schemas 
                 cur.execute("""
                 DO $$
                 DECLARE
@@ -63,7 +63,7 @@ def ensure_clear_database():
                 BEGIN
                     FOR schema_name_var IN
                         SELECT schema_name FROM information_schema.schemata
-                        WHERE schema_name NOT IN ('pg_catalog', 'information_schema','pg_toast')
+                        WHERE schema_name NOT IN ('public', 'pg_catalog', 'information_schema','pg_toast')
                     LOOP
                         EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_name_var);
                     END LOOP;
@@ -73,10 +73,18 @@ def ensure_clear_database():
 
 def _setup_foundation(conn:Connection):
     """Set up the foundation of the database, including schemas and the blob store table."""
+    ro_user=get_db_connection_info(DBConnectionMode.READ_ONLY).username
+    rw_user=get_db_connection_info(DBConnectionMode.READ_WRITE).username
+    so_user=get_db_connection_info(DBConnectionMode.SCHEMA_OWNER).username
     make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema}; " \
                            f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO PUBLIC; " \
                            f"GRANT USAGE ON SCHEMA {schema} TO PUBLIC; " \
-                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO PUBLIC; "
+                           f"GRANT TEMP ON DATABASE {get_db_connection_info(DBConnectionMode.READ_WRITE).database} TO {rw_user}; " \
+                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {rw_user}; "\
+                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {rw_user}; "\
+                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT ALL PRIVILEGES ON TABLES TO {so_user}; "\
+                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT ALL PRIVILEGES ON SEQUENCES TO {so_user}; "\
+                           f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO {ro_user}; "
                            for schema in [DBSTRUCT().int_schema,DBSTRUCT().jmp_schema]])
     set_search_path = f"SET SEARCH_PATH={DBSTRUCT().int_schema};"
     from sqlalchemy.schema import CreateTable

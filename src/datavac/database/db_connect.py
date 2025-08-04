@@ -150,7 +150,7 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     1. Environment variable `DATAVACUUM_DB_{usermode}_CONNECTION_STRING` if set
     2. Environment variable `DATAVACUUM_DB_CONNECTION_STRING` if set
     3. Project configuration vault if configured
-    (If the context name contains 'local', the search stops here, otherwise...)
+    (If the context name is 'local', the search stops here, otherwise...)
     4. Asking the deployment server (if this code is not already in server mode)
 
     Args:
@@ -168,7 +168,7 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     except NotImplementedError as e: pass
     except Exception as e: last_error = e
     
-    if ('local' in (get_current_context_name() or '')): raise last_error
+    if ('local' == (get_current_context_name() or '')): raise last_error
     if ('builtin:' in (get_current_context_name() or '')): raise last_error
     if not is_server():
         from datavac.appserve.dvsecrets.user_side import get_secret_from_deployment
@@ -206,6 +206,7 @@ def have_do_creds() -> bool:
         connection_info=get_db_connection_info(DBConnectionMode.DATABASE_OWNER)
         return connection_info is not None
     except KeyError: return False
+    except PermissionError: return False
     except NotImplementedError: return False
 
 _can_try_db = True

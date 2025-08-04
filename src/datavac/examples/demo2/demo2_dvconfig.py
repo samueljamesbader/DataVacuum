@@ -101,7 +101,7 @@ def get_project_config() -> ProjectConfiguration:
             sample_info_columns=[
                 DVColumn('Lot', 'string', 'Lot name'),
                 DVColumn('Sample', 'string', 'Sample name'),],
-            split_manager=DictSampleSplitManager(split_tables={'MainFlow': get_split_table()}),
+            split_manager=DictSampleSplitManager(split_tables={'MainFlow': get_split_table().reset_index()}),
             measurement_groups=asnamedict(
                 IdVg(
                     name='IdVg', norm_column='W [um]',

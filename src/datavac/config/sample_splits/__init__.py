@@ -97,5 +97,7 @@ class DictSampleSplitManager(SampleSplitManager):
     
     def get_split_table_columns_from_external(self, flow_name: str) -> list[DVColumn]:
         split_table = self.get_split_table_from_external(flow_name)
+        from datavac.config.data_definition import DVColumn, DDEF
         return [DVColumn(name=col, pd_dtype=str(split_table[col].dtype),
-                         description=col) for col in split_table.columns]
+                         description=col) for col in split_table.columns
+                     if col!=DDEF().SAMPLE_COLNAME]

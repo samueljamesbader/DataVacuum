@@ -60,9 +60,9 @@ def _update_layout_param_group(layout_param_group: str, conn: Optional[Connectio
     
 def update_layout_params(conn: Optional[Connection] = None, dump_extractions_and_analyses: bool = True):
     from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
-    from datavac.database.db_connect import get_engine_rw
+    from datavac.database.db_connect import get_engine_so
     lpnames=cast(SemiDeviceDataDefinition,DDEF()).get_layout_params_table_names()
-    with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
+    with (returner_context(conn) if conn else get_engine_so().begin()) as conn:
         for layout_param_group in lpnames:
             _update_layout_param_group(layout_param_group, conn,
                                        dump_extractions_and_analyses=dump_extractions_and_analyses)
@@ -79,6 +79,7 @@ def upload_splits(specific_splits: Optional[list[str]]=None, conn: Optional[Conn
             split_table = split_manager.get_split_table(flow_name, force_external=True)
             assert len(split_table)
             logger.info(f"Uploading split table for flow {flow_name} with {len(split_table)} rows")
+            print(split_table)
             upload_sample_descriptor(f'SplitTable -- {flow_name}', split_table.set_index(DDEF().SAMPLE_COLNAME),
                                      conn=conn, clear_all_previous=True)
             
@@ -134,5 +135,5 @@ def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, c
             else: need_to_create = True
             if need_to_create: desired_tab.create(conn)
             if need_to_create:
-                upload_splits(specific_splits=[sp_name], conn=conn)
                 create_split_table_view(sp_name, conn)
+            upload_splits(specific_splits=[sp_name], conn=conn)

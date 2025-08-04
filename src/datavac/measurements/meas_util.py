@@ -15,8 +15,8 @@ def perform_extraction(matname_to_mg_to_data: dict[str,dict[str,MultiUniformMeas
             mg=PCONF().data_definition.measurement_groups[mg_name]
             deps=dict(**mg.required_dependencies,**mg.optional_dependencies)
 
-            data=mg_to_data[mg_name]
             logger.debug(f"{mg_name} extraction ({matname})")
+            data=mg_to_data[mg_name]
             dep_kws={deps[d]:mg_to_data[d] for d in deps if d in mg_to_data}
             mg.extract_by_mumt(data, **dep_kws)
 

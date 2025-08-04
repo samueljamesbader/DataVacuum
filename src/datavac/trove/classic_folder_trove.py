@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import os
 import re
 from fnmatch import fnmatch
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, Union
 from functools import lru_cache, cache
 from pathlib import Path
 
@@ -40,7 +40,7 @@ class ClassicFolderTrove(Trove):
     
     e.g. if the read_dir is organized by each top-level folder containing one 'Lot', and 'Lot' is a column in
     the DataDefinition sample information or the Trove load information, then setting this to 'Lot' will enable
-    read() to visit only the relevant top-level folder instead of ALL of them.
+    iter_read() to visit only the relevant top-level folder instead of ALL of them.
     """
 
     prompt_for_readall: bool = True
@@ -50,7 +50,10 @@ class ClassicFolderTrove(Trove):
               {'only_folders': dict(name_or_flags=['--folder'],type=str, nargs='+',
                                 help='Restrict to these top-level folders.  If not specified, will read all top-level folders.'),
               'only_file_names': dict(name_or_flags=['--file'],type=str, nargs='+',
-                                  help='Restrict to these file names')})
+                                  help='Restrict to these file names'),
+              'dont_prompt_readall': dict(name_or_flags=['--dont_prompt_all','-dpa'], action='store_true',
+                                help='If set, will *not* prompt the user to confirm reading all folders if no specific top-level folder is specified.'),
+               })
 
     def __post_init__(self):
         if self.read_dir is None:
@@ -59,23 +62,26 @@ class ClassicFolderTrove(Trove):
                                 "and no environment variable DATAVACUUM_READ_DIR to default to.")
             else: self.read_dir = Path(os.environ['DATAVACUUM_READ_DIR'])
     
-    def read(self, # super Trove.read() signature
+    def iter_read(self, # super Trove.read() signature
                    only_meas_groups:Optional[list[str]]=None,
                    only_sampleload_info:dict[str,Any]={},
                    info_already_known:dict={},
                    # FolderTrove-specific arguments
                    only_file_names:Optional[list[str]]=None, only_folders: Optional[Sequence[Path]]=None,
-                   cached_glob:Optional[Callable[[Path,str],list[Path]]]=None, dont_recurse:bool=False)\
-             -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
+                   cached_glob:Optional[Callable[[Path,str],list[Path]]]=None, dont_recurse:bool=False,
+                   dont_prompt_readall:bool=False, exception_callback: Optional[Callable[[str,Exception],None]]=None)\
+             -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]]:
         """Reads data from the trove read_dir.
 
         Args:
-            only_meas_groups, only_sampleload_info, info_already_known: Same as Trove.read()
+            only_meas_groups, only_sampleload_info, info_already_known: Same as Trove.iter_read()
             only_file_names: If set, only reads files with these names.
             only_folders: If set, only reads the specified folders.
                 If not set, self.natural_grouping can be used to restrict the read
             cached_glob: a function which takes a folder and a pattern, and returns a list of paths matching the pattern.
             dont_recurse: If True, will not recurse into subfolders.
+            dont_prompt_readall: If True, will (override self.prompt_for_readall) and not prompt the user
+                to confirm reading all folders if no specific top-level folder is specified.
         """
 
         # Attempt to narrow down the read_dir to specific folder(s)
@@ -83,67 +89,80 @@ class ClassicFolderTrove(Trove):
             if self.natural_grouping and (self.natural_grouping in only_sampleload_info):
                 folders=only_sampleload_info[self.natural_grouping]
             else:
-                if self.prompt_for_readall:
+                if (not dont_prompt_readall) and self.prompt_for_readall:
                     if not (input(f'No folder or top-level restriction,'\
                                   ' continue to read EVERYTHING? [y/n] ')\
-                                .strip().lower()=='y'): return {},{}
-                folders=sorted([f.name for f in self.read_dir.glob('*')
-                                if 'IGNORE' not in f.name], reverse=True)
+                                .strip().lower()=='y'): yield {},{}
+                folders=self.get_natural_grouping_factors()
         else: folders=only_folders
 
         # Check that folders are valid paths before we get to far
         folders=[self.read_dir/folder if not Path(folder).is_absolute() else Path(folder) for folder in folders]
         for folder in folders: assert folder.exists(), f"Can't find folder {str(folder)}"
 
-        # Recurse down the folder structure reading in each
-        cached_glob=cached_glob or get_cached_glob()
-        contributions=[]
+        folders_by_toplevel={}
         for folder in folders:
-            dirs=[folder]
-            while len(dirs):
-                curdir=dirs.pop(0)
-                if not dont_recurse:
-                    for file in cached_glob(curdir,'*'):
-                        if file.is_dir():
-                            if re.match(self.ignore_folder_regex,file.name):
-                                logger.debug(f"Ignoring {file} because matches \"{self.ignore_folder_regex}\".")
-                            else: dirs.append(file)
-                try:
-                    try:
-                        logger.info(f"Reading in {curdir.relative_to(self.read_dir)}")
-                    except ValueError:
-                        logger.info(f"Reading in {curdir}")
-                    info_already_known=self.folder_aux_info_reader.read(
-                        curdir,cached_glob=cached_glob,super_folder=self.read_dir,info_already_known=info_already_known)
-                    contributions.append(SingleFolderTrove.read_folder_nonrecursive(
-                        folder=curdir, trove_name=self.name,
-                        only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
-                        only_file_names=only_file_names, info_already_known=info_already_known,
-                        cached_glob=cached_glob, filecache_context_manager=self.filecache_context_manager))
-                except MissingFolderInfoException as e:
-                    logger.info(f"Skipping {curdir.relative_to(self.read_dir)} because {str(e)}")
+            tl=folder.relative_to(self.read_dir).parts[0]
+            folders_by_toplevel[tl]=folders_by_toplevel.get(tl,[]) + [folder]
+        for tl, folders in folders_by_toplevel.items():
 
-        # Combine the contributions from all folders
-        matname_to_mg_to_data={}
-        matname_to_matload_info={}
-        for matname_to_mg_to_dirdata, matname_to_dirinfo in contributions:
-            for matname, mg_to_dirdata in matname_to_mg_to_dirdata.items():
+            # Recurse down the folder structure reading in each
+            try:
+                cached_glob=cached_glob or get_cached_glob()
+                contributions=[]
+                for folder in folders:
+                    dirs=[folder]
+                    while len(dirs):
+                        curdir=dirs.pop(0)
+                        if not dont_recurse:
+                            for file in cached_glob(curdir,'*'):
+                                if file.is_dir():
+                                    if re.match(self.ignore_folder_regex,file.name):
+                                        logger.debug(f"Ignoring {file} because matches \"{self.ignore_folder_regex}\".")
+                                    else: dirs.append(file)
+                        try:
+                            try:
+                                logger.info(f"Reading in {curdir.relative_to(self.read_dir)}")
+                            except ValueError:
+                                logger.info(f"Reading in {curdir}")
+                            info_already_known=self.folder_aux_info_reader.read(
+                                curdir,cached_glob=cached_glob,super_folder=self.read_dir,info_already_known=info_already_known)
+                            contributions.append(SingleFolderTrove.read_folder_nonrecursive(
+                                folder=curdir, trove_name=self.name,
+                                only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
+                                only_file_names=only_file_names, info_already_known=info_already_known,
+                                cached_glob=cached_glob, filecache_context_manager=self.filecache_context_manager))
+                        except MissingFolderInfoException as e:
+                            logger.info(f"Skipping {curdir.relative_to(self.read_dir)} because {str(e)}")
 
-                matname_to_mg_to_data[matname]=matname_to_mg_to_data.get(matname,{})
-                for mg, dirdata in mg_to_dirdata.items():
-                    if (existing_data:=matname_to_mg_to_data[matname].get(mg,None)):
-                        matname_to_mg_to_data[matname][mg]=existing_data+dirdata
-                    else:
-                        matname_to_mg_to_data[matname][mg]=dirdata
+                # Combine the contributions from all folders
+                matname_to_mg_to_data={}
+                matname_to_matload_info={}
+                for matname_to_mg_to_dirdata, matname_to_dirinfo in contributions:
+                    for matname, mg_to_dirdata in matname_to_mg_to_dirdata.items():
 
-                if (existing_info:=matname_to_matload_info.get(matname,None)):
-                    assert existing_info==matname_to_dirinfo[matname],\
-                        f"Different material infos {existing_info} vs {matname_to_dirinfo[matname]}"
-                matname_to_matload_info[matname]=matname_to_dirinfo[matname]
+                        matname_to_mg_to_data[matname]=matname_to_mg_to_data.get(matname,{})
+                        for mg, dirdata in mg_to_dirdata.items():
+                            if (existing_data:=matname_to_mg_to_data[matname].get(mg,None)):
+                                matname_to_mg_to_data[matname][mg]=existing_data+dirdata
+                            else:
+                                matname_to_mg_to_data[matname][mg]=dirdata
 
-        # Defragment the dataframe in each measurement group for performance
-        for mg_to_data in matname_to_mg_to_data.values():
-            for data in mg_to_data.values():
-                data.defrag()
+                        if (existing_info:=matname_to_matload_info.get(matname,None)):
+                            assert existing_info==matname_to_dirinfo[matname],\
+                                f"Different material infos {existing_info} vs {matname_to_dirinfo[matname]}"
+                        matname_to_matload_info[matname]=matname_to_dirinfo[matname]
 
-        return matname_to_mg_to_data,matname_to_matload_info
+                # Defragment the dataframe in each measurement group for performance
+                for mg_to_data in matname_to_mg_to_data.values():
+                    for data in mg_to_data.values():
+                        data.defrag()
+
+                yield str(tl), matname_to_mg_to_data,matname_to_matload_info
+            except Exception as e:
+                if exception_callback: exception_callback(str(tl), e)
+                else: raise e
+
+    def get_natural_grouping_factors(self) -> list[Any]:
+        return sorted([f.name for f in self.read_dir.glob('*')
+                        if 'IGNORE' not in f.name], reverse=True)

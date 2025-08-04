@@ -188,18 +188,20 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
     from datavac.io.measurement_table import MultiUniformMeasurementTable, UniformMeasurementTable
 
 
-    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=include_sweeps)
+    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=(include_sweeps and meas_group.involves_sweeps))
     if not include_extr:
         td = {t: d for t, d in td.items() if 'Extr' not in t.name}
     sel, dtypes = joined_select_from_dependencies(columns=None, absolute_needs=list(td), table_depends=td,
-                                                  pre_filters={DDEF().SAMPLE_COLNAME: [samplename]}, join_hints=jh)
+                                                  pre_filters={DDEF().SAMPLE_COLNAME: [samplename]}, join_hints=jh,
+                                                  order_by=['measid'])
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
         data = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
+        assert data['loadid'].nunique() <= 1
 
     if not(len(data)):
         match on_no_data:
             case 'raise':
-                raise Exception(f"No data for re-extraction of {samplename} with measurement group {meas_group.name}")
+                raise Exception(f"No data available for {samplename} with measurement group {meas_group.name}")
             case None: return None # type: ignore
 
     umts=[]
@@ -212,7 +214,7 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
         else:
             df=df.reset_index(drop=True)
             headers = []
-        #assert np.all(df.index == df['measid']), f"Indices for {df.index} does not match measids {list(df['measid'])}"
+        assert np.all(df.index == df['measid']), f"Indices for {df.index} does not match measids {df['measid'].iloc[0]}..{df['measid'].iloc[-1]} while getting data for {meas_group.name}, {samplename}"
         df=df.drop(columns=['measid','rawgroup'], errors='ignore')
         umts.append(UniformMeasurementTable(dataframe=df, headers=headers,
                                             meas_group=meas_group, meas_length=None)) # type: ignore
@@ -239,8 +241,10 @@ def get_data_from_meas_group(
         f"Unstacking headers only makes sense when sweeps are included in the data."
 
     td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=include_sweeps)
-    sel, dtypes = joined_select_from_dependencies(columns=(scalar_columns+(['header','sweep'] if include_sweeps else [])
-                                                           if scalar_columns is not None else None),
+    sel, dtypes = joined_select_from_dependencies(columns=(scalar_columns\
+                                                                +(['header','sweep']  if include_sweeps  else [])\
+                                                                +(['loadid','measid'] if unstack_headers else [])
+                                                            if scalar_columns is not None else None),
                                                   absolute_needs=list(td), table_depends=td,
                                                   pre_filters=dict(**factors,**({'header': include_sweeps} if isinstance(include_sweeps,list) else {})),
                                                   join_hints=jh, order_by=['loadid','measid'] if ensure_consistent_order else None)

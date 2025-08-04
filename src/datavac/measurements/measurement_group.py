@@ -115,6 +115,9 @@ class MeasurementGroup():
         since operations on a UMT are much simpler and more performant.  See extract_by_mumt for
         more details.
 
+        Note: if you override extract_by_mumt in a way that it does not call extract_by_umt, then
+        extract_by_umt will not be called.
+
         Args:
             measurements: The measurements to extract from.
             **kwargs: Additional UniformMeasurementTables corresponding to the dependencies
@@ -174,6 +177,9 @@ class NoExtrSemiDevMeasurementGroup(SemiDevMeasurementGroup):
 from typing import TypeVar
 T=TypeVar('T', bound=MeasurementGroup)
 class ExtractionAddon:
+    def additional_extract_by_mumt(self, measurements:MultiUniformMeasurementTable, **kwargs):
+        for umt in measurements._umts:
+            self.additional_extract_by_umt(umt, **kwargs)
     def additional_extract_by_umt(self, measurements:UniformMeasurementTable, **kwargs):
         pass
     def additional_available_extr_columns(self) -> dict[str, DVColumn]:
@@ -183,21 +189,21 @@ class ExtractionAddon:
         newmg=copy(other)
 
         @wraps(other.extract_by_umt)
-        def extract_by_umt(measurements: UniformMeasurementTable, **kwargs):
-            other.extract_by_umt(measurements, **kwargs)
-            self.additional_extract_by_umt(measurements, **kwargs)
+        def extract_by_mumt(measurements: MultiUniformMeasurementTable, **kwargs):
+            other.extract_by_mumt(measurements, **kwargs)
+            self.additional_extract_by_mumt(measurements, **kwargs)
         @wraps(other.available_extr_columns)
         def available_extr_columns() -> dict[str, DVColumn]:
             return {**other.available_extr_columns(), **self.additional_available_extr_columns()}
-        newmg.extract_by_umt=extract_by_umt
+        newmg.extract_by_mumt=extract_by_mumt
         newmg.available_extr_columns=available_extr_columns
         return newmg
     def compose_after(self, other: 'ExtractionAddon') -> 'ExtractionAddon':
         """Composes this addon after another one."""
         class ComposedAddon(ExtractionAddon):
-            def additional_extract_by_umt(self, measurements:UniformMeasurementTable, **kwargs):
-                other.additional_extract_by_umt(measurements, **kwargs)
-                self.additional_extract_by_umt(measurements, **kwargs)
+            def additional_extract_by_mumt(self, measurements:MultiUniformMeasurementTable, **kwargs):
+                other.additional_extract_by_mumt(measurements, **kwargs)
+                self.additional_extract_by_mumt(measurements, **kwargs)
             def additional_available_extr_columns(self) -> dict[str, DVColumn]:
                 return {**other.additional_available_extr_columns(), **self.additional_available_extr_columns()}
         return ComposedAddon()

@@ -23,11 +23,11 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
     from datavac.database.db_structure import DBSTRUCT
     from datavac.config.data_definition import DDEF
     from sqlalchemy import text
-    from datavac.database.db_connect import get_engine_rw
+    from datavac.database.db_connect import get_engine_rw, get_engine_so
     from datavac.database.db_create import create_meas_group_view, create_analysis_view
     ssr = PCONF().data_definition.subsample_references[ssr_name]
     ssrtab = DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
-    with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
+    with (returner_context(conn) if conn else get_engine_rw().begin()) as conn: 
 
         # Load the data into a temporary table and check if it is different
         conn.execute(text(f'CREATE TEMP TABLE tmplay (LIKE {namewsq(ssrtab)});'))
@@ -115,4 +115,4 @@ def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Con
         dlt_state=delete(sdtab)
         if not clear_all_previous: dlt_state=dlt_state.where(sdtab.c.sampleid.in_(list(data.index)))
         conn.execute(dlt_state)
-        upload_csv(data.reset_index(), conn, DBSTRUCT().int_schema, sd_name,)
+        upload_csv(data.reset_index()[[c.name for c in sdtab.c]], conn, DBSTRUCT().int_schema, sd_name,)

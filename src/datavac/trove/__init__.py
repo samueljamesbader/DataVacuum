@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, Union
 from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
@@ -41,11 +41,27 @@ class Trove():
 
     cli_expander: dict[str,dict[str,Any]] = field(default_factory=dict)
 
-    def read(self,
+    def read(self,*args,**kwargs)\
+                 -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
+        total_mg_to_sample_to_data = {}
+        total_sample_to_sampleloadinfo = {}
+        for readgrp_name, mg_to_sample_to_data, sample_to_sampleloadinfo in self.iter_read(*args,**kwargs):
+            for mg_name, sample_to_data in mg_to_sample_to_data.items():
+                if mg_name not in total_mg_to_sample_to_data:
+                    total_mg_to_sample_to_data[mg_name] = {}
+                for sample_name, data in sample_to_data.items():
+                    assert sample_name not in total_mg_to_sample_to_data[mg_name], f"Same sample name '{sample_name}' encountered in two different reads."
+                    total_mg_to_sample_to_data[mg_name][sample_name] = data
+            for sample_name, sampleloadinfo in sample_to_sampleloadinfo.items():
+                assert sample_name not in total_sample_to_sampleloadinfo, f"Same sample name '{sample_name}' encountered in two different reads."
+                total_sample_to_sampleloadinfo[sample_name] = sampleloadinfo
+        return total_mg_to_sample_to_data, total_sample_to_sampleloadinfo
+
+    def iter_read(self,
              only_meas_groups:Optional[list[str]]=None,
              only_sampleload_info:dict[str,Sequence[Any]]={},
              info_already_known:dict={}, **kwargs)\
-                 -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
+                 -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]]:
         """Reads data from the trove.
 
         Args:
@@ -56,13 +72,18 @@ class Trove():
             info_already_known: If set, this is a dictionary of information that is already known
                 about the sample or load based on context.
             **kwargs: Additional arguments that may be used by the specific Trove implementation.
-        Returns:
-            A tuple of two dictionaries:
+        Yields:
+            A tuple of a string and two dictionaries:
+            - The string is an arbitrary identifier for the grouping of data that was read with no guarantees
             - The first dictionary maps measurement group names to dictionaries of sample names to
               MultiUniformMeasurementTables.
             - The second dictionary maps sample names to dictionaries of sample/load information.
         """
-        raise NotImplementedError("Trove.read() must be implemented by subclasses.")
+        raise NotImplementedError("Trove.iter_read() must be implemented by subclasses.")
+    
+    def get_natural_grouping_factors(self) -> list[Any]:
+        """Returns a list of factor values that can be used to narrow down the read_dir based on the natural grouping."""
+        raise NotImplementedError("Trove.get_natural_grouping_factors() must be implemented by subclasses.")
     
     def dbtables(self,key: str) -> Table:
         """Returns the database table associated with this trove for the given key."""

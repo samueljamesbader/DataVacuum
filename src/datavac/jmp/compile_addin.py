@@ -7,11 +7,8 @@ import sys
 import yaml
 
 from datavac.util.dvlogging import logger
-from datavac.util.paths import USER_CACHE
 from datavac.util.util import get_resource_path
 
-jmp_folder=USER_CACHE/"JMP"
-jmp_folder.mkdir(exist_ok=True)
 
 def copy_in_file(filename,addin_folder,addin_id):
     with open(filename,'r') as f1:
@@ -55,6 +52,8 @@ def cli_compile_jmp_addin(*args):
                 jmp_conf=yaml.safe_load(f)
         else: jmp_conf={}
 
+        jmp_folder=PCONF().USER_CACHE/"JMP"
+        jmp_folder.mkdir(exist_ok=True)
         addin_folder=jmp_folder
         if addin_folder.exists():
             shutil.rmtree(addin_folder)
@@ -108,17 +107,7 @@ def cli_compile_jmp_addin(*args):
                         print(f"{k.ljust(35)}={v}")
                 import numpy as np
                 import pandas as pd
-                from datavac.appserve.dvsecrets.user_side import is_access_key_valid as iakv
-                access_key_bad=False
-                if 'localhost' in os.environ['DATAVACUUM_DEPLOYMENT_URI']:
-                    print("Local deployment so not checking for access key")
-                elif not iakv():
-                    print("No valid access key")
-                    access_key_bad=True
-                if not access_key_bad:
-                    from datavac.database.db_get import get_sweeps_for_jmp
-                    from datavac.database.db_cli import cli_print_database; cli_print_database();
-                    print("DataVacuum Python-side DB setup")
+                from datavac.database.db_get import get_sweeps_for_jmp
             """))
             #f.write("print(np.r_[1,2])\n")
             #f.write("import datavac\n")

@@ -67,6 +67,11 @@ class SampleReference():
 
     info_columns: list[DVColumn] = field(default_factory=list)
     """List of columns that provide additional information about the sample reference."""
+    
+    def dbtable(self) -> Table:
+        """Returns the database table associated with this subsample reference."""
+        from datavac.database.db_structure import DBSTRUCT
+        return DBSTRUCT().get_sample_reference_dbtable(self.name)
 
 @dataclass
 class SampleDescriptor():

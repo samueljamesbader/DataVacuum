@@ -1,5 +1,5 @@
 from functools import reduce
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Union, cast
 
 import panel as pn
 from panel.io import hold
@@ -10,22 +10,23 @@ from datavac.util.dvlogging import logger
 from datavac.appserve.app import PanelApp
 from datavac.gui.panel_util.filter_plotter import FilterPlotter
 from datavac.gui.panel_util.selectors import VerticalCrossSelector
-from datavac.io.OLDdatabase import get_database
+from datavac.database.db_get import get_data, get_factors
 
 class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
     lot_prefetch_measgroup: Union[str,list]
     _need_to_update_lot_filter=hvparam.Event()
+    _tabs: pn.Tabs
+    lot_col: str = 'Lot'
     def __init__(self, plotters: dict[str, FilterPlotter],initial_prefilter_lots:Optional[Sequence[str]]=None,*args,**kwargs):
         super().__init__()
         hvparam.Parameterized.__init__(self,*args,**kwargs)
-        self.database=get_database()
         self.lots_preselector=VerticalCrossSelector(
             value=[], options=[], width=170, height=500)
         self._plotters:dict[str,FilterPlotter]=plotters
         lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters)\
             if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
         for (name, pltr),pfmg in zip(self._plotters.items(),lot_prefetch_measgroup):
-            pltr.add_prefilters({'Lot':self.lots_preselector},pfmg)
+            pltr.add_prefilters({self.lot_col:self.lots_preselector},pfmg)
         self._initial_prefilter_lots=initial_prefilter_lots
         self.param.watch(self._populate_lots,['_need_to_update_lot_filter'])
         self.param.trigger('_need_to_update_lot_filter')
@@ -34,16 +35,17 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
         #self.lots_preselector.options=self.hose.get_lots(self.lot_prefetch_measgroup)
         lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters) \
             if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
-        self.lots_preselector.options=sorted(self.database.get_factors(lot_prefetch_measgroup[0],factor_names=['Lot'])['Lot'],reverse=True)
+        self.lots_preselector.options=sorted(get_factors(lot_prefetch_measgroup[0],factor_names=[self.lot_col])[self.lot_col],reverse=True)
         if self._initial_prefilter_lots is not None:
-            self.lots_preselector.value=self._initial_prefilter_lots
+            self.lots_preselector.value=self._initial_prefilter_lots # type: ignore
 
 
     def get_page(self) -> BasicTemplate:
-        self.page.sidebar.append(pn.panel("## Lot pre-filter"))
-        self.page.sidebar.append(self.lots_preselector)
-        self.page.sidebar.append(pn.HSpacer(height=20))
-        self.page.sidebar.append(pn.widgets.FileDownload(callback=self._download_callback,filename=self._get_download_filename(),label='Download shown'))
+        sidebar:pn.layout.base.ListLike=self.page.sidebar # type: ignore
+        sidebar.append(pn.panel(f"## {self.lot_col} pre-filter"))
+        sidebar.append(self.lots_preselector)
+        sidebar.append(pn.HSpacer(height=20))
+        sidebar.append(pn.widgets.FileDownload(callback=self._download_callback,filename=self._get_download_filename(),label='Download shown'))
         self.page.sidebar_width=220
 
         def make_tabs():
@@ -54,14 +56,15 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
             self._tabs.param.watch(self._inform_plotters_of_tab_change,'active')
             self._inform_plotters_of_tab_change()
             return self._tabs
-        self.page.main.append(pn.panel(make_tabs,defer_load=True))
-        self.page.main.sizing_mode='fixed'
+        
+        self.page.main.append(pn.panel(make_tabs,defer_load=True)) # type: ignore
+        self.page.main.sizing_mode='fixed' # type: ignore
         return self.page
 
     def _inform_plotters_of_tab_change(self,*args,**kwargs):
         # Inform the newly visible plotter first since that's what the user will see
-        logger.debug(f"Tab changed to {self._tabs.active}, which is {list(self._plotters.keys())[self._tabs.active]}")
-        list(self._plotters.values())[self._tabs.active].visibility_changed(is_visible_now=True)
+        logger.debug(f"Tab changed to {self._tabs.active}, which is {list(self._plotters.keys())[cast(int,self._tabs.active)]}")
+        list(self._plotters.values())[cast(int,self._tabs.active)].visibility_changed(is_visible_now=True)
 
         # Then inform the others
         for i,p in enumerate(self._plotters.values()):
@@ -83,7 +86,7 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
 
     def _download_callback(self):
         logger.debug("In download callback")
-        active_plotter=list(self._plotters.values())[self._tabs.active]
+        active_plotter=list(self._plotters.values())[cast(int,self._tabs.active)]
         return active_plotter.download_shown()
     def _get_download_filename(self):
         return 'DataVacuum Download.csv'

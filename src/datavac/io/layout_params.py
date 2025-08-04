@@ -23,9 +23,15 @@ if TYPE_CHECKING:
 class LayoutParameters(GeneralLayoutParameters):
 
     def __init__(self, params_dir: Path, yaml_path: Path):
-        self.params_dir = params_dir
-        self.yaml_path = yaml_path
+        self._params_dir_str = str(params_dir)
+        self._yaml_path_str = str(yaml_path)
         self.regenerate_from_excel()
+
+    # Temporary fix to avoid "cannot instantiate PosixPath on Windows" errors
+    @property
+    def params_dir(self)->Path: return Path(self._params_dir_str)
+    @property
+    def yaml_path(self)->Path: return Path(self._yaml_path_str)
 
     def timestamp_still_valid(self):
 

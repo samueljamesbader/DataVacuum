@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, cast
 
 from datavac.util.dvlogging import logger
 from datavac.trove import ReaderCard, Trove
@@ -41,18 +41,23 @@ class SingleFolderTrove(Trove):
                                 "and no environment variable DATAVACUUM_READ_DIR to default to.")
             else: self.read_dir = Path(rd)
 
-    def read(self,
+    def iter_read(self,
              only_meas_groups:Optional[list[str]]=None, only_sampleload_info:dict[str,Any]={},
              only_file_names:Optional[list[str]]=None, info_already_known:dict={},
-             cached_glob:Optional[Callable[[Path,str],list[Path]]]=None)\
-                -> tuple[dict[str,dict[str,'MultiUniformMeasurementTable']],
-                                        dict[str,dict[str,str]]]:
+             cached_glob:Optional[Callable[[Path,str],list[Path]]]=None,
+             exception_callback:Optional[Callable[[str,Exception],None]]=None)\
+                -> Generator[tuple[str,dict[str,dict[str,'MultiUniformMeasurementTable']],
+                                        dict[str,dict[str,str]]]]:
         """Read the folder and return the data and material/load information."""
-        return self.read_folder_nonrecursive(
-            folder=self.read_dir, trove_name=self.name, cached_glob=cached_glob,
-            filecache_context_manager=self.filecache_context_manager,
-            only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
-            only_file_names=only_file_names, info_already_known=info_already_known,)
+        try:
+            yield str(self.read_dir),*self.read_folder_nonrecursive(
+                folder=self.read_dir, trove_name=self.name, cached_glob=cached_glob,
+                filecache_context_manager=self.filecache_context_manager,
+                only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
+                only_file_names=only_file_names, info_already_known=info_already_known,)
+        except Exception as e:
+            if exception_callback: exception_callback(str(self.read_dir),e)
+            else: raise e
 
     @staticmethod
     def read_folder_nonrecursive(folder:Path,trove_name:str,

@@ -2,13 +2,16 @@ Names Default To Here(1); dv=:::dv;
 
 // Get the SSL rootcert path
 ADDIN_HOME = Get Path Variable("ADDIN_HOME(%ADDINID%)");
-file_path=Convert File Path((ADDIN_HOME || "\rootcertfile.crt"),windows);
+file_path=dv:PySub("from datavac.config.project_config import PCONF; rcp=str(PCONF().cert_depo.get_ssl_rootcert_path_for_db()) or '';","rcp");
+file_path=Convert File Path(file_path,windows);
 While(Pat Match(file_path,"\","%BACKSLASH%"),1);
 While(Pat Match(file_path,"%BACKSLASH%","\\"),1);
 
 // Get the connection info
-dbstring=dv:PySub("from datavac.database.db_connect import get_db_connection_info as gdci;"||
-				" dci=gdci().to_connection_string();",
+dbstring=dv:PySub("from datavac.database.db_cli import cli_print_database; cli_print_database('--only-modes','READ_ONLY');"||
+                  "print('DataVacuum Python-side DB setup');"||
+                  "from datavac.database.db_connect import get_db_connection_info as gdci;"||
+			      "dci=gdci().to_connection_string();",
 			"dci");
 conn_info=AssociativeArray();
 For each( {keqv, ind}, Words(dbstring,";"),

@@ -26,6 +26,7 @@ class ProjectConfiguration():
                 platformdirs.user_cache_path(appname=appname, appauthor='DataVacuum')))/appname
         self.USER_CERTS: Path = self.USER_CACHE/"certs"
         self.USER_CERTS.mkdir(parents=True,exist_ok=True)
+        self.USER_DOWNLOADS: Path = platformdirs.user_downloads_path()
 
         self.RERUN_DIR: Path = (Path(os.environ.get("DATAVACUUM_RERUN_DIR",None) or \
                 self.USER_CACHE/"rerun"))

@@ -55,7 +55,7 @@ class FolderSampleSplitManager(SampleSplitManager):
         dtypes = {col.name: col.pd_dtype for col in columns}
         df=pd.read_excel(wb, sheet_name=ws.title, skiprows=[0, 2, 3], engine='openpyxl',
                          dtype=dtypes, na_values=['','???'],keep_default_na=False)
-        return df[[DDEF().SAMPLE_COLNAME,*[c for c in df.columns if c in dtypes]]]
+        return df[[DDEF().SAMPLE_COLNAME,*[c for c in df.columns if c!=DDEF().SAMPLE_COLNAME]]]
 
 
 def check_against_extra_source_and_combine(df_manual: pd.DataFrame, df_extra: pd.DataFrame,
@@ -64,6 +64,7 @@ def check_against_extra_source_and_combine(df_manual: pd.DataFrame, df_extra: pd
     """
     Check the manual split table against the extra split data and combine them.
     """
+    assert all_columns is None, "all_columns!=None is not supported yet"
     fullmatname_col=DDEF().SAMPLE_COLNAME
     assert df_manual[fullmatname_col].equals(df_extra[fullmatname_col])
 
@@ -111,7 +112,8 @@ class FolderPlusExtraSampleSplitManager(FolderSampleSplitManager):
         df_extra = self.get_complementary_split_table_from_extra(df_manual, flow_name)
         all_columns = self.get_split_table_columns_from_external(flow_name)
         combined = check_against_extra_source_and_combine(df_manual, df_extra,
-                      all_columns=[DDEF().SAMPLE_COLNAME,*[c.name for c in all_columns]], flow_name=flow_name)
+                      all_columns=None,#[DDEF().SAMPLE_COLNAME,*[c.name for c in all_columns]],
+                      flow_name=flow_name)
         return combined
 
 
