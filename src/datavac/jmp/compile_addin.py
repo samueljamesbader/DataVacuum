@@ -70,11 +70,11 @@ def cli_compile_jmp_addin(*args):
         with open(addin_folder/"env_vars.jsl",'w') as f:
             #print(sys.path)
             potential_dlls=sum((list(Path(p).glob("Python31*.dll")) for p in sys.path),[])
-            built_in_capture_vars={'DATAVACUUM_DEPLOYMENT_URI':env_values.get("DATAVACUUM_DEPLOYMENT_URI",""),
-                                   'PYTHON_SYS_PATHS': ";".join(sys.path),
-                                   'PYTHON_DLL':str(potential_dlls[0]),
-                                   'DATAVACUUM_JMP_DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),
-                                  }
+            built_in_capture_vars:dict[str,str]={
+                'DATAVACUUM_DEPLOYMENT_URI':PCONF().deployment_uri,
+                'PYTHON_SYS_PATHS': ";".join(sys.path),
+                'PYTHON_DLL':str(potential_dlls[0]),
+                'DATAVACUUM_JMP_DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),}
 
             f.write("Names Default To Here(1);\n")
             f.write(f"dv = Namespace(\"{addin_id}\");\n")

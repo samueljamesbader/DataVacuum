@@ -20,13 +20,15 @@ def get_setup_contents(yesno_code:str='yes', output_buffer: Optional[TextIO]=Non
     # If output_buffer is not provided, create a StringIO buffer
     sio= output_buffer or StringIO()
     
-    # Get deployment name and URL from environment variables
-    depname=os.environ['DATAVACUUM_DEPLOYMENT_NAME']
-    depurl =os.environ['DATAVACUUM_DEPLOYMENT_URI']
+    # Get deployment name and URL
+    from datavac.config.project_config import PCONF
+    depname=PCONF().deployment_name
+    depurl =PCONF().deployment_uri
 
     # Get the package that contains the deployment setup script from server_index.yaml
     # TODO: centralize this in CONFIG
-    index_yaml_file=Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"server_index.yaml"
+    assert (CONFIG_DIR:=PCONF().CONFIG_DIR) is not None
+    index_yaml_file=CONFIG_DIR/"server_index.yaml"
     with open(index_yaml_file, 'r') as f:
         f=f.read()
         for k,v in os.environ.items():

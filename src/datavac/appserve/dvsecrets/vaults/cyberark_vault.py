@@ -49,7 +49,7 @@ class CyberArkVault(Vault):
     
     def get_auth_info(self):
         # TODO: remove or generalize
-        deployment_uri=os.environ['DATAVACUUM_DEPLOYMENT_URI']
+        deployment_uri=PCONF().deployment_uri
         if ('localhost' in deployment_uri) and not (os.environ.get("DATAVACUUM_OAUTH_PROVIDER",None)=='azure'):
             return {'oauth_provider':'none',}
         else:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import cache
 from importlib import import_module
@@ -6,11 +7,12 @@ from typing import TYPE_CHECKING, Callable, Optional
 from pathlib import Path
 
 from datavac.config.cert_depo import CertDepo
-from datavac.config.data_definition import DataDefinition
 from datavac.appserve.dvsecrets.vaults.vault import Vault
+from datavac.config.server_config import ServerConfig
 import platformdirs
 
-if TYPE_CHECKING: pass
+if TYPE_CHECKING: 
+    from datavac.config.data_definition import DataDefinition
 
 @dataclass
 class ProjectConfiguration():
@@ -18,6 +20,7 @@ class ProjectConfiguration():
     data_definition: DataDefinition
     vault: Vault = field(default_factory=Vault)
     cert_depo: CertDepo = field(default_factory=CertDepo)
+    server_config: ServerConfig = field(default_factory=ServerConfig)
 
     def __post_init__(self):
         appname=self.deployment_name or 'DEFAULT'
@@ -33,6 +36,7 @@ class ProjectConfiguration():
         
         conf_path=os.environ.get("DATAVACUUM_CONFIG_PATH",None)
         self.CONFIG_DIR: Optional[Path] = Path(conf_path).parent if conf_path else None
+        self.deployment_uri: str = os.environ.get("DATAVACUUM_DEPLOYMENT_URI","http://localhost:3000")
 
     
 _pconf: ProjectConfiguration | None = None

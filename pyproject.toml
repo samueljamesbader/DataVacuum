@@ -60,6 +60,9 @@ dependencies = [
     # Public Domain + BSD license, no CVE risk as of 12/31/2024
     "pynacl >= 1.5.0",
 
+    # MIT license
+    # TODO: check back on recent unverified issue https://www.cve.org/CVERecord?id=CVE-2025-45768
+    "PyJWT  >= 2.10.1",
 
     # BSD License (BSD-3-Clause), no CVE risk as of 1/10/2025
     "python-dotenv[cli]",

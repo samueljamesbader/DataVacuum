@@ -1,60 +1,41 @@
 import datetime
-import logging
 import os
 from pathlib import Path
 from typing import Optional
-from yaml import safe_load
 
-import panel as pn
-#from panel.theme import Theme
-from panel.theme.material import MaterialDefaultTheme
-
-from datavac.appserve.ad_auth import monkeypatch_oauthprovider, monkeypatch_authstaticroutes, AccessKeyDownload
+from datavac.appserve.ad_auth import monkeypatch_authstaticroutes, AccessKeyDownload
+from datavac.config.project_config import is_server
 from datavac.util.dvlogging import logger
 from datavac.appserve.index import Indexer
 from datavac.util.util import import_modfunc
 
 
 
-def launch(index_yaml_file: Optional[Path] = None):
-
+def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
+    import panel as pn
     from datavac.config.project_config import PCONF; PCONF() # Ensure the project configuration is loaded
-    index_yaml_file=index_yaml_file or\
-                    Path(os.environ['DATAVACUUM_CONFIG_PATH']).parent/"server_index.yaml"
-    with open(index_yaml_file, 'r') as f:
-        f=f.read()
-        for k,v in os.environ.items():
-            if 'DATAVAC' in k: f=f.replace(f"%{k}%",v)
-        theyaml=safe_load(f)
-        additional_static_dirs={k:(v['path'],v['role']) for k,v in theyaml.get('additional_static_dirs',{}).items()}
-        categorized_applications=theyaml['index']
-        theme=import_modfunc(theyaml['theme']) if 'theme' in theyaml else MaterialDefaultTheme
-        port=theyaml.get('port',3000)
+    sc=PCONF().server_config
+    theyaml: dict = sc.get_yaml()
+    additional_static_dirs={k:(v['path'],v['role']) for k,v in theyaml.get('additional_static_dirs',{}).items()}
+    categorized_applications=theyaml['index']
 
-
-    for sf in theyaml.get('setup_functions',[]):
-        import_modfunc(sf)()
-    for sf,sfi in theyaml.get('scheduled_functions',{}).items():
-        delay = datetime.datetime.strptime(sfi['delay'],"%H:%M:%S")
+    sc.pre_serve_setup()
+    for sfunc in sc.get_scheduled_functions():
+        delay = datetime.datetime.strptime(sfunc.delay,"%H:%M:%S")
         delay = datetime.timedelta(hours=delay.hour,minutes=delay.minute,seconds=delay.second)
-        pn.state.schedule_task(sf, import_modfunc(sfi['func']),
-                               period=sfi['period'],
+        pn.state.schedule_task(sfunc.name, sfunc.func,
+                               period=sfunc.period,
                                at=datetime.datetime.now()+delay)
-        #logger.debug("Thing that needs KRB5")
-
 
     kwargs={}
-    possible_oauth_providers=['none','azure']
-    # TODO: make this use dvsecrets get_auth_info
+    possible_oauth_providers=['none','azure','mock_azure']
     auth_info=PCONF().vault.get_auth_info()
     try:
         oauth_provider=auth_info['oauth_provider']
-        assert oauth_provider in possible_oauth_providers
     except (KeyError,AssertionError):
         raise Exception(f"Must provide environment variable DATAVACUUM_OAUTH_PROVIDER," \
                 f" options are {possible_oauth_providers}")
-    if oauth_provider=='azure':
-        monkeypatch_oauthprovider()
+    if 'azure' in oauth_provider:
         for k in ['oauth_provider','oauth_key','oauth_secret',
                   'oauth_extra_params','oauth_redirect_uri','cookie_secret']:
             kwargs[k]=auth_info[k]
@@ -65,9 +46,10 @@ def launch(index_yaml_file: Optional[Path] = None):
             kwargs['basic_auth']=os.environ['DATAVACUUM_PASSWORD']
         else:
             logger.warning("Launching with NO user authentication protocol!")
+    else:
+        raise Exception(f"Unknown oauth provider '{oauth_provider}', options are {possible_oauth_providers}")
 
     pn.state.cache['index']=index=Indexer(categorized_applications=categorized_applications) # type: ignore
-    pn.state.cache['theme']=theme # type: ignore
     def authorize(user_info,request_path):
         if oauth_provider=='none': return True
         try:
@@ -108,15 +90,19 @@ def launch(index_yaml_file: Optional[Path] = None):
                              for k,v in theyaml['shareable_secrets']['callers'].items()}}),
             ('/context',ContextDownload),
         ]}
-        index.slug_to_app['accesskey']=lambda: AccessKeyDownload().get_page()
-        index.slug_to_role['accesskey']=theyaml['shareable_secrets']['role']
     else: extra_patterns_kwargs={'extra_patterns':[]}
+    from datavac.appserve.dvsecrets.ak_server_side import APIKeyGenerator
+    extra_patterns_kwargs['extra_patterns'].append(('/accesskey',APIKeyGenerator))
+    #index.slug_to_app['accesskey']=lambda: AccessKeyDownload().get_page()
+    #index.slug_to_role['accesskey']=None#theyaml['shareable_secrets']['role']
 
+    #extra_patterns_kwargs['extra_patterns']+=\
+    #    [('/'+k,import_modfunc(v)) for k,v in theyaml.get('additional_handlers',{}).items()]
     extra_patterns_kwargs['extra_patterns']+=\
-        [('/'+k,import_modfunc(v)) for k,v in theyaml.get('additional_handlers',{}).items()]
+        [('/'+k,v) for k,v in sc.get_additional_handlers().items()]
     if not len(extra_patterns_kwargs['extra_patterns']): extra_patterns_kwargs={}
     #print("\n\n\n\n")
-    #print("Extra Patterns kwargs",extra_patterns_kwargs)
+    print("Extra Patterns kwargs",extra_patterns_kwargs)
     #print("\n\n\n\n")
 
 
@@ -138,21 +124,25 @@ def launch(index_yaml_file: Optional[Path] = None):
     #pn.state.schedule_task('altlogs',alter_logs,
     #                       period='10m')
     # use_xheaders=True: https://docs.bokeh.org/en/2.4.2/docs/user_guide/server.html#reverse-proxying-with-nginx-and-ssl
-    pn.serve(
+    return pn.serve(
         index.slug_to_app, # type: ignore
-        port=port,websocket_origin='*',show=False,
+        **(dict(websocket_origin='*') if is_server() else {}),
+        port=sc.port, show=False, threaded=non_blocking,
         static_dirs=additional_static_dirs, **extra_patterns_kwargs, use_xheaders=True,
         **kwargs)
 
 from tornado.web import RequestHandler
 class ContextDownload(RequestHandler):
     def get(self):
-        depname=os.environ['DATAVACUUM_DEPLOYMENT_NAME']
+        from datavac.config.project_config import PCONF
+        depname=PCONF().deployment_name
         self.set_header('Content-Disposition', f'attachment; filename={depname}.dvcontext.env')
         self.write(f"# Context file for '{depname}'\n")
         self.write(f"# Downloaded {datetime.datetime.now()}\n")
-        for name in ['DATAVACUUM_DEPLOYMENT_NAME','DATAVACUUM_DEPLOYMENT_URI','DATAVACUUM_CONFIG_MODULE']:
-            self.write(f"{name}={os.environ[name]}\n")
+        for name,val in [('DATAVACUUM_DEPLOYMENT_NAME',depname),
+                         ('DATAVACUUM_DEPLOYMENT_URI',PCONF().deployment_uri),
+                         ('DATAVACUUM_CONFIG_MODULE', os.environ['DATAVACUUM_CONFIG_MODULE'])],:
+            self.write(f"{name}={val}\n")
 
 if __name__=='__main__':
     launch()
