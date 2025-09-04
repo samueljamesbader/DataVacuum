@@ -31,10 +31,13 @@ def rerun_data():
     make_fresh_testdb(dbname)
     db=get_database()
     for ud in yaml_dict['regression_data']['uploads']:
-        read_and_upload_data(db,**ud)
+        read_and_upload_data(db,clear_all_from_material=False,**ud)
     RERUN_DIR.mkdir(exist_ok=True,parents=False)
     destfile=RERUN_DIR/(datetime.datetime.now().strftime(timefmt)+".pkl")
     dat={mg:db.get_data(mg) for mg in list(CONFIG['measurement_groups'])+list(CONFIG['higher_analyses'])}
+    for mgoa,df in list(dat.items()):
+        if ('loadid' in df.columns) and ('measid' in df.columns):
+            df.sort_values(by=['loadid','measid'], inplace=True)
     with open(destfile, 'wb') as f:
         pickle.dump(dat,f)
     logger.debug(f"Data rerun and saved to {destfile}")
