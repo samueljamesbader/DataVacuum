@@ -3,12 +3,14 @@ from __future__ import annotations
 import pickle
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+from datavac.appserve.api import client_server_split
 from datavac.database.db_util import namews
 from datavac.util.dvlogging import logger
 from datavac.util.util import returner_context
 
 if TYPE_CHECKING:
     from sqlalchemy import Connection
+    from pandas import DataFrame
 
 # TODO: This function is ported from old framework
 def upload_mask_info(mask_info: dict[str, Any],conn: Optional[Connection]=None):
@@ -61,6 +63,8 @@ def _update_layout_param_group(layout_param_group: str, conn: Optional[Connectio
 def update_layout_params(conn: Optional[Connection] = None, dump_extractions_and_analyses: bool = True):
     from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
     from datavac.database.db_connect import get_engine_so
+    from datavac.config.layout_params import LP
+    LP(force_regenerate=True) # Regenerate the layout parameters
     lpnames=cast(SemiDeviceDataDefinition,DDEF()).get_layout_params_table_names()
     with (returner_context(conn) if conn else get_engine_so().begin()) as conn:
         for layout_param_group in lpnames:
@@ -71,12 +75,13 @@ def upload_splits(specific_splits: Optional[list[str]]=None, conn: Optional[Conn
     from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
     from datavac.database.db_connect import get_engine_rw
     from datavac.database.db_upload_other import upload_sample_descriptor
+    from datavac.config.sample_splits import get_flow_names, get_split_table
     split_manager = cast(SemiDeviceDataDefinition, DDEF()).split_manager
     with (returner_context(conn) if conn else get_engine_rw().begin()) as conn:
-        for flow_name in split_manager.get_flow_names(force_external=True):
+        for flow_name in get_flow_names(force_external=True):
             if specific_splits is not None and flow_name not in specific_splits:
                 continue
-            split_table = split_manager.get_split_table(flow_name, force_external=True)
+            split_table = get_split_table(flow_name, force_external=True)
             assert len(split_table)
             logger.info(f"Uploading split table for flow {flow_name} with {len(split_table)} rows")
             print(split_table)
@@ -106,6 +111,7 @@ def create_split_table_view(sp_name: str, conn: Optional[Connection]=None, just_
 
 def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, conn: Optional[Connection] = None):
     from datavac.config.data_definition import SemiDeviceDataDefinition, DDEF
+    from datavac.config.sample_splits import get_flow_names
     from datavac.database.db_structure import DBSTRUCT
     from datavac.database.db_modify import _table_mismatch
     from datavac.database.db_connect import get_engine_so
@@ -116,7 +122,7 @@ def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, c
     split_manager= ddef.split_manager
     with avoid_db_if_possible():
         if specific_splits is None:
-            specific_splits = list(split_manager.get_flow_names(force_external=True))
+            specific_splits = list(get_flow_names(force_external=True))
         all_desired_tabs = [DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp}') for sp in specific_splits]
     with (returner_context(conn) if conn else get_engine_so().begin()) as conn:
         db_metadata = MetaData(schema=DBSTRUCT().int_schema)

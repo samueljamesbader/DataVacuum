@@ -74,7 +74,8 @@ def cli_compile_jmp_addin(*args):
                 'DATAVACUUM_DEPLOYMENT_URI':PCONF().deployment_uri,
                 'PYTHON_SYS_PATHS': ";".join(sys.path),
                 'PYTHON_DLL':str(potential_dlls[0]),
-                'DATAVACUUM_JMP_DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),}
+                'DATAVACUUM_JMP_DEFER_INIT':env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO"),
+                'DATAVACUUM_DIRECT_DB_ACCESS':env_values.get("DATAVACUUM_DIRECT_DB_ACCESS","NO"),}
 
             f.write("Names Default To Here(1);\n")
             f.write(f"dv = Namespace(\"{addin_id}\");\n")
@@ -107,7 +108,7 @@ def cli_compile_jmp_addin(*args):
                         print(f"{k.ljust(35)}={v}")
                 import numpy as np
                 import pandas as pd
-                from datavac.database.db_get import get_sweeps_for_jmp
+                from datavac.database.db_get import get_data, get_factors, get_sweeps_for_jmp
             """))
             #f.write("print(np.r_[1,2])\n")
             #f.write("import datavac\n")
@@ -116,7 +117,7 @@ def cli_compile_jmp_addin(*args):
             generated_jsl=[]#addin_folder/'env_vars.jsl']
             dv_base_jsl=[get_resource_path(x) for x in [
                                                         'datavac.jmp::JMP16Python.jsl',
-                                                        'datavac.jmp::Secrets.jsl',
+                                                        #'datavac.jmp::Secrets.jsl',
                                                         'datavac.jmp::DBConnect.jsl',
                                                         'datavac.jmp::Util.jsl',
                                                         'datavac.jmp::ConnectToWaferMap.jsl',
@@ -163,11 +164,17 @@ def cli_compile_jmp_addin(*args):
                 'icon':None
             }] ),#if envname=="LOCAL" else []),
             {
-                'name':'Pull Sweeps',
-                'tip':'Pull raw curves corresponding to open table',
-                'text': f'dv:PullSweeps();',
+                'name':'Login/Re-login',
+                'tip':'Logout and login again to refresh access key',
+                'text': f'dv:ReLogin();',
                 'icon':None
             },
+            #{
+            #    'name':'Pull Sweeps',
+            #    'tip':'Pull raw curves corresponding to open table',
+            #    'text': f'dv:PullSweeps();',
+            #    'icon':None
+            #},
             {
                 'name':'Abs Currents',
                 'tip':'For headers that look like currents, take absolute value',

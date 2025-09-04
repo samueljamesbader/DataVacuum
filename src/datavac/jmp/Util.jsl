@@ -1,6 +1,19 @@
 Names Default To Here(1); dv=:::dv;
 
-dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0},{Default Local},
+dv:GetFactors=Function({mgoa, factor_names, pre_filters=[=>0]}, {Default Local},
+	dv:PySend(mgoa,"mgoa");
+	dv:PySend(factor_names,"factor_names");
+	dv:PySend(pre_filters,"pre_filters");
+	factors=dv:PySub("factors=get_factors('"||mgoa||"',factor_names,pre_filters);","factors");
+	factors
+);
+
+dv:GetLots=Function({mgoa, pre_filters=[=>]}, {Default Local},
+	factors=dv:GetFactors(mgoa, {"Lot"}, pre_filters);
+	factors["Lot"]
+);
+
+dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0, pre_filters=[=>]},{Default Local},
 	// Asks the user to choose a lot and returns it
 	// Args:
 	//   dbtable: the DataVacuum measurement group from which to list lots
@@ -12,15 +25,7 @@ dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0},{Default
 	//		For first item, see argument 'single' above.
 	//   	Second item is a list of strings of selected additional_checkboxes.
 	
-	qname="Lots For"||dbtable;
-	Try(Close(DataTable(qname),NoSave), "No issue");
-	dt=New SQL Query(
-		Connection(dv:conn_str_no_pass),
-		QueryName(qname),
-		CustomSQL("select distinct \!"Lot\!" from \!"jmp\!".\!""||dbtable||"\!";")
-	) << Run Foreground(Invisible);
-	potential_lots=Sort Descending(Column(dt,"Lot")<<Get Values());
-	Try(Close(DataTable(qname),NoSave), "No issue");
+	potential_lots=Sort Descending(dv:GetLots(dbtable, pre_filters));
 	If(single,
 		win=Eval(Eval Expr(New Window(dbtable,<<modal,<<return result,
 			HListBox(
@@ -57,40 +62,41 @@ dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0},{Default
 	);
 );
 
-dv:LotPreselectorSQL = Function({dbtable, single=0, err on none=1, additional_checkboxes=0},{Default Local},
-	// Runs the dv:LotPreselector, except return is an SQL 'where' statement which
-	// can be concatenated onto a CustomSQL query
-	// Args:
-	//   dbtable, single: passed to dv:LotPreselector
-	//   err on none: whether to raise an error if the user makes no selection.
-	sql="YOOOOO";
-	If(single,
-		{lot,checks}=dv:LotPreselector(dbtable,single,additional_checkboxes);
-		If(lot=={},
-			If(err on none,
-				Throw("No lots selected")
-			,//Else
-				sql="")
-		,//Else
-			sql=" where \!"Lot\!"='"||lot||"'");
-	,//Else (not single)
-		{lots,checks}=dv:LotPreselector(dbtable,single,additional_checkboxes);
-		If(lots=={},
-			If(err on none,
-				Throw("No lots selected")
-			,//Else
-				sql="")
-		,//Else
-			sql=" where \!"Lot\!" in ('"||Concat Items(lots,"','")||"')";
-		);
-	);
-	
-	If(additional_checkboxes!=0,
-		EvalList({sql,checks})
-	,//Else
-		sql
-	);
-);
+// TODO: Remove
+//dv:LotPreselectorSQL = Function({dbtable, single=0, err on none=1, additional_checkboxes=0},{Default Local},
+//	// Runs the dv:LotPreselector, except return is an SQL 'where' statement which
+//	// can be concatenated onto a CustomSQL query
+//	// Args:
+//	//   dbtable, single: passed to dv:LotPreselector
+//	//   err on none: whether to raise an error if the user makes no selection.
+//	sql="YOOOOO";
+//	If(single,
+//		{lot,checks}=dv:LotPreselector(dbtable,single,additional_checkboxes);
+//		If(lot=={},
+//			If(err on none,
+//				Throw("No lots selected")
+//			,//Else
+//				sql="")
+//		,//Else
+//			sql=" where \!"Lot\!"='"||lot||"'");
+//	,//Else (not single)
+//		{lots,checks}=dv:LotPreselector(dbtable,single,additional_checkboxes);
+//		If(lots=={},
+//			If(err on none,
+//				Throw("No lots selected")
+//			,//Else
+//				sql="")
+//		,//Else
+//			sql=" where \!"Lot\!" in ('"||Concat Items(lots,"','")||"')";
+//		);
+//	);
+//	
+//	If(additional_checkboxes!=0,
+//		EvalList({sql,checks})
+//	,//Else
+//		sql
+//	);
+//);
 
 
 dv:AbsCurrents = Function({dt=0},
@@ -109,28 +115,126 @@ dv:AbsCurrents = Function({dt=0},
 	);
 );
 
-dv:QuickSQL = Function({tablename, sql, close previous=1},
+// TODO: Add back SQL functionality
+//dv:QuickSQL = Function({tablename, sql, close previous=1},
+//	if(close previous,
+//		Try(Close(DataTable(tablename)), "No issue");
+//	);
+//	New SQL Query(
+//		Connection(dv:conn_str_no_pass),
+//		QueryName( tablename ),
+//		CustomSQL(sql),
+//	) << Run Foreground();
+//);
+
+// TODO: Remove
+//dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
+//	sql="Select * from jmp.\!""||tablename||"\!""||sqlrestrict;
+//	dv:QuickSQL(tablename, sql, close previous)
+//);
+//
+//dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", ask_inc_sweeps=0, close previous=1},
+//    if (ask_inc_sweeps,
+//        {sqlrestrict,checks}=dv:LotPreselectorSQL(tablename,0,1,{"include sweeps"});
+//        Eval List({dv:QuickSelect(tablename, sqlrestrict, close previous),Contains(checks,"include sweeps")!=0});
+//    ,//Else
+//        sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
+//        dv:QuickSelect(tablename, sqlrestrict, close previous);
+//    )
+//);
+
+dv:GetScalarData = Function({mgoa, factors = [=>0], close previous = 1},{error, dt},
 	if(close previous,
-		Try(Close(DataTable(tablename)), "No issue");
+		Try(Close(DataTable(mgoa),No Save), "No issue");
+		Try(Close(DataTable(mgoa||" -- Sweeps"),No Save), "No issue");
 	);
-	New SQL Query(
-		Connection(dv:conn_str_no_pass),
-		QueryName( tablename ),
-		CustomSQL(sql),
-	) << Run Foreground();
+	dv:PySend(mgoa,"mgoa");
+	dv:PySend(factors,"factors");
+	//dv:PySub("from datavac.appserve.dvsecrets.ak_client_side import cli_print_user as cpu; cpu();");
+	error=dv:PySub("df=None;df=get_data(mgoa,**factors);");
+	Write("Got data\!N");
+	dt=dv:PyConn()<<Get("df");
+	dt<<Set Name(mgoa);
+	Eval(EvalExpr(dt<<New Script("Pull Sweeps",
+		Expr(mgoa);
+		Names Default To Here(1);
+		dv=:::dv;
+		dv:Pull Sweeps(0,Expr(mgoa));
+	)));
+	dt<<New Data View();
+	dt
 );
 
-dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
-	sql="Select * from jmp.\!""||tablename||"\!""||sqlrestrict;
-	dv:QuickSQL(tablename, sql, close previous)
-);
+dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps"}, close previous = 1},{Default Local},	
 
-dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", ask_inc_sweeps=0, close previous=1},
-    if (ask_inc_sweeps,
-        {sqlrestrict,checks}=dv:LotPreselectorSQL(tablename,0,1,{"include sweeps"});
-        Eval List({dv:QuickSelect(tablename, sqlrestrict, close previous),Contains(checks,"include sweeps")!=0});
-    ,//Else
-        sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
-        dv:QuickSelect(tablename, sqlrestrict, close previous);
-    )
+	// Split the factors into "listed_factors" for which the caller has provided a list of options
+	// and "open_factors" for which the caller has provided "?" so we should ask by GUI
+	all_factors=factors<<GetKeys();
+	listed_factors=[=>];
+	open_factors={};
+	For(fi=1, fi<=NItems(factors), fi++,
+		If(factors[all_factors[fi]]=="?",
+			Insert Into(open_factors,all_factors[fi]);
+		,//Else
+			listed_factors[all_factors[fi]]=factors[all_factors[fi]];
+		);
+	);
+
+	// Do the pre-selection, adding "Lot" to the listed_factors
+	If(!Contains(listed_factors,"Lot"),
+		{lots,checks}=dv:LotPreselector(mgoa,0,checks,listed_factors);
+		If(lots=={}, Throw("No lots selected"));
+		listed_factors["Lot"]=lots;
+	);
+	
+	// Do the post-selection for any open factors
+	potential_factors=dv:GetFactors(mgoa, open_factors, listed_factors);
+	charmaps=[=>];
+	//Show(potential_factors);
+	If(NItems(open_factors),
+		lbs=[=>];
+		h=HListBox();
+		For(fi=1,fi<=NItems(open_factors),fi++,
+			// Make a mapping of strings (to populate the listbox with) back to factor values
+			fvals=potential_factors[open_factors[fi]];
+			charmap=[=>];
+			For(fvi=1,fvi<=NItems(fvals),fvi++,
+				charmap[Char(fvals[fvi])]=fvals[fvi];);
+			charmaps[open_factors[fi]]=charmap;
+			
+			// Make the list box
+			lb=ListBox(charmap<<GetKeys());
+			lbs[open_factors[fi]]=lb;
+			h<<append(PanelBox(open_factors[fi],lb));
+		);
+		win=New Window("Filter selection",<<Modal,
+			TextBox("Optional further filtering"),
+			VListBox(Align(Right),
+				
+				h,
+				Button Box("OK",
+					For(fi=1,fi<=NItems(potential_factors),fi++,
+						sel=lbs[open_factors[fi]]<<Get Selected();
+						If(NItems(sel),
+							fvals={};
+							For(si=1,si<=NItems(sel),si++,
+								Insert Into(fvals,charmaps[open_factors[fi]][sel[si]]););
+							listed_factors[open_factors[fi]]=fvals;
+						);
+					);
+				)););
+	);
+	Show(listed_factors);
+	
+	// Get the scalar table
+	dt=dv:GetScalarData(mgoa, listed_factors, close previous);
+
+	// Get sweeps if requested
+	include_sweeps=(Contains(checks,"include sweeps")!=0);
+	If(include_sweeps,
+		sweeptab=dv:PullSweeps(dt,mgoa),
+	// Else
+		sweeptab=0);
+	
+	EvalList({dt,sweeptab})
 );

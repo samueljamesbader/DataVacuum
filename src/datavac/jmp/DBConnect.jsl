@@ -1,47 +1,53 @@
 Names Default To Here(1); dv=:::dv;
 
-// Get the SSL rootcert path
-ADDIN_HOME = Get Path Variable("ADDIN_HOME(%ADDINID%)");
-file_path=dv:PySub("from datavac.config.project_config import PCONF; rcp=str(PCONF().cert_depo.get_ssl_rootcert_path_for_db()) or '';","rcp");
-file_path=Convert File Path(file_path,windows);
-While(Pat Match(file_path,"\","%BACKSLASH%"),1);
-While(Pat Match(file_path,"%BACKSLASH%","\\"),1);
+If(dv:DATAVACUUM_DIRECT_DB_ACCESS=="YES",
 
-// Get the connection info
-dbstring=dv:PySub("from datavac.database.db_cli import cli_print_database; cli_print_database('--only-modes','READ_ONLY');"||
-                  "print('DataVacuum Python-side DB setup');"||
-                  "from datavac.database.db_connect import get_db_connection_info as gdci;"||
-			      "dci=gdci().to_connection_string();",
-			"dci");
-conn_info=AssociativeArray();
-For each( {keqv, ind}, Words(dbstring,";"),
-	conn_info[Words(keqv,"=")[1]]=Words(keqv,"=")[2]);
-use_ssl=(conn_info["host"]!="localhost");
+    // Get the SSL rootcert path
+    ADDIN_HOME = Get Path Variable("ADDIN_HOME(%ADDINID%)");
+    file_path=dv:PySub("from datavac.config.project_config import PCONF; rcp=str(PCONF().cert_depo.get_ssl_rootcert_path_for_db()) or '';","rcp");
+    file_path=Convert File Path(file_path,windows);
+    While(Pat Match(file_path,"\","%BACKSLASH%"),1);
+    While(Pat Match(file_path,"%BACKSLASH%","\\"),1);
 
-dv:conn_str_no_pass =
-    "ODBC:DRIVER={PostgreSQL Unicode(x64)};" ||
-    "DATABASE=" || conn_info["database"] || ";" ||
-    "SERVER="   || conn_info["host"]   || ";" ||
-    "PORT="     || conn_info["port"]     || ";" ||
-    "UID="      || conn_info["username"]      || ";" ||
-    "PWD="      || "%_PWD_%"                 || ";" ||
-    If( use_ssl, "SSLmode=verify-full;", "SSLmode=disable;") ||
-    "ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;" ||
-    "ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;" ||
-    "Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;" ||
-    "Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;" ||
-    "UseServerSidePrepare=1;LowerCaseIdentifier=0;" ||
-    If( use_ssl, "pqopt={sslrootcert=" || file_path || "};", "") ||
-    "D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;";
+    // Get the connection info
+    dbstring=dv:PySub("from datavac.database.db_cli import cli_print_database; cli_print_database('--only-modes','READ_ONLY');"||
+                      "print('DataVacuum Python-side DB setup');"||
+                      "from datavac.database.db_connect import get_db_connection_info as gdci;"||
+                      "dci=gdci().to_connection_string();",
+                "dci");
+    conn_info=AssociativeArray();
+    For each( {keqv, ind}, Words(dbstring,";"),
+        conn_info[Words(keqv,"=")[1]]=Words(keqv,"=")[2]);
+    use_ssl=(conn_info["host"]!="localhost");
 
-conn_str_with_pass = dv:conn_str_no_pass;
-Pat Match(conn_str_with_pass,"%_PWD_%",conn_info["password"]);
+    dv:conn_str_no_pass =
+        "ODBC:DRIVER={PostgreSQL Unicode(x64)};" ||
+        "DATABASE=" || conn_info["database"] || ";" ||
+        "SERVER="   || conn_info["host"]   || ";" ||
+        "PORT="     || conn_info["port"]     || ";" ||
+        "UID="      || conn_info["username"]      || ";" ||
+        "PWD="      || "%_PWD_%"                 || ";" ||
+        If( use_ssl, "SSLmode=verify-full;", "SSLmode=disable;") ||
+        "ReadOnly=0;Protocol=7.4;FakeOidIndex=0;ShowOidColumn=0;RowVersioning=0;" ||
+        "ShowSystemTables=0;Fetch=100;UnknownSizes=0;MaxVarcharSize=255;MaxLongVarcharSize=8190;" ||
+        "Debug=0;CommLog=0;UseDeclareFetch=0;TextAsLongVarchar=1;UnknownsAsLongVarchar=0;BoolsAsChar=1;" ||
+        "Parse=0;LFConversion=1;UpdatableCursors=1;TrueIsMinus1=0;BI=0;ByteaAsLongVarBinary=1;" ||
+        "UseServerSidePrepare=1;LowerCaseIdentifier=0;" ||
+        If( use_ssl, "pqopt={sslrootcert=" || file_path || "};", "") ||
+        "D6=-101;OptionalErrors=0;FetchRefcursors=0;XaOpt=1;";
 
-Write("About to try connecting to DB\!N");
-New SQL Query(
-    Connection( conn_str_with_pass),
-    QueryName( "test_query" ),
-    CustomSQL("Select * from information_schema.tables;"),
-    PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
-    ) << Run Foreground();
-Write("Should now be connected to DB for %ADDINID%\!N");
+    conn_str_with_pass = dv:conn_str_no_pass;
+    Pat Match(conn_str_with_pass,"%_PWD_%",conn_info["password"]);
+
+    Write("About to try connecting to DB\!N");
+    New SQL Query(
+        Connection( conn_str_with_pass),
+        QueryName( "test_query" ),
+        CustomSQL("Select * from information_schema.tables;"),
+        PostQueryScript( "Close(Data Table(\!"test_query\!"), No Save);" )
+        ) << Run Foreground();
+    Write("Should now be connected to DB for %ADDINID%\!N");,
+
+// Else    
+    Write("DB access should go through server.\!N")
+);

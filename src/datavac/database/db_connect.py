@@ -94,6 +94,8 @@ def raw_psycopg2_connection_do(override_db:Optional[str]=None) -> Generator['psy
 def _make_engine(connection_info: PostgreSQLConnectionInfo) -> 'Engine':
     from sqlalchemy import create_engine
     from sqlalchemy.engine import URL
+    from datavac.config.project_config import PCONF
+    assert PCONF().direct_db_access, "Direct database access is not allowed in this environment"
     url=URL.create(
         drivername=connection_info.driver,
         username=connection_info.username,
@@ -107,6 +109,8 @@ def _make_engine(connection_info: PostgreSQLConnectionInfo) -> 'Engine':
 @contextmanager
 def _raw_psycopg2_connection(connection_info: PostgreSQLConnectionInfo) -> Generator['psycopg2.extensions.connection',None, None]:
     """Creates a raw psycopg2 connection using the provided connection info."""
+    from datavac.config.project_config import PCONF
+    assert PCONF().direct_db_access, "Direct database access is not allowed in this environment"
     import psycopg2
     conn = psycopg2.connect(
             dbname=connection_info.database,
@@ -161,7 +165,7 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     try: return _get_db_connection_info_from_environment(usermode)
     except KeyError as e: last_error = e
 
-    from datavac.config.project_config import PCONF, is_server
+    from datavac.config.project_config import PCONF
     from datavac.config.contexts import get_current_context_name
     
     try: return PCONF().vault.get_db_connection_info(usermode)
@@ -170,7 +174,7 @@ def get_specific_db_connection_info(usermode: DBConnectionMode = DBConnectionMod
     
     if ('local' == (get_current_context_name() or '')): raise last_error
     if ('builtin:' in (get_current_context_name() or '')): raise last_error
-    if not is_server():
+    if (not PCONF().is_server) and (PCONF().direct_db_access):
         from datavac.appserve.dvsecrets.user_side import get_secret_from_deployment
         try:
             conn_str=get_secret_from_deployment({DBConnectionMode.READ_ONLY:'readonly_dbstring',

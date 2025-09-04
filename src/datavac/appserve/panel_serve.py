@@ -3,8 +3,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from datavac.appserve.ad_auth import monkeypatch_authstaticroutes, AccessKeyDownload
-from datavac.config.project_config import is_server
+from datavac.appserve.auth import monkeypatch_authstaticroutes
 from datavac.util.dvlogging import logger
 from datavac.appserve.index import Indexer
 from datavac.util.util import import_modfunc
@@ -17,7 +16,7 @@ def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
     sc=PCONF().server_config
     theyaml: dict = sc.get_yaml()
     additional_static_dirs={k:(v['path'],v['role']) for k,v in theyaml.get('additional_static_dirs',{}).items()}
-    categorized_applications=theyaml['index']
+    categorized_applications=theyaml.get('index',{})
 
     sc.pre_serve_setup()
     for sfunc in sc.get_scheduled_functions():
@@ -82,14 +81,15 @@ def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
     monkeypatch_authstaticroutes()
     pn.config.authorize_callback = authorize
 
-    if 'shareable_secrets' in theyaml:
-        from datavac.appserve.ad_auth import SimpleSecretShare
-        extra_patterns_kwargs={'extra_patterns':[
-            ('/secretshare',SimpleSecretShare,
-             {'callers':{k:import_modfunc(v)
-                             for k,v in theyaml['shareable_secrets']['callers'].items()}}),
-            ('/context',ContextDownload),
-        ]}
+    if False: pass
+    #if 'shareable_secrets' in theyaml:
+    #   from datavac.appserve.auth import SimpleSecretShare
+    #   extra_patterns_kwargs={'extra_patterns':[
+    #       ('/secretshare',SimpleSecretShare,
+    #        {'callers':{k:import_modfunc(v)
+    #                        for k,v in theyaml['shareable_secrets']['callers'].items()}}),
+    #       ('/context',ContextDownload),
+    #   ]}
     else: extra_patterns_kwargs={'extra_patterns':[]}
     from datavac.appserve.dvsecrets.ak_server_side import APIKeyGenerator
     extra_patterns_kwargs['extra_patterns'].append(('/accesskey',APIKeyGenerator))
@@ -99,7 +99,7 @@ def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
     #extra_patterns_kwargs['extra_patterns']+=\
     #    [('/'+k,import_modfunc(v)) for k,v in theyaml.get('additional_handlers',{}).items()]
     extra_patterns_kwargs['extra_patterns']+=\
-        [('/'+k,v) for k,v in sc.get_additional_handlers().items()]
+        [(k,v) for k,v in sc.get_all_handlers().items()]
     if not len(extra_patterns_kwargs['extra_patterns']): extra_patterns_kwargs={}
     #print("\n\n\n\n")
     print("Extra Patterns kwargs",extra_patterns_kwargs)
@@ -126,7 +126,7 @@ def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
     # use_xheaders=True: https://docs.bokeh.org/en/2.4.2/docs/user_guide/server.html#reverse-proxying-with-nginx-and-ssl
     return pn.serve(
         index.slug_to_app, # type: ignore
-        **(dict(websocket_origin='*') if is_server() else {}),
+        **(dict(websocket_origin='*') if PCONF().is_server else {}),
         port=sc.port, show=False, threaded=non_blocking,
         static_dirs=additional_static_dirs, **extra_patterns_kwargs, use_xheaders=True,
         **kwargs)

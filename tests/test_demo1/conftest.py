@@ -7,6 +7,7 @@ def mock_env_demo1():
         from datavac import unload_my_imports; unload_my_imports()
         print("set up mock environment for demo1")
         yield
+        from datavac import unload_my_imports; unload_my_imports()
 
 
 @pytest.fixture(scope='package',autouse=True)

@@ -17,6 +17,9 @@ class LayoutParameters:
 
     _tables_by_meas: dict[str, pd.DataFrame] = {}
 
+    def __init__(self, force_regenerate: bool = False):
+        super().__init__()
+
     def merge_with_layout_params(self, meas_df:pd.DataFrame, for_measurement_group: MeasurementGroup,
                                  param_names: Optional[list[str]] = None, on_missing: str = 'error'):
         #structures_to_get=meas_df['Structure'].unique()
@@ -55,7 +58,7 @@ class LayoutParameters:
         return merged
 
 
-def LP():
+def LP(force_regenerate:bool=False):
     from datavac.config.data_definition import SemiDeviceDataDefinition
     from datavac.config.data_definition import DDEF
-    return cast(SemiDeviceDataDefinition,DDEF()).layout_params_func()
+    return cast(SemiDeviceDataDefinition,DDEF()).layout_params_func(force_regenerate=force_regenerate)

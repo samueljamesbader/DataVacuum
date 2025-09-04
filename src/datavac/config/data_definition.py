@@ -303,7 +303,7 @@ class DataDefinition():
 @dataclass(kw_only=True,eq=False)
 class SemiDeviceDataDefinition(DataDefinition):
 
-    layout_params_func: Callable[[],LayoutParameters] = None # type: ignore
+    layout_params_func: Callable[...,LayoutParameters] = None # type: ignore
     split_manager: SampleSplitManager = field(default_factory=lambda: DictSampleSplitManager({}))
     get_masks_func: Optional[Callable[[],dict[str,Any]]] = None
 
@@ -321,12 +321,13 @@ class SemiDeviceDataDefinition(DataDefinition):
         if self.layout_params_func is None:
             from datavac.config.layout_params import LayoutParameters
             self.layout_params_func=LayoutParameters
+        from datavac.config.sample_splits import get_flow_names
         self.sample_descriptors=FunctionLazyDict(
             getter=lambda name: SampleDescriptor(
                 name=name,
                 description=f'Sample descriptor for flow {name.split('-- ',maxsplit=1)[1]}.',
                 info_columns=self.split_manager.get_split_table_columns(name.split('-- ',maxsplit=1)[1])),
-            keylister=lambda: [f'SplitTable -- {f}' for f in self.split_manager.get_flow_names()])
+            keylister=lambda: [f'SplitTable -- {f}' for f in get_flow_names()])
         self.subsample_references = FunctionLazyDict(
             getter=lambda name: self._subsample_reference(name),
             keylister=lambda: self._subsample_reference_names())

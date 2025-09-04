@@ -31,8 +31,12 @@ def quick_read_filename(filename:Union[Path,str],extract=True,**kwargs)\
     if not (filename:=Path(filename)).is_absolute():
         filename=trove.read_dir/filename
     assert filename.exists(), f"Can't find file {str(filename)}"
-    folder=filename.parent
-    mt2mg2dat,mt2ml=trove.read(only_folders=[folder], only_file_names=[filename.name],
+    if filename.is_dir():
+        mt2mg2dat,mt2ml=trove.read(only_folders=[filename], only_file_names=None,
+                               info_already_known=kwargs, dont_recurse=True)
+    else:
+        folder=filename.parent
+        mt2mg2dat,mt2ml=trove.read(only_folders=[folder], only_file_names=[filename.name],
                                info_already_known=kwargs, dont_recurse=True)
     if extract:
         from datavac.measurements.meas_util import perform_extraction

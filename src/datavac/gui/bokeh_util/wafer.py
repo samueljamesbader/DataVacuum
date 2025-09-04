@@ -23,7 +23,7 @@ class ReloadableDataModel(DataModel):
 class Waferplot(ReloadableDataModel):
 
     selected_dielb=bokeh.core.properties.Any(default=None)
-    _diemap=NotSerialized(bokeh.core.properties.Any(default=None))
+    diemap=NotSerialized(bokeh.core.properties.Any(default=DataFrame()))
     _color=NotSerialized(bokeh.core.properties.Any(default=None))
     fig=NotSerialized(bokeh.core.properties.Any(default=None))
     source=NotSerialized(bokeh.core.properties.Any(default=None))
@@ -37,7 +37,7 @@ class Waferplot(ReloadableDataModel):
 
         if fig_kwargs is None: fig_kwargs = {}
         if cmap_kwargs is None: cmap_kwargs = {}
-        self._diemap=die_lb
+        self.diemap=die_lb
         self._color=color
 
         if source is None:
@@ -71,8 +71,8 @@ class Waferplot(ReloadableDataModel):
             ("", "@DieXY"),
         ]
         self.fig:figure = fig
-        diam=self._diemap['diameter']
-        notchsize=self._diemap.get('notchsize',5)
+        diam=self.diemap['diameter']
+        notchsize=self.diemap.get('notchsize',5)
         if self.fig is None:
             default_fig_kwargs=dict(width=100,height=100,toolbar_location=None,
                                     tooltips=TOOLTIPS,tools=("hover,tap" if allow_tap else 'hover'))
@@ -136,7 +136,7 @@ class Waferplot(ReloadableDataModel):
                          how='left', left_index=True, right_index=True))
 
     def plot(self,pre_source):
-        self.source.data=self.make_source_dict_from_pre_source(pre_source, self._diemap, [self._color])
+        self.source.data=self.make_source_dict_from_pre_source(pre_source, self.diemap, [self._color])
 
 @wraps(Waferplot.__init__)
 def waferplot(*args,**kwargs):

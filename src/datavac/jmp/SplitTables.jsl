@@ -2,10 +2,10 @@ Names Default To Here(1); dv=:::dv;
 
 dv:AttachSplitTable=Function({dt=0,flow_name=0},{Default Local},
 	// Get the full material name column
-	fmnc=dv:PySub("from datavac.util.conf import CONFIG; fmnc=CONFIG.FULL_MATNAME_COL",ret="fmnc");
+	fmnc=dv:PySub("from datavac.config.data_definition import DDEF;fmnc=DDEF().sample_identifier_column.name",ret="fmnc");
 	
 	If(flow_name==0,
-		possible_flow_names=dv:PySub("from datavac.util.conf import CONFIG; pfns=[k.split('SplitTable ')[1] for k in CONFIG['higher_analyses'] if 'SplitTable' in k];",ret="pfns");
+		possible_flow_names=dv:PySub("from datavac.config.sample_splits import get_flow_names; pfns=get_flow_names()",ret="pfns");
 		//possible_flow_names=dv:PySub("from datavac.util.conf import CONFIG; pfns=['sam','lex'];",ret="pfns");
 		Show(possible_flow_names);
 		win=Eval(Eval Expr(New Window("Flow Name",<<modal,<<return result,
@@ -24,7 +24,9 @@ dv:AttachSplitTable=Function({dt=0,flow_name=0},{Default Local},
 
 	dt = If( dt!=0, dt, Current Data Table());
 	sp_tab_name=dt<<Get Name() ||" -- " || flow_name;
-	sp=dv:QuickSQL(sp_tab_name, "select * from jmp.\!"SplitTable "||flow_name||"\!"");
+	sp=dv:PySend(flow_name,"flow_name");
+	sp=dv:PySub("from datavac.config.sample_splits import get_split_table; sp=get_split_table(flow_name);","sp");
+	sp << New Data View();
 	Column(sp,fmnc) << Set Property( "Link ID", 1);
 	path="$temp/"||(sp_tab_name) || ".jmp";
 	sp << Save(path);

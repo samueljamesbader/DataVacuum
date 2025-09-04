@@ -23,6 +23,9 @@ dependencies = [
     #pandas >= 2.1.0
     "pandas == 2.2.3",
 
+    # Apache-2.0 license, no relevant CVE risk as of 9/1/2026
+    "pyarrow == 21.0.0",   
+
     # BSD-3-Clause license, need to avoid exposing to untrusted data
     # https://www.cve.org/CVERecord/SearchResults?query=scikit-learn
     "scikit-learn ~= 1.6.1",
@@ -94,6 +97,9 @@ test = [
     "pytest",
     "pytest-dotenv",
     "pytest-env",
+]
+serverside =[
+    "pydantic"
 ]
 
 [project.scripts]

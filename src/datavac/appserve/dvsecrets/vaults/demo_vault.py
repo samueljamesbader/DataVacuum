@@ -21,3 +21,7 @@ class DemoVault(Vault):
             database=self.dbname,
             password=os.environ.get('DATAVACUUM_TEST_DB_PASS', 'insecure_default_password')
         )
+    def get_access_key_sign_seed(self) -> bytes:
+        return b'Demo'
+    def get_auth_info(self) -> dict[str,str]: 
+        return {'oauth_provider':'none'}

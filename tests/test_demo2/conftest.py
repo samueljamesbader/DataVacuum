@@ -7,3 +7,4 @@ def mock_env_demo2():
         from datavac import unload_my_imports; unload_my_imports()
         print("set up mock environment for demo2")
         yield
+        from datavac import unload_my_imports; unload_my_imports()

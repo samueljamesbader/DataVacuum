@@ -1,17 +1,25 @@
 from __future__ import annotations
+
 import functools
 import graphlib
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
+from datavac.appserve.api import client_server_split
 from datavac.config.data_definition import DDEF, HigherAnalysis
-from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
+#from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
 from datavac.util.dvlogging import time_it
 from datavac.util.util import returner_context
-from sqlalchemy import INTEGER, Connection, select, Select, Column, Table, values
+#from sqlalchemy import INTEGER, Connection, select, Select, Column, Table, values
 from datavac.measurements.measurement_group import MeasurementGroup
-from datavac.io.measurement_table import MultiUniformMeasurementTable
 
 if TYPE_CHECKING:
     import pandas as pd
+    from pandas import DataFrame
+    from sqlalchemy import Connection, Table, Column, Select
+    from datavac.io.measurement_table import MultiUniformMeasurementTable
+else:
+    # Otherwise Pydantic's validate_call won't be able to parse the types
+    Connection=Any
+    DataFrame=Any
 
 def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:list[Table],
                  table_depends:dict[Table,list[Table]], pre_filters:Mapping[str,Sequence],
@@ -30,6 +38,8 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
     Returns:
         An SQLAlchemy Select and a dictionary mapping column names to their intended pandas types
     """
+    from sqlalchemy import select
+    from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
     ts = graphlib.TopologicalSorter(table_depends)
     ordered_tables = list(ts.static_order())
 
@@ -80,6 +90,7 @@ def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, inc
             - A dictionary mapping tables to their dependencies (ie which jtables they need to be joined with).
             - A dictionary mapping tables to their join hints (ie how to join them).
         """
+        from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
         trove_name = meas_group.trove_name()
 
         table_depends={}
@@ -113,6 +124,7 @@ def get_table_depends_and_hints_for_analysis(an: HigherAnalysis)\
             - A dictionary mapping tables to their join hints (ie how to join them).
         """
 
+        from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
         table_depends={}
         table_depends[coretab:=(anlstab:=DBSTRUCT().get_higher_analysis_dbtables(an.name)['anls'])]=[]
         table_depends[         (aidttab:=DBSTRUCT().get_higher_analysis_dbtables(an.name)['aidt'])]=[coretab]
@@ -258,11 +270,13 @@ def get_data_from_meas_group(
 
     return df
 
+@client_server_split("get_sweeps_for_jmp", return_type="pd", split_on="direct_db_access")
 def get_sweeps_for_jmp(mg_name: str, loadids: list[int], measids: list[int],
-                       only_sweeps: Optional[list[str]]=None) -> pd.DataFrame:
+                       only_sweeps: Optional[list[str]]=None) -> DataFrame:
     import pandas as pd; import numpy as np
     from datavac.config.data_definition import DDEF
     from datavac.database.db_connect import get_engine_ro
+    from sqlalchemy import select, values, INTEGER, Column
     mg= DDEF().measurement_groups[mg_name]
     sweeptab=mg.dbtable('sweep')
     ids_cte=select(values(Column('loadid', INTEGER),Column('measid', INTEGER),name="lm_id_tab")\
@@ -332,10 +346,10 @@ def get_data_from_analysis(an: HigherAnalysis, scalar_columns:Optional[list[str]
         df = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
     return df
     
-
+@client_server_split(method_name="get_data", return_type='pd')
 def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
              include_sweeps: bool = False, unstack_headers: bool = False,
-             conn: Optional[Connection] = None, ensure_consistent_order:bool=False, **factors) -> pd.DataFrame:
+             conn: Optional[Connection] = None, ensure_consistent_order:bool=False, **factors) -> DataFrame:
     """Retrieves data for a given measurement group or analysis name.
     
     Args:
@@ -362,6 +376,7 @@ def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
     else:
         raise ValueError(f"Measurement group or analysis '{mg_or_an_name}' not found in data definition.")
 
+@client_server_split(method_name="get_factors", return_type='ast')
 def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:Mapping[str,Sequence]={},
                 fnc_tables:Sequence[str]=[],other_tables:Sequence[str]=[]):
     import pandas as pd

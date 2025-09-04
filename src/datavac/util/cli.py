@@ -57,9 +57,13 @@ class CLIIndex():
 def util_cli_funcs():
     from datavac.util.caching import cli_clear_local_cache
     from datavac.util.rerun_data import cli_rerun_data
+    from datavac.appserve.dvsecrets.ak_client_side import cli_refresh_access_key, cli_print_user, cli_invalidate_access_key
     return {
         'clear_cache': cli_clear_local_cache,
         'rerun_data (rd)': cli_rerun_data,
+        'refresh_access_key (rak)': cli_refresh_access_key,
+        'invalidate_access_key (iak)': cli_invalidate_access_key,
+        'print_user (pu)': cli_print_user,
     }
 
 def cli_launch_apps():

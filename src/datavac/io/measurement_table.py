@@ -1,8 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Sequence, Union
 
-import numpy as np
-import pandas as pd
 
 from datavac.util.tables import check_dtypes
 from datavac.util.dvlogging import logger
@@ -11,6 +9,8 @@ from datavac.util.util import only
 
 if TYPE_CHECKING:
     from datavac.measurements.measurement_group import MeasurementGroup
+    import numpy as np
+    import pandas as pd
 
 class MeasurementTable:
 
@@ -111,6 +111,7 @@ class NonUniformMeasurementTable(DataFrameBackedMeasurementTable):
             "NonUniformMeasurementTable can only be added to other NonUniformMeasurementTable"
         assert self.meas_group==other.meas_group,\
             f"Meas group mismatch {self.meas_group} != {other.meas_group}"
+        import pandas as pd
         return NonUniformMeasurementTable(
             pd.concat([self._dataframe,other._dataframe],ignore_index=True),
             meas_group=self.meas_group)
@@ -134,6 +135,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
                  meas_group: MeasurementGroup, meas_length: int):
         super().__init__(dataframe=dataframe, non_scalar_columns=headers,
                          meas_group=meas_group)
+        import pandas as pd
         assert isinstance(dataframe.index,pd.RangeIndex)\
                and dataframe.index.start==0 and dataframe.index.step==1, \
             "Make sure the dataframe has a default index for UniformMeasurementTable"
@@ -178,6 +180,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
             def __init__(self, umt: UniformMeasurementTable): self._umt = umt
             def __getitem__(self, item: str) -> np.ndarray:
                 assert item in self._umt.headers
+                import numpy as np
                 return np.vstack(self._umt._dataframe[item]) # type: ignore
             def __setitem__(self, item: str, value: Any):
                 raise NotImplementedError("Cannot set headers in UniformMeasurementTable")
@@ -198,6 +201,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
     def __getitem__(self, item: str)->Union[np.ndarray, pd.Series]:
         #logger.debug(f"Accessing column {item} in UniformMeasurementTable as UMT[col] is deprecated, use UMT.s[col] or UMT.h[col] instead.")
         if item in self.headers:
+            import numpy as np
             return np.vstack(self._dataframe[item]) # type: ignore
         else:
             try:
@@ -209,6 +213,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
     def __setitem__(self, item: str, value: Any):
         #logger.debug(f"Setting column {item} in UniformMeasurementTable via UMT[col] is deprecated, use UMT.s[col] or UMT.h[col] instead.")
         assert item not in self.headers
+        import pandas as pd
         if isinstance(value,pd.Series):
             assert isinstance(value.index,pd.RangeIndex) and value.index.start==0 and value.index.step==1, \
                 "Make sure the value has a default index for setting to UniformMeasurementTable"
@@ -255,6 +260,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
             # Could just assign directly instead of making a separate dataframe,
             # but when there are many header columns to add,
             # that results in highly-fragmented-data PerformanceWarnings from Pandas
+            import pandas as pd
             header_part=pd.DataFrame({col:[raw[col] for raw in read_df['RawData']] for col in headers})
             read_df=pd.concat([read_df,header_part],axis=1).drop(columns=['RawData'])
         else: headers=[]
@@ -366,11 +372,13 @@ class MultiUniformMeasurementTable(MeasurementTable):
 
     @property
     def _dataframe(self):
+        import pandas as pd
         return pd.concat([umt._dataframe.assign(rawgroup=i)
                           for i,umt in enumerate(self._umts)],ignore_index=True)
 
     @property
     def scalar_table(self):
+        import pandas as pd
         return pd.concat([umt._dataframe.drop(columns=umt.headers).assign(rawgroup=i)
                           for i,umt in enumerate(self._umts)],ignore_index=True)
 
@@ -381,6 +389,7 @@ class MultiUniformMeasurementTable(MeasurementTable):
             def __getitem__(self, item: str) -> np.ndarray:
                 assert item in (h for umt in self._mumt._umts for h in umt.headers)
                 assert len(set(umt.meas_length for umt in self._mumt._umts))==1
+                import numpy as np
                 return np.vstack(self._mumt._dataframe[item]) # type: ignore
             def __setitem__(self, item: str, value: Any):
                 raise NotImplementedError("Cannot set headers in MultiUniformMeasurementTable")
@@ -401,6 +410,7 @@ class MultiUniformMeasurementTable(MeasurementTable):
         #logger.debug(f"Getting column {item} in MultiUniformMeasurementTable via MUMT[col] is deprecated, use MUMT.s[col] or MUMT.h[col] instead.")
         if item in (h for umt in self._umts for h in umt.headers):
             assert len(set(umt.meas_length for umt in self._umts))==1
+            import numpy as np
             return np.vstack(self._dataframe[item])
         else:
             return self._dataframe[item]
@@ -409,6 +419,8 @@ class MultiUniformMeasurementTable(MeasurementTable):
         if not called_correctly:
             pass
             #logger.debug(f"Setting column {item} in MultiUniformMeasurementTable via MUMT[col] is deprecated, use MUMT.s[col] or MUMT.h[col] instead.")
+        import pandas as pd
+        import numpy as np
         istart=0
         for umt in self._umts:
             istop=istart+len(umt)
@@ -432,6 +444,8 @@ class MultiUniformMeasurementTable(MeasurementTable):
     def assign_in_place(self,**kwargs):
         #if 'pol' in kwargs:
         #    import pdb; pdb.set_trace()
+        import pandas as pd
+        import numpy as np
         evaled={}
         for c, val in kwargs.items():
             if callable(c):
@@ -490,4 +504,5 @@ class MultiUniformMeasurementTable(MeasurementTable):
             subs.append((ss:=umt.get_stacked_sweeps()))
             ss['measid']+=prev_meas_id
             prev_meas_id+=len(umt)
+        import pandas as pd
         return pd.concat(subs,ignore_index=True)

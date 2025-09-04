@@ -77,7 +77,7 @@ def sample_func() -> dict[str,dict[str,Any]]:
 
 
 class MockLayoutParams(LayoutParameters):
-    def __init__(self):
+    def __init__(self, force_regenerate:bool=False):
         import pandas as pd
         self._tables_by_meas: dict[str, pd.DataFrame] = {
             'IdVg': pd.DataFrame({

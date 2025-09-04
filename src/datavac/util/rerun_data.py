@@ -30,6 +30,11 @@ in_rerun_mode=False
 def ensure_in_rerun_mode():
     global in_rerun_mode
     if in_rerun_mode: yield
+
+    # Adding in this restriction temporarily to (1) avoid accidental use and (2) ensure connection settings (SSL args) are correct
+    from datavac.config.contexts import get_current_context_name
+    assert get_current_context_name() == "local", "Rerun data can only be done in local context"
+
     from datavac.util.dvlogging import logger
     logger.debug("Entering rerun mode, unloading imports and setting up local regtest database.")
     

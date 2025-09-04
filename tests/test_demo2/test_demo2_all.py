@@ -42,7 +42,55 @@ def test_demo2():
     #    upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg)
     #print(read_sql("""select * from vac."ReLoad_" """))
 
+def _start_server():
+    from datavac import unload_my_imports; unload_my_imports()
+    from datavac.config.project_config import PCONF
+    from datavac.examples.demo2.demo2_dvconfig import get_project_config
+    from datavac.database.db_create import ensure_clear_database, create_all
+    from datavac.appserve.panel_serve import launch
+    from datavac.appserve.dvsecrets.ak_client_side import store_demo_access_key
+    from datavac.database.db_upload_meas import read_and_enter_data
+    PCONF(get_project_config())
+    assert PCONF().direct_db_access
+    assert PCONF().is_server
+    store_demo_access_key('testuser', ['read'], other_info={'given_name': 'Test User'})
+    ensure_clear_database()
+    create_all()
+    read_and_enter_data()
+    print("Starting server")
+    server=launch()
+def test_get_indirect():
+    from multiprocessing import Process
+    p=Process(target=_start_server, daemon=True)
+    p.start()
+    import time
+    time.sleep(10) # Give the server time to start
+
+    try:
+        from datavac import unload_my_imports; unload_my_imports()
+        from datavac.config.project_config import PCONF
+        from datavac.examples.demo2.demo2_dvconfig import get_project_config
+        pc=get_project_config()
+        pc.direct_db_access=False
+        pc.is_server=False
+        PCONF(pc)
+        from datavac.database.db_get import get_data, get_factors
+        df=get_data('IdVg',**{'Structure':['nMOS1']})
+        assert len(df)==1024
+        assert get_factors('IdVg',['Structure','W [um]'])=={'Structure':{'nMOS1','nMOS2'},'W [um]': {1.0, 2.0}}
+
+        from datavac.config.sample_splits import get_flow_names, get_split_table
+        assert get_flow_names()==['MainFlow']
+        assert len(get_split_table('MainFlow'))>0
+        #print(df)
+    finally:
+        p.terminate()
+        p.join()
+    
+    
+
 if __name__ == '__main__':
     import os
     os.environ["DATAVACUUM_CONTEXT"]="builtin:demo2"
-    test_demo2()
+    #test_demo2()
+    test_get_indirect()

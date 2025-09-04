@@ -4,7 +4,7 @@ Names Default To Here( 1 ); dv=:::dv;
 // Returns a Python Connection object, initializing it if it doesn't yet exist.
 // The initialization includes JMP's Python Init(), Python Connect(), and
 // running dv:PyRefresh().  All DataVacuum code should access Python Connection
-// through this object.
+// through this object, by simply using dv:PySub() or dv:PySend().
 // Args: None
 // Returns: a Python Connection
 dv:_pc=0;
@@ -63,6 +63,17 @@ dv:PySub = Function( {code, ret=0, pc=0}, {Default Local},
 	If ( ret!=0, Eval(Eval Expr(pc << Get( Expr(ret) ))), python_error );
 );
 
+// dv:PySend()
+// Thin wrapper around the Python Send functionality
+// (which just makes sure PyConn is called first)
+// Args:
+//   val - the value to send to Python
+//   name - the name to use in Python
+dv:PySend = Function({val,name},{Default Local},
+	pc=dv:PyConn();
+	Eval(Eval Expr(Python Send( val, Python Name(Expr(name)))));
+);
+
 // dv:PullSweeps()
 // Pulls the corresponding sweep data for a main table and virtually joins it to the main
 // Args:
@@ -117,7 +128,7 @@ dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0}, {Default Local},
 
 	// Run the query in Python
 	dv:PyConn() << Send(dt,Python Name("viewdf"));
-	error=dv:PySub("sweepdf=get_sweeps_for_jmp('"||db_table_name||"',viewdf['loadid'],viewdf['measid'],only_sweeps="||headers_str||")");
+	error=dv:PySub("sweepdf=get_sweeps_for_jmp('"||db_table_name||"',list(viewdf['loadid']),list(viewdf['measid']),only_sweeps="||headers_str||")");
 	//Show(error);
 	//Show(error!=0);
 	If(!IsEmpty(error),
@@ -140,4 +151,26 @@ dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0}, {Default Local},
 	sweeptab;
 );
 
+dv:ReLogin = Function({}, {Default Local},
+	error=dv:PySub(
+	"ui=None;"||
+	"from datavac.appserve.dvsecrets.ak_client_side import "||
+		"cli_refresh_access_key as rak;\!N"||
+	"ui=rak('-lo');");
+	ui=Eval(Eval Expr(dv:PyConn()<<Get(Expr("ui"))));
+	Show(ui);
+	name=ui["unique_name"];
+	roles=Concat Items( ui["roles"], ",\!N");
+	New Window("Logged in",<<Modal, Show Menu(0),
+		TextBox("Logged in as "||name||" with roles:\!N"||roles),
+	);
+);
+
+dv:CheckAccessKey = Function({}, {Default Local},
+	dv:PySub("from datavac.appserve.dvsecrets.ak_client_side import cli_print_user as cpu;cpu()");
+);
+
+If(dv:DATAVACUUM_DIRECT_DB_ACCESS!="YES",
+	dv:CheckAccessKey();
+);
 //dv:PyRefresh();

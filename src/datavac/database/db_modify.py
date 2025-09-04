@@ -109,9 +109,10 @@ def update_analysis_tables(specific_analyses:Optional[list[str]]=None, force=Fal
     if specific_analyses is None:
         specific_analyses = list(DDEF().higher_analyses)
     all_desired_tabs = [tab for an in specific_analyses for tab in DBSTRUCT().get_higher_analysis_dbtables(an).values()]
+    all_desired_tab_names = set(tab.name for tab in all_desired_tabs)
     with get_engine_so().begin() as conn:
         db_metadata = MetaData(schema=DBSTRUCT().int_schema)
-        db_metadata.reflect(bind=conn, only=[tab.name for tab in all_desired_tabs], views=True)
+        db_metadata.reflect(bind=conn, only=(lambda tn,md:(tn in all_desired_tab_names)), views=True)
         for an_name in specific_analyses:
             desired_tabs = DBSTRUCT().get_higher_analysis_dbtables(an_name)
             if namews(desired_tabs['aidt']) in db_metadata.tables:

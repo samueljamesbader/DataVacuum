@@ -38,6 +38,10 @@ class ProjectConfiguration():
         self.CONFIG_DIR: Optional[Path] = Path(conf_path).parent if conf_path else None
         self.deployment_uri: str = os.environ.get("DATAVACUUM_DEPLOYMENT_URI","http://localhost:3000")
 
+        assert (env_iss:=os.environ.get('DATAVACUUM_IS_SERVER','NO')) in ['YES','NO']
+        self.is_server=(os.environ.get('DATAVACUUM_IS_SERVER','NO')=='YES')
+        assert (env_dda:=os.environ.get('DATAVACUUM_DIRECT_DB_ACCESS','NO')) in ['YES','NO']
+        self.direct_db_access= ('builtin:' in self.deployment_name) or self.is_server or (env_dda=='YES')
     
 _pconf: ProjectConfiguration | None = None
 def PCONF(inject_configuration:Optional[ProjectConfiguration]=None) -> ProjectConfiguration:
@@ -83,7 +87,3 @@ def PCONF(inject_configuration:Optional[ProjectConfiguration]=None) -> ProjectCo
             raise Exception(f"Module {conf_mod or conf_pth} does not have a 'get_project_config' function")
         _pconf = func()
     return _pconf
-
-def is_server() -> bool:
-    """Returns whether the project is running on a server."""
-    return os.environ.get('DATAVACUUM_IS_SERVER','False').lower() in ['true', '1', 'yes']
