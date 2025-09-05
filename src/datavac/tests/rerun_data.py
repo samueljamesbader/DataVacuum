@@ -13,7 +13,7 @@ from datavac.util.conf import CONFIG
 from datavac.util.logging import logger
 
 yaml_path = Path(os.environ['DATAVACUUM_CONFIG_DIR'])/"rerun_data.yaml"
-dbname='regtest'
+dbname='normregtest'
 os.environ['DATAVACUUM_DBSTRING']=f"Server = localhost; Port = 5432; Database = {dbname};" \
                                   f" Uid = postgres; Password = {os.environ.get('DATAVACUUM_TEST_DB_PASS','')}"
 os.environ['DATAVACUUM_DB_DRIVERNAME']="postgresql"
