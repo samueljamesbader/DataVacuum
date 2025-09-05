@@ -188,10 +188,9 @@ dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps
 	);
 	
 	// Do the post-selection for any open factors
-	potential_factors=dv:GetFactors(mgoa, open_factors, listed_factors);
-	charmaps=[=>];
-	//Show(potential_factors);
 	If(NItems(open_factors),
+		potential_factors=dv:GetFactors(mgoa, open_factors, listed_factors);
+		charmaps=[=>];
 		lbs=[=>];
 		h=HListBox();
 		For(fi=1,fi<=NItems(open_factors),fi++,

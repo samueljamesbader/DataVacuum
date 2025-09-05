@@ -94,6 +94,7 @@ class ResistorIV(IV):
         return {**super().available_extr_columns(),
                 **asnamedict(
                     DVColumn('R', 'float64','Resistance in ohm'), # TODO: Change this to 'R [ohm]'
+                    *([DVColumn('Runit', 'float', 'Resistance of a single unit in ohm')] if self.para_ser_column else []),
                     DVColumn('Imax [A]', 'float64','Maximum current in A'),
                     DVColumn('Vmax_analysis', 'float64','Maximum voltage used for analysis in V'),
                     *([DVColumn('Runit', 'float64','Resistance per unit in ohm')] if self.para_ser_column else []))}

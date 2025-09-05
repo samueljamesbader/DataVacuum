@@ -68,21 +68,15 @@ def rerun_data():
         from datavac.config.project_config import PCONF
         from datavac.util.dvlogging import logger
         from datavac.database.db_create import ensure_clear_database, create_all
-        from datavac.database.db_upload_meas import read_and_enter_data
         from datavac.database.db_get import get_data
         from datavac.config.data_definition import DDEF
         from datavac.util.util import only
-        
-        yaml_path = PCONF().CONFIG_DIR/"rerun_data.yaml" # type: ignore
-        assert yaml_path.exists(), f"rerun_data.yaml file not found at {yaml_path}"
-        with open(yaml_path, 'r') as f:
-            yaml_dict = yaml.safe_load(f)
 
         ensure_clear_database()
         create_all()
         #assert only(DDEF().troves.keys()) =='', "Multi-trove not implemented yet for rerun_data"
-        for ud in yaml_dict['regression_data']['uploads']:
-            read_and_enter_data(**ud)
+        yaml_dict=do_the_rerun_uploads(confirm=False)
+
         PCONF().RERUN_DIR.mkdir(exist_ok=True,parents=False)
         destfile=PCONF().RERUN_DIR/(datetime.datetime.now().strftime(timefmt)+".pkl")
         dat={mgoa:get_data(mgoa,ensure_consistent_order=True)
@@ -93,6 +87,27 @@ def rerun_data():
             pickle.dump({'data':dat,'metadata':metadat},f)
         logger.debug(f"Data rerun and saved to {destfile}")
         return dat
+    
+def do_the_rerun_uploads(confirm=True):
+        from datavac.database.db_upload_meas import read_and_enter_data
+        from datavac.config.project_config import PCONF
+
+        if confirm:
+            from datavac.config.contexts import get_current_context_name
+            cc=get_current_context_name()
+            ans=input(f"WARNING: You are about to upload data to the '{cc}' database context, not run regression testing.  Are you sure? (y/n) ")
+            if ans.lower() != 'y':
+                print("Aborting.")
+                return
+        
+        yaml_path = PCONF().CONFIG_DIR/"rerun_data.yaml" # type: ignore
+        assert yaml_path.exists(), f"rerun_data.yaml file not found at {yaml_path}"
+        with open(yaml_path, 'r') as f:
+            yaml_dict = yaml.safe_load(f)
+        for ud in yaml_dict['regression_data']['uploads']:
+            read_and_enter_data(**ud)
+        return yaml_dict
+
 
 def _open_rerun_data_file(filename: Optional[Union[str,Path]] = None):
     from datavac.util.dvlogging import logger
@@ -195,11 +210,16 @@ def cli_rerun_data(*args):
     import argparse
     parser = argparse.ArgumentParser(description='Rerun data and compare to golden data')
     parser.add_argument('-dc','--dont-compare', action='store_true', help='Skip comparing data to golden')
+    parser.add_argument('-cc','--current-context', action='store_true', help='Just upload to the current db instead of forcing local/regtest.'\
+                                '  Not for regression testing, doesn\'t output a rerun dir, just a convenience for development.')
     args = parser.parse_args(args)
 
-    dat=rerun_data()
-    if not args.dont_compare:
-        compare_data(dat,'Golden')
+    if args.current_context:
+        do_the_rerun_uploads()
+    else:
+        dat=rerun_data()
+        if not args.dont_compare:
+            compare_data(dat,'Golden')
 
 #compare_data(rerun_data(),'Golden')
 
