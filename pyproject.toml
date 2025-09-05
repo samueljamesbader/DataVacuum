@@ -11,7 +11,7 @@ authors = [
 description = "Data analysis, flow, and visualization for semiconductor research projects"
 readme = "README.md"
 
-requires-python = ">=3.11.1"
+requires-python = ">=3.13.1"
 
 dependencies = [
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
