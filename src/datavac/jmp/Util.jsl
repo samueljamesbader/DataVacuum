@@ -165,7 +165,7 @@ dv:GetScalarData = Function({mgoa, factors = [=>0], close previous = 1},{error, 
 	dt
 );
 
-dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps","attach splits"}},{Default Local},	
+dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps","attach splits"}}, {Default Local},	
 
 	// Split the factors into "listed_factors" for which the caller has provided a list of options
 	// and "open_factors" for which the caller has provided "?" so we should ask by GUI
