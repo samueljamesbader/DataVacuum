@@ -24,6 +24,7 @@ dv:AttachSplitTable=Function({dt=0,flow_name=0},{Default Local},
 
 	dt = If( dt!=0, dt, Current Data Table());
 	sp_tab_name=dt<<Get Name() ||" -- " || flow_name;
+		Try(Close(DataTable(sp_tab_name),No Save), "No issue");
 	sp=dv:PySend(flow_name,"flow_name");
 	sp=dv:PySub("from datavac.config.sample_splits import get_split_table; sp=get_split_table(flow_name);","sp");
 	sp << New Data View();

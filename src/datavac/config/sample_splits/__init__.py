@@ -114,9 +114,17 @@ class DictSampleSplitManager(SampleSplitManager):
 @client_server_split('get_flow_names', return_type='ast', split_on='is_server')
 def get_flow_names(*args,**kwargs) -> list[str]:
     from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
-    return cast(SemiDeviceDataDefinition,DDEF()).split_manager._get_flow_names(*args,**kwargs)
+    sm=cast(SemiDeviceDataDefinition,DDEF()).split_manager
+    # temp fix to caching issue, stop caching TODO: remove when fixed properly
+    sm._cached_external_flow_names= None
+    sm._cached_database_flow_names= None
+    return sm._get_flow_names(*args,**kwargs)
 
 @client_server_split('get_split_table', return_type='pd', split_on='is_server')
 def get_split_table(*args,**kwargs) -> DataFrame:
     from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
-    return cast(SemiDeviceDataDefinition,DDEF()).split_manager._get_split_table(*args,**kwargs)
+    sm=cast(SemiDeviceDataDefinition,DDEF()).split_manager
+    # temp fix to caching issue, stop caching TODO: remove when fixed properly
+    sm._cached_external_split_tables= {}
+    sm._cached_database_split_tables= {}
+    return sm._get_split_table(*args,**kwargs)

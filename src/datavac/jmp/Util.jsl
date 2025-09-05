@@ -165,7 +165,7 @@ dv:GetScalarData = Function({mgoa, factors = [=>0], close previous = 1},{error, 
 	dt
 );
 
-dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps"}, close previous = 1},{Default Local},	
+dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps","attach splits"}},{Default Local},	
 
 	// Split the factors into "listed_factors" for which the caller has provided a list of options
 	// and "open_factors" for which the caller has provided "?" so we should ask by GUI
@@ -227,7 +227,7 @@ dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps
 	Show(listed_factors);
 	
 	// Get the scalar table
-	dt=dv:GetScalarData(mgoa, listed_factors, close previous);
+	dt=dv:GetScalarData(mgoa, listed_factors, 1);
 
 	// Get sweeps if requested
 	include_sweeps=(Contains(checks,"include sweeps")!=0);
@@ -235,6 +235,12 @@ dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps
 		sweeptab=dv:PullSweeps(dt,mgoa),
 	// Else
 		sweeptab=0);
+	
+	// Attach splits if requested	
+	attach_splits=(Contains(checks,"attach splits")!=0);
+	If(attach_splits,
+		dv:AttachSplitTable(dt);
+	);
 	
 	EvalList({dt,sweeptab})
 );

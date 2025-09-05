@@ -97,6 +97,8 @@ test = [
     "pytest",
     "pytest-dotenv",
     "pytest-env",
+    "playwright",
+    "pytest-playwright",
 ]
 serverside =[
     "pydantic"
