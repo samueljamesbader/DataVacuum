@@ -126,7 +126,8 @@ def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
     # use_xheaders=True: https://docs.bokeh.org/en/2.4.2/docs/user_guide/server.html#reverse-proxying-with-nginx-and-ssl
     return pn.serve(
         index.slug_to_app, # type: ignore
-        **(dict(websocket_origin='*') if PCONF().is_server else {}),
+        #**(dict(websocket_origin='*') if PCONF().is_server else {}),
+        websocket_origin=PCONF().deployment_uri.replace("https://","").replace("http://",""), 
         port=sc.port, show=False, threaded=non_blocking,
         static_dirs=additional_static_dirs, **extra_patterns_kwargs, use_xheaders=True,
         **kwargs)
