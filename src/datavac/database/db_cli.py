@@ -144,7 +144,7 @@ DB_CLI = CLIIndex({
     #'force': cli_force_database,
     'create': cli_create_all,
     'clear': cli_ensure_clear_database,
-    'upload (ud)': cli_read_and_enter_data,
+    'upload-data (ud)': cli_read_and_enter_data,
     'update-layout-params (ulp)': cli_update_layout_params,
     'update-measurement-groups (umg)': cli_update_measurement_groups,
     'update-analysis-tables (uat)': cli_update_analysis_tables,

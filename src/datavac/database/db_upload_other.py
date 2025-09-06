@@ -1,4 +1,5 @@
-from typing import Optional
+from __future__ import annotations
+from typing import Optional, TYPE_CHECKING
 from datavac.config.data_definition import HigherAnalysis
 from datavac.database.db_upload_meas import enter_sample
 from datavac.measurements.measurement_group import MeasurementGroup
@@ -6,7 +7,9 @@ import pandas as pd
 from datavac.database.db_util import namewsq
 from datavac.util.dvlogging import logger
 from datavac.util.util import returner_context
-from sqlalchemy import Connection, delete, select
+
+if TYPE_CHECKING:
+    from sqlalchemy import Connection
 
 
 def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional[Connection] = None,
@@ -22,7 +25,8 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
     from datavac.config.project_config import PCONF
     from datavac.database.db_structure import DBSTRUCT
     from datavac.config.data_definition import DDEF
-    from sqlalchemy import text
+    from sqlalchemy import text, delete
+    from sqlalchemy.schema import CreateTable, DropTable
     from datavac.database.db_connect import get_engine_rw, get_engine_so
     from datavac.database.db_create import create_meas_group_view, create_analysis_view
     ssr = PCONF().data_definition.subsample_references[ssr_name]
@@ -30,13 +34,20 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
     with (returner_context(conn) if conn else get_engine_rw().begin()) as conn: 
 
         # Load the data into a temporary table and check if it is different
-        conn.execute(text(f'CREATE TEMP TABLE tmplay (LIKE {namewsq(ssrtab)});'))
+        create_temp_table="CREATE TEMP TABLE tmplay ("+str(CreateTable(ssrtab).compile(conn)).split("\" (",maxsplit=1)[1]+";"
+        table_cols_same=(conn.execute(text(create_temp_table+\
+            "WITH A AS (SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = 'tmplay'), "\
+            "B AS (SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = :tblname) "\
+            "SELECT CASE WHEN EXISTS (SELECT * FROM A EXCEPT SELECT * FROM B) OR EXISTS (SELECT * FROM B EXCEPT SELECT * FROM A) "\
+            "THEN 'different' ELSE 'same' END AS result ;").bindparams(tblname=ssr_name)).all()[0][0] == 'same')
+        if not table_cols_same: logger.debug(f"Column structure changed for {ssr_name}, updating")
         upload_csv(data, conn, None, 'tmplay')
-        if conn.execute(text(
+        if table_cols_same and conn.execute(text(
             f'''SELECT CASE WHEN EXISTS (TABLE {namewsq(ssrtab)} EXCEPT TABLE tmplay)
               OR EXISTS (TABLE tmplay EXCEPT TABLE {namewsq(ssrtab)})
             THEN 'different' ELSE 'same' END AS result ;''')).all()[0][0] == 'same':
             logger.debug(f"Content unchanged for {ssr_name}")
+            conn.execute(text(f'DROP TABLE tmplay;'))
 
         # If the content has changed, we need to update the table
         else:
@@ -67,19 +78,27 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
                                       f' ADD CONSTRAINT "fk_{ssr.key_column.name} -- {mgoa.name}" FOREIGN KEY ("{ssr.key_column.name}")' \
                                       f' REFERENCES {namewsq(ssrtab)} ("{ssr.key_column.name}") ON DELETE CASCADE;')
                     
+            all_statements=[]
+
             # Remove foreign key constraints
-            if len(removal_statements):
-                conn.execute(text(';\n'.join(removal_statements)))
+            all_statements+=removal_statements
 
             # Bring in the new table
-            conn.execute(delete(ssrtab))
-            conn.execute(text(f'INSERT INTO {namewsq(ssrtab)} SELECT * from tmplay;'))
+            if table_cols_same:
+                all_statements.append(str(delete(ssrtab).compile(conn)))
+            else:
+                all_statements.append(str(DropTable(ssrtab).compile(conn))+" CASCADE")
+                all_statements.append(str(CreateTable(ssrtab).compile(conn)))
+            all_statements.append(f'INSERT INTO {namewsq(ssrtab)} SELECT * from tmplay;')
 
             # Recreate foreign key constraints
-            if len(removal_statements):
-                conn.execute(text(';\n'.join(readdit_statements+mg_views_to_recreate+an_views_to_recreate)))
+            all_statements+=readdit_statements
+            all_statements+=mg_views_to_recreate
+            all_statements+=an_views_to_recreate
 
-        conn.execute(text(f'DROP TABLE tmplay;'))
+            # Execute all statements in a single transaction
+            all_statements.append(f'DROP TABLE tmplay;')
+            conn.execute(text(";".join(all_statements)))
 
 
 def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Connection] = None, clear_all_previous: bool = False):
@@ -96,6 +115,7 @@ def upload_sample_descriptor(sd_name:str, data: pd.DataFrame, conn: Optional[Con
     from datavac.config.project_config import PCONF
     from datavac.config.data_definition import DDEF
     from datavac.database.db_connect import get_engine_rw
+    from sqlalchemy import select, delete
     sampletab=DBSTRUCT().get_sample_dbtable()
     sdtab=DBSTRUCT().get_sample_descriptor_dbtable(sd_name)
     samplename_col=PCONF().data_definition.sample_identifier_column.name
