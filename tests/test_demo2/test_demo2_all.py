@@ -46,25 +46,25 @@ def _start_server():
     from datavac import unload_my_imports; unload_my_imports()
     from datavac.config.project_config import PCONF
     from datavac.examples.demo2.demo2_dvconfig import get_project_config
-    from datavac.database.db_create import ensure_clear_database, create_all
     from datavac.appserve.panel_serve import launch
-    from datavac.appserve.dvsecrets.ak_client_side import store_demo_access_key
-    from datavac.database.db_upload_meas import read_and_enter_data
     PCONF(get_project_config())
     assert PCONF().direct_db_access
     assert PCONF().is_server
-    store_demo_access_key('testuser', ['read'], other_info={'given_name': 'Test User'})
-    ensure_clear_database()
-    create_all()
-    read_and_enter_data()
-    print("Starting server")
     server=launch()
 def test_get_indirect():
     from multiprocessing import Process
     p=Process(target=_start_server, daemon=True)
     p.start()
+    from datavac.database.db_create import ensure_clear_database, create_all
+    from datavac.appserve.dvsecrets.ak_client_side import store_demo_access_key
+    from datavac.database.db_upload_meas import read_and_enter_data
+    store_demo_access_key('testuser', ['read'], other_info={'given_name': 'Test User'})
+    ensure_clear_database()
+    create_all()
+    read_and_enter_data()
+    print("Starting server")
     import time
-    time.sleep(10) # Give the server time to start
+    time.sleep(3) # Give the server time to start
 
     try:
         from datavac import unload_my_imports; unload_my_imports()
