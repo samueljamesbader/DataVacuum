@@ -13,6 +13,14 @@ dv:GetLots=Function({mgoa, pre_filters=[=>]}, {Default Local},
 	factors["Lot"]
 );
 
+dv:GetAvailableTables=Function({},{Default Local},
+	dv:PySub("from datavac.database.db_get import get_mgoa_names as gmn; mn=gmn();",ret="mn");
+);
+dv:GetFactorNames=Function({mgoa_name},{Default Local},
+	dv:PySend(mgoa_name,"mgoa");
+	dv:PySub("from datavac.database.db_get import get_available_columns as gac; ac=gac(mgoa);",ret="ac");
+);
+
 dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0, pre_filters=[=>]},{Default Local},
 	// Asks the user to choose a lot and returns it
 	// Args:
@@ -165,7 +173,31 @@ dv:GetScalarData = Function({mgoa, factors = [=>0], close previous = 1},{error, 
 	dt
 );
 
-dv:GetDataWithLotGui = Function({mgoa, factors = [=>], checks = {"include sweeps","attach splits"}}, {Default Local},	
+dv:GetDataWithLotGui = Function({mgoa="?", factors = [=>],
+						checks = {"include sweeps","attach splits"}}, {Default Local},	
+
+	// If the user does not give a measurement group, ask
+	If(mgoa=="?",
+		win=New Window("Which Table?",<<Modal,<<Return Result,
+			mgoalb=ListBox(dv:GetAvailableTables(),maxSelected(1)),
+		);
+		mgoa_possibles=win["mgoalb"];
+		If(NItems(mgoa_possibles)==0,
+			Throw("No table selected");
+		,
+			mgoa=win["mgoalb"][1];);
+	);
+	
+	If(factors=="?",
+		win=New Window("Additional filters?",<<Modal,<<Return Result,
+			factorlb=ListBox(dv:GetFactorNames(mgoa)),
+		);
+		open_factors=win["factorlb"];
+		factors=[=>];
+		For(fi=1, fi<=NItems(open_factors), fi++,
+			factors[open_factors[fi]]="?";
+		);
+	);
 
 	// Split the factors into "listed_factors" for which the caller has provided a list of options
 	// and "open_factors" for which the caller has provided "?" so we should ask by GUI

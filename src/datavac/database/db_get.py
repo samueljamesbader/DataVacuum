@@ -348,7 +348,7 @@ def get_data_from_analysis(an: HigherAnalysis, scalar_columns:Optional[list[str]
     
 @client_server_split(method_name="get_data", return_type='pd')
 def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
-             include_sweeps: bool = False, unstack_headers: bool = False,
+             include_sweeps: bool|list[str] = False, unstack_headers: bool = False,
              conn: Optional[Connection] = None, ensure_consistent_order:bool=False, **factors) -> DataFrame:
     """Retrieves data for a given measurement group or analysis name.
     
@@ -426,3 +426,27 @@ def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:M
             records=pd.read_sql(query,conn)
     if not len(records): return {f:set() for f in factor_names}
     else: return {f:set(records.loc[records[f'ind___{f}'].notna(),f]) for f in factor_names}
+
+@client_server_split(method_name="get_mgoa_names", return_type='ast')
+def get_mgoa_names():
+    return sorted(list(DDEF().measurement_groups.keys()) + list(DDEF().higher_analyses.keys()))
+
+@client_server_split(method_name="get_available_columns", return_type='ast', split_on="direct_db_access")
+def get_available_columns(mgoa_name: str) -> list[str]:
+
+    # Get the relevant table dependencies and join hints
+    if mgoa_name in DDEF().measurement_groups:
+        mg=DDEF().measurement_groups[mgoa_name]
+        coretab=mg.dbtable('meas')
+        td, jh = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False)
+    elif mgoa_name in DDEF().higher_analyses:
+        an=DDEF().higher_analyses[mgoa_name]
+        coretab=an.dbtables('aidt')
+        td, jh = get_table_depends_and_hints_for_analysis(an)
+    else:
+        raise ValueError(f"Measurement group or analysis '{mgoa_name}' not found in data definition.")
+    
+    # Define a select with the pre_filtered data and set it up as a CTE named tmp
+    sel, dtypes = joined_select_from_dependencies(None,
+                    absolute_needs=[coretab], table_depends=td, pre_filters={}, join_hints=jh)
+    return list(sorted(sel.selected_columns.keys()))

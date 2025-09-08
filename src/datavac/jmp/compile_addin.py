@@ -187,6 +187,12 @@ def cli_compile_jmp_addin(*args):
                 'text': f'dv:AttachSplitTable();',
                 'icon':None
             },
+            {
+                'name':'Get Data',
+                'tip':'Get data from DataVacuum',
+                'text': f'dv:GetDataWithLotGui("?","?");',
+                'icon':None
+            }
         ]
         menus=[
             *([{

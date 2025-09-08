@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional, cast
 
 
 if TYPE_CHECKING:
@@ -24,6 +24,8 @@ class ServerConfig:
         '/api/get_user': None,
         '/api/get_flow_names': 'read',
         '/api/get_split_table': 'read',
+        '/api/get_mgoa_names': 'read',
+        '/api/get_available_columns': 'read',
         })
     access_key_expiry_days:float = 14
 
@@ -38,10 +40,11 @@ class ServerConfig:
 
     @property
     def potential_api_funcs(self) -> list[RoutedCallable]:
-        from datavac.database.db_get import get_data, get_factors, get_sweeps_for_jmp
+        from datavac.database.db_get import get_data, get_factors, get_sweeps_for_jmp, get_mgoa_names, get_available_columns
         from datavac.appserve.dvsecrets.ak_client_side import get_user
         from datavac.config.sample_splits import get_flow_names, get_split_table
-        return [get_data, get_factors, get_user, get_sweeps_for_jmp, get_flow_names, get_split_table]
+        return [get_data, get_factors, get_user, get_sweeps_for_jmp, get_flow_names, get_split_table,
+                get_mgoa_names, get_available_columns]
 
     @property
     def api_funcs_and_roles(self) -> dict[RoutedCallable,str|None]:
@@ -50,7 +53,12 @@ class ServerConfig:
                                for f in self.potential_api_funcs if f.route in self.api_roles}
 
     def get_additional_handlers(self) -> dict[str, type[RequestHandler]]:
-        return {}
+        from datavac.util.util import import_modfunc
+        from datavac.config.contexts import get_context_download_request_handler
+        from tornado.web import RequestHandler
+        ah={route:cast(type[RequestHandler],import_modfunc(handler)) for route,handler in self.get_yaml().get("additional_handlers",{}).items()}
+        ah['/context']=get_context_download_request_handler()
+        return ah
     
     def get_all_handlers(self) -> dict[str, type[RequestHandler]]:
         from datavac.config.project_config import PCONF

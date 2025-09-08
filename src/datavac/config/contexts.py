@@ -1,4 +1,5 @@
-
+from __future__ import annotations
+from typing import TYPE_CHECKING
 import argparse
 from functools import cache
 import os
@@ -9,6 +10,9 @@ import warnings
 from datavac.util.cli import CLIIndex
 from dotenv import load_dotenv
 import platformdirs
+
+if TYPE_CHECKING:
+    from tornado.web import RequestHandler
 
 @cache
 def get_current_context_name():
@@ -176,6 +180,21 @@ def cli_context_edit(*args):
         with open(context_file,'w') as f:
             f.write("\n".join(context_contents))
 
+def get_context_download_request_handler() -> type[RequestHandler]:
+    import datetime
+    from tornado.web import RequestHandler
+    class ContextDownload(RequestHandler):
+        def get(self):
+            from datavac.config.project_config import PCONF
+            depname=PCONF().deployment_name
+            self.set_header('Content-Disposition', f'attachment; filename={depname}.dvcontext.env')
+            self.write(f"# Context file for '{depname}'\n")
+            self.write(f"# Downloaded {datetime.datetime.now()}\n")
+            for name,val in [('DATAVACUUM_DEPLOYMENT_NAME',depname),
+                             ('DATAVACUUM_DEPLOYMENT_URI',PCONF().deployment_uri),
+                             ('DATAVACUUM_CONFIG_MODULE', os.environ['DATAVACUUM_CONFIG_MODULE'])]:
+                self.write(f"{name}={val}\n")
+    return ContextDownload
 
 CONTEXT_CLI = CLIIndex({
     'list':cli_context_list,

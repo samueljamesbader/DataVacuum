@@ -132,18 +132,6 @@ def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
         static_dirs=additional_static_dirs, **extra_patterns_kwargs, use_xheaders=True,
         **kwargs)
 
-from tornado.web import RequestHandler
-class ContextDownload(RequestHandler):
-    def get(self):
-        from datavac.config.project_config import PCONF
-        depname=PCONF().deployment_name
-        self.set_header('Content-Disposition', f'attachment; filename={depname}.dvcontext.env')
-        self.write(f"# Context file for '{depname}'\n")
-        self.write(f"# Downloaded {datetime.datetime.now()}\n")
-        for name,val in [('DATAVACUUM_DEPLOYMENT_NAME',depname),
-                         ('DATAVACUUM_DEPLOYMENT_URI',PCONF().deployment_uri),
-                         ('DATAVACUUM_CONFIG_MODULE', os.environ['DATAVACUUM_CONFIG_MODULE'])],:
-            self.write(f"{name}={val}\n")
 
 if __name__=='__main__':
     launch()
