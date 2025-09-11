@@ -162,7 +162,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         if self.vgoff is not None:
             ind0=np.argmax(VG1d==self.vgoff)
             if not VG1d[ind0]==self.vgoff:
-                logger.warning(f"Must be an exactly {self.vgoff} entry in VG, no tol for this")
+                #logger.warning(f"Must be an exactly {self.vgoff} entry in VG, no tol for this")
                 ind0=False
         else: ind0=False
         #indons={}
@@ -227,7 +227,8 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
-        sstartlin=1e3/invswing_lin[:,0]; sstartlin[sstartlin<0]=np.nan
+        with np.errstate(divide='ignore', invalid='ignore'):
+            sstartlin=1e3/invswing_lin[:,0]; sstartlin[sstartlin<0]=np.nan
         measurements['SSstart_lin [mV/dec]']=sstartlin
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
