@@ -73,9 +73,13 @@ def ensure_clear_database():
 
 def _setup_foundation(conn:Connection):
     """Set up the foundation of the database, including schemas and the blob store table."""
+
+    # Get the usernames for the different roles
     ro_user=get_db_connection_info(DBConnectionMode.READ_ONLY).username
     rw_user=get_db_connection_info(DBConnectionMode.READ_WRITE).username
     so_user=get_db_connection_info(DBConnectionMode.SCHEMA_OWNER).username
+
+    # Make fresh and ensure good default permissions
     make_schemas=" ".join([f"CREATE SCHEMA IF NOT EXISTS {schema}; " \
                            f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO PUBLIC; " \
                            f"GRANT USAGE ON SCHEMA {schema} TO PUBLIC; " \
@@ -86,12 +90,25 @@ def _setup_foundation(conn:Connection):
                            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT ALL PRIVILEGES ON SEQUENCES TO {so_user}; "\
                            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO {ro_user}; "
                            for schema in [DBSTRUCT().int_schema,DBSTRUCT().jmp_schema]])
+    
+    # Handle privleges on any pre-existing tables
+    update_schemas=" ".join([f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {rw_user}; "\
+                             f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA {schema} TO {rw_user}; "\
+                             f"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA {schema} TO {so_user}; "\
+                             f"GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {schema} TO {so_user}; "\
+                             f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {ro_user}; "
+                             for schema in [DBSTRUCT().int_schema,DBSTRUCT().jmp_schema]])
+
+    # Set the search path to the internal schema               
     set_search_path = f"SET SEARCH_PATH={DBSTRUCT().int_schema};"
     from sqlalchemy.schema import CreateTable
+
+    # Ensure blob store table exists
     create_blob_store = str(CreateTable(DBSTRUCT().get_blob_store_dbtable()).compile(conn))\
         .replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")
 
-    conn.execute(text(make_schemas+set_search_path+create_blob_store))
+    # Execute all the setup commands
+    conn.execute(text(make_schemas+update_schemas+set_search_path+create_blob_store))
 
 def create_meas_group_view(mg_name: str, conn: Optional[Connection]=None, just_DDL_string: bool = False) -> str:
     from datavac.database.db_get import get_table_depends_and_hints_for_meas_group, joined_select_from_dependencies
