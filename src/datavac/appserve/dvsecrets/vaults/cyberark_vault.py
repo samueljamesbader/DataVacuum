@@ -113,7 +113,11 @@ class CyberArkVault(Vault):
 
 def _raw_get_vault_response_text(api_url:str, appid:str, safe: str, account_name: str) -> str:
     import requests
-    from requests_kerberos import HTTPKerberosAuth
+    try:
+        from requests_kerberos import HTTPKerberosAuth
+    except ImportError:
+        raise ImportError("requests-kerberos is required for CyberArk vault access."\
+                          "  Please install it via 'pip install requests-kerberos' or by datavacuum's [kerberos_clientside] option.")
     req=f"{api_url}/Accounts?AppID={appid}&Safe={safe}&Object={account_name}"
     with time_it(f"Vault request for {account_name}"):
         result=requests.get(req, auth=HTTPKerberosAuth(),
