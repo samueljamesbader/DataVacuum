@@ -161,12 +161,12 @@ def heal(trove_names:Optional[list[str]]=None):
         if not len(pd_relo): logger.debug(f"No reloads required")
         else:
             for lgval, grp in pd_relo.groupby(load_grouping):
-                meas_groups = list(grp['MeasGroup'].unique())
+                meas_groups = grp['MeasGroup'].unique().tolist()
                 logger.debug(f"Healing for {load_grouping}={lgval}, measurement groups {meas_groups}")
                 if load_grouping == DDEF().SAMPLE_COLNAME:
                     sampleload_info: dict[str,Any] = {load_grouping: [lgval]}
                 else:
-                    sampleload_info: dict[str,Any] = {load_grouping: [lgval], DDEF().SAMPLE_COLNAME: list(grp['sampleid'].unique())}
+                    sampleload_info: dict[str,Any] = {load_grouping: [lgval], DDEF().SAMPLE_COLNAME: grp[DDEF().SAMPLE_COLNAME].unique().tolist()}
                 read_and_enter_data(trove_names=[trove.name],only_meas_groups=meas_groups,only_sampleload_info=sampleload_info)
         logger.debug(f"Done with reloads")
 
@@ -182,7 +182,7 @@ def heal(trove_names:Optional[list[str]]=None):
                 sample_info = {c.name: only(grp[c.name].unique()) for c in sampletab.c if c.name!='sampleid'}
                 with get_engine_rw().begin() as conn:
                     data_by_mg,mg_to_loadid=perform_and_enter_extraction(trove=trove, samplename=samplename,
-                        only_meas_groups=list(grp['MeasGroup'].unique()),conn=conn)
+                        only_meas_groups=grp['MeasGroup'].unique().tolist(),conn=conn)
                     needed_analyses = list(set(an.name for mg in data_by_mg
                                               for an in DDEF().get_meas_groups_dependent_graph()[DDEF().measurement_groups[mg]]
                                                 if isinstance(an, HigherAnalysis)))
@@ -198,7 +198,7 @@ def heal(trove_names:Optional[list[str]]=None):
             for samplename, grp in pd_rean.groupby(DDEF().SAMPLE_COLNAME):
                 logger.debug(f"Re-analyzing {samplename} for {grp['Analysis'].unique()}")
                 sample_info = {c.name: only(grp[c.name].unique()) for c in sampletab.c if c.name!='sampleid'}
-                analyses = list(grp['Analysis'].unique())
+                analyses = grp['Analysis'].unique().tolist()
                 perform_and_enter_analysis(sample_info=sample_info, only_analyses=analyses)
             
 def run_new_analysis(an_name: str):
