@@ -304,7 +304,7 @@ class DataDefinition():
 class SemiDeviceDataDefinition(DataDefinition):
 
     layout_params_func: Callable[...,LayoutParameters] = None # type: ignore
-    split_manager: SampleSplitManager = field(default_factory=lambda: DictSampleSplitManager({}))
+    split_manager: SampleSplitManager = field(default_factory=lambda: DictSampleSplitManager())
     get_masks_func: Optional[Callable[[],dict[str,Any]]] = None
 
     sample_references: dict[str,SampleReference]\

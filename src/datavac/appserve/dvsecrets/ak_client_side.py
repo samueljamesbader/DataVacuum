@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 @contextmanager
 def prepare_to_receive_key(callback: Callable):
     import http.server
-    receiver_port = 3001
+    receiver_port = 8099
     class APIKeyReceiver(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             try:

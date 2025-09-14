@@ -123,7 +123,7 @@ def cli_context_install(*args):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore",category=InsecureRequestWarning)
         res=requests.get(namespace.url+"/context",verify=(namespace.cert or False))
-    assert res.status_code==200, f"Failed to download context from {namespace.url}"
+    assert res.status_code==200, f"Failed to download context from {namespace.url}: {res.status_code} {res.text}"
 
     filepath=CONTEXT_PATH/res.headers['Content-Disposition'].split("filename=")[1]
     with open(filepath,'wb') as f:
@@ -196,9 +196,27 @@ def get_context_download_request_handler() -> type[RequestHandler]:
                 self.write(f"{name}={val}\n")
     return ContextDownload
 
+def cli_context_show(*args):
+    parser=argparse.ArgumentParser(description='Show the current context file')
+    namespace=parser.parse_args(args)
+    context_name=get_current_context_name()
+    if context_name is None:
+        print("No context selected")
+        return
+    if context_name.startswith('builtin:'):
+        print(f"Builtin context {context_name}, no file to show")
+        return
+    context_file=CONTEXT_PATH/f"{context_name}.dvcontext.env"
+    assert context_file.exists(), f"Context file {context_file} not found"
+    print(f"Context file: {context_file}")
+    print("--------------------")
+    with open(context_file,'r') as f:
+        print(f.read())
+
 CONTEXT_CLI = CLIIndex({
     'list':cli_context_list,
     'use':cli_context_use,
     'install':cli_context_install,
     'edit': cli_context_edit,
+    'show': cli_context_show,
 })
