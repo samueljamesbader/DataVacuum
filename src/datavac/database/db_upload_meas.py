@@ -103,6 +103,27 @@ def delete_prior_loads(trove: Trove, sample_info: Optional[dict[str,Any]],
     # Execute it all
     conn.execute(statement)
 
+def _upload_binary_helper(sstab: pd.DataFrame, mg_name: str, loadid: int, conn: Connection):
+    if len(sstab):
+
+        import numpy as np
+        def sweep_to_bytes(s: np.ndarray) -> bytes:
+            """Convert a sweep to bytes, handling both float32 and 'onestring' types."""
+            if s.dtype != np.float32:
+                raise TypeError(f"Sweep data type {s.dtype} for {mg_name} is not supported. Only float32 is supported.")
+            return s.tobytes()
+
+        # This part is to handle the deprecated ONESTRING
+        from datavac.database.postgresql_binary_format import pd_to_pg_converters
+        sweepconv=(pd_to_pg_converters['STRING']) \
+            if (hasattr(mg_name,'ONESTRING') and mg_name.ONESTRING) else sweep_to_bytes # type: ignore
+        # Convert to the appropriate format and upload
+        upload_binary(
+            sstab.assign(loadid=loadid)[['loadid','measid','sweep','header','israw']],
+            conn,DBSTRUCT().int_schema,DBSTRUCT().get_measurement_group_dbtables(mg_name)['sweep'].name,
+            override_converters={'sweep':sweepconv,'header':pd_to_pg_converters['STRING']}
+        )
+
 def upload_measurement(trove: Trove, sampleload_info: Mapping[str,Any],
                        data_by_meas_group: Mapping[str, MeasurementTable],
                        only_meas_groups: Optional[list[str]] = None) -> dict[str,int]:
@@ -146,25 +167,7 @@ def upload_measurement(trove: Trove, sampleload_info: Mapping[str,Any],
             
             # Upload the sweeps
             sstab=meas_data.get_stacked_sweeps()
-            if len(sstab):
-
-                import numpy as np
-                def sweep_to_bytes(s: np.ndarray) -> bytes:
-                    """Convert a sweep to bytes, handling both float32 and 'onestring' types."""
-                    if s.dtype != np.float32:
-                        raise TypeError(f"Sweep data type {s.dtype} for {mg_name} is not supported. Only float32 is supported.")
-                    return s.tobytes()
-
-                # This part is to handle the deprecated ONESTRING
-                from datavac.database.postgresql_binary_format import pd_to_pg_converters
-                sweepconv=(pd_to_pg_converters['STRING']) \
-                    if (hasattr(mg_name,'ONESTRING') and mg_name.ONESTRING) else sweep_to_bytes # type: ignore
-                # Convert to the appropriate format and upload
-                upload_binary(
-                    sstab.assign(loadid=loadid)[['loadid','measid','sweep','header']],
-                    conn,DBSTRUCT().int_schema,DBSTRUCT().get_measurement_group_dbtables(mg_name)['sweep'].name,
-                    override_converters={'sweep':sweepconv,'header':pd_to_pg_converters['STRING']}
-                )
+            _upload_binary_helper(sstab, mg_name, loadid, conn)
         
         relotab=DBSTRUCT().get_trove_dbtables(trove.name)['reload']
         reextab=DBSTRUCT().get_trove_dbtables(trove.name)['reextr']
@@ -223,7 +226,9 @@ def delete_prior_extractions(trove: Trove, sampleload_info: Optional[Mapping[str
         for mg_name, loadids in mg_name_to_loadids.items():
             # Delete the extractions for this loadid
             extrtab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['extr']
+            sweptab=DBSTRUCT().get_measurement_group_dbtables(mg_name)['sweep']
             statements.append(delete(extrtab).where(extrtab.c.loadid.in_(loadids)))
+            statements.append(delete(sweptab).where(sweptab.c.loadid.in_(loadids)).where(sweptab.c.israw==False))
 
             # And put an entry into the ReExtract table
             reextab=DBSTRUCT().get_trove_dbtables(trove.name)['reextr']
@@ -265,6 +270,9 @@ def upload_extraction(trove: Trove, samplename: Any,
         with get_engine_rw().begin() as conn:
             upload_csv(content[list(extrtab.c.keys())],
                        conn, DBSTRUCT().int_schema, extrtab.name)
+            sstab=meas_data.get_stacked_sweeps(only_extr=True)
+            if len(sstab):
+                _upload_binary_helper(sstab, mg_name, mg_name_to_loadid[mg_name], conn)
         
             reextab=DBSTRUCT().get_trove_dbtables(trove.name)['reextr']
             reantab=DBSTRUCT().get_higher_analysis_reload_table()
@@ -290,21 +298,24 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
                         only_sampleload_info: dict[str,Sequence[Any]] = {},
                         info_already_known: dict[str,Any] = {}, 
                         kwargs_by_trove: dict[str,dict[str,Any]] = {}):
+    
+    exception_collections={}
+    success_collections={}
     trove_names = trove_names or list(PCONF().data_definition.troves.keys())
     for trove_name in trove_names:
         if trove_name not in PCONF().data_definition.troves:
             raise ValueError(f"Trove '{trove_name}' not found in data definition.")
         trove=PCONF().data_definition.troves[trove_name]
 
-        exception_collection=[]
-        success_collection=[]
+        exception_collections[trove_name]=exception_collection_for_trove=[]
+        success_collections[trove_name]=success_collection_for_trove=[]
         def err_cb(readgrp_name:str, e: Exception):
             """Callback to collect exceptions."""
             nonlocal last_checkpoint
             import traceback
             import textwrap
             logger.error(textwrap.indent("".join(traceback.format_exception(type(e),e,e.__traceback__)),'    '))
-            exception_collection.append((readgrp_name,e,-(last_checkpoint-(last_checkpoint:=datetime.now())).total_seconds()))
+            exception_collection_for_trove.append((readgrp_name,e,-(last_checkpoint-(last_checkpoint:=datetime.now())).total_seconds()))
             logger.error("Moving onto next.")
 
         last_checkpoint= datetime.now()
@@ -329,12 +340,15 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
                     perform_and_enter_analysis(sample_info=sample_to_sampleloadinfo[sample], only_analyses=needed_analyses,
                                                pre_obtained_data_by_mgoa=data_by_mg, pre_obtained_mgoa_to_loadanlsid=mg_to_loadid,)
             except Exception as e: err_cb(readgrp_name, e)
-            else: success_collection.append((readgrp_name,-(last_checkpoint-(last_checkpoint:=datetime.now())).total_seconds()))
-        logger.info(f"Finished all reading/uploading, here's the summary:")
-        for readgrp_name, e, dt in exception_collection:
+            else: success_collection_for_trove.append((readgrp_name,-(last_checkpoint-(last_checkpoint:=datetime.now())).total_seconds()))
+    for trove_name in trove_names:
+        logger.info(f"Finished {trove_name} reading/uploading, here's the summary:")
+        for readgrp_name, e, dt in exception_collections[trove_name]:
             logger.error(f"  Error processing '{readgrp_name}' after {dt} seconds: {e}")
-        for readgrp_name, dt in success_collection:
+        for readgrp_name, dt in success_collections[trove_name]:
             logger.info(f"  Successfully processed '{readgrp_name}' in {dt} seconds.")
+    if not all(len(v)==0 for v in exception_collections.values()):
+        raise Exception("Some errors occurred during reading/uploading, see log for details.")
 
 def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups: list[str],
               pre_obtained_data_by_mg: dict[str,MultiUniformMeasurementTable]={},

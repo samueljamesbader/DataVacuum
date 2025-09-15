@@ -187,6 +187,7 @@ class DBStructure():
                 Column('measid', INTEGER, nullable=False),
                 Column('sweep', BYTEA, nullable=False),
                 Column('header', VARCHAR, nullable=False),
+                Column('israw', BOOLEAN, nullable=False),
                 PrimaryKeyConstraint('loadid', 'measid', 'header'),
                 ForeignKeyConstraint(columns=['loadid', 'measid'], **_CASC,
                                      refcolumns=[meas_tab.c.loadid, meas_tab.c.measid]),

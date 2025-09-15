@@ -203,6 +203,8 @@ def cli_context_show(*args):
     if context_name is None:
         print("No context selected")
         return
+    
+    print(f"\n>>>>>>>>>>>>>>>>>>>>>>>>> {context_name} <<<<<<<<<<<<<<<<<<<<<<<")
     if context_name.startswith('builtin:'):
         print(f"Builtin context {context_name}, no file to show")
         return
@@ -212,6 +214,7 @@ def cli_context_show(*args):
     print("--------------------")
     with open(context_file,'r') as f:
         print(f.read())
+    print("--------------------")
 
 CONTEXT_CLI = CLIIndex({
     'list':cli_context_list,

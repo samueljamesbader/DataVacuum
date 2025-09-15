@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Sequence, Union
+from typing import TYPE_CHECKING, Any, Optional, Sequence, Union
 
 
 from datavac.util.tables import check_dtypes
@@ -29,7 +29,7 @@ class MeasurementTable:
     def drop(self, columns: list[str]):
         raise NotImplementedError()
 
-    def get_stacked_sweeps(self):
+    def get_stacked_sweeps(self,only_extr:bool=False) -> pd.DataFrame:
         raise NotImplementedError()
 
     @property
@@ -132,7 +132,8 @@ class UMTMUMT_S:
 class UniformMeasurementTable(DataFrameBackedMeasurementTable):
 
     def __init__(self, dataframe: pd.DataFrame, headers: list[str],
-                 meas_group: MeasurementGroup, meas_length: int):
+                 meas_group: MeasurementGroup, meas_length: int,
+                 extr_headers: Sequence[str]=()):
         super().__init__(dataframe=dataframe, non_scalar_columns=headers,
                          meas_group=meas_group)
         import pandas as pd
@@ -140,6 +141,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
                and dataframe.index.start==0 and dataframe.index.step==1, \
             "Make sure the dataframe has a default index for UniformMeasurementTable"
         self.meas_length=meas_length
+        self.extr_headers=extr_headers
         check_dtypes(self.scalar_table)
 
     @property
@@ -293,11 +295,27 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
     def assign_in_place(self,**kwargs):
         assert not any(c in self.headers for c in kwargs)
         self._the_dataframe=self._the_dataframe.assign(**kwargs)
+    
+    def add_extr_headers(self,**new_headers):
+        assert all(h not in self.headers for h in new_headers),\
+                f"Can't add extr headers {new_headers.keys()} as they already exist in {self.headers}"
+        import pandas as pd
+        self._the_dataframe=pd.DataFrame(
+            dict(**self._the_dataframe.to_dict('series'),**new_headers)) # type: ignore
+        self.extr_headers=list(self.extr_headers)+list(new_headers.keys())
+        self._non_scalar_columns.extend(new_headers.keys())
 
-    def get_stacked_sweeps(self):
-        return self._the_dataframe[self.headers]\
-                        .stack().reset_index()\
-                        .rename(columns={'level_0':'measid','level_1':'header',0:'sweep'})\
+    def get_stacked_sweeps(self,only_extr:bool=False) -> pd.DataFrame:
+        import pandas as pd
+        headers= list(self.extr_headers if only_extr else self.headers)
+        if not len(headers):
+            return pd.DataFrame(columns=['measid','header','sweep','israw'])
+        df= self._the_dataframe[headers]\
+                .stack().reset_index()\
+                .rename(columns={'level_0':'measid','level_1':'header',0:'sweep'})
+        israwmap = {h:not(h in self.extr_headers) for h in self.headers}
+        df['israw']=df['header'].map(israwmap)
+        return df
 
 #def to_hdf5_dataset(self,f,meas_group,i=0):
     #    raise NotImplementedError("HDF5 methods have not been tested/maintained")
@@ -497,11 +515,11 @@ class MultiUniformMeasurementTable(MeasurementTable):
         for umt in self._umts:
             umt.defrag()
 
-    def get_stacked_sweeps(self):
+    def get_stacked_sweeps(self,only_extr:bool=False) -> pd.DataFrame:
         subs=[]
         prev_meas_id=0
         for umt in self._umts:
-            subs.append((ss:=umt.get_stacked_sweeps()))
+            subs.append((ss:=umt.get_stacked_sweeps(only_extr=only_extr)))
             ss['measid']+=prev_meas_id
             prev_meas_id+=len(umt)
         import pandas as pd

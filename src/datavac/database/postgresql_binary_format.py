@@ -14,6 +14,7 @@ pd_to_pg_converters= {
     'FLOAT32': lambda x: struct.pack("!d", float(x)),
     'STRING': partial(str.encode,encoding='utf-8'),
     'BOOLEAN': partial(bool.to_bytes,length=1),
+    'BOOL': lambda x: b'\x01' if x else b'\x00',
 }
 pg_to_pd_converters= {
     'INTEGER': partial(int.from_bytes,signed=True),

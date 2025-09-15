@@ -201,10 +201,13 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
 
 
     td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=(include_sweeps and meas_group.involves_sweeps))
+    pre_filters={DDEF().SAMPLE_COLNAME: [samplename]}
     if not include_extr:
         td = {t: d for t, d in td.items() if 'Extr' not in t.name}
+        if include_sweeps and meas_group.involves_sweeps:
+            pre_filters['israw'] = [True]
     sel, dtypes = joined_select_from_dependencies(columns=None, absolute_needs=list(td), table_depends=td,
-                                                  pre_filters={DDEF().SAMPLE_COLNAME: [samplename]}, join_hints=jh,
+                                                  pre_filters=pre_filters, join_hints=jh,
                                                   order_by=['measid'])
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
         data = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
@@ -217,6 +220,8 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
             case None: return None # type: ignore
 
     umts=[]
+    checking_measids=True # Can remove this check later for performance
+    if checking_measids: all_measids=[]
     for rg, df in data.groupby("rawgroup"):
         if include_sweeps and meas_group.involves_sweeps:
             _decode_sweeps(df, meas_group)
@@ -226,11 +231,16 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
         else:
             df=df.reset_index(drop=True)
             headers = []
-        assert np.all(df.index == df['measid']), f"Indices for {df.index} does not match measids {df['measid'].iloc[0]}..{df['measid'].iloc[-1]} while getting data for {meas_group.name}, {samplename}"
+        if checking_measids: all_measids.extend(df['measid'].to_list())
         df=df.drop(columns=['measid','rawgroup'], errors='ignore')
         umts.append(UniformMeasurementTable(dataframe=df, headers=headers,
                                             meas_group=meas_group, meas_length=None)) # type: ignore
-    return MultiUniformMeasurementTable(umts)
+    mumt=MultiUniformMeasurementTable(umts)
+    if checking_measids: 
+        df=mumt._dataframe
+        assert np.all(df.index == all_measids),\
+            f"Indices for {df.index} does not match measids {df['measid'].iloc[0]}..{df['measid'].iloc[-1]} while getting data for {meas_group.name}, {samplename}"
+    return mumt
 
 
 def get_data_from_meas_group(

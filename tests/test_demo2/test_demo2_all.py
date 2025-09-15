@@ -92,5 +92,5 @@ def test_get_indirect():
 if __name__ == '__main__':
     import os
     os.environ["DATAVACUUM_CONTEXT"]="builtin:demo2"
-    #test_demo2()
-    test_get_indirect()
+    test_demo2()
+    #test_get_indirect()

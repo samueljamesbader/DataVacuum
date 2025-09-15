@@ -17,7 +17,7 @@ def get_cached_glob():
     @cache
     def cached_glob(folder:Path,patt:str):
         paths=_cached_iterdir(folder)
-        return [p for p in paths if fnmatch(p,patt)]
+        return [p for p in paths if fnmatch(str(p),patt)]
     return cached_glob
 
 
@@ -33,11 +33,11 @@ def quick_read_filename(filename:Union[Path,str],extract=True,**kwargs)\
     assert filename.exists(), f"Can't find file {str(filename)}"
     if filename.is_dir():
         mt2mg2dat,mt2ml=trove.read(only_folders=[filename], only_file_names=None,
-                               info_already_known=kwargs, dont_recurse=True)
+                               **kwargs, dont_recurse=True)
     else:
         folder=filename.parent
         mt2mg2dat,mt2ml=trove.read(only_folders=[folder], only_file_names=[filename.name],
-                               info_already_known=kwargs, dont_recurse=True)
+                               **kwargs, dont_recurse=True)
     if extract:
         from datavac.measurements.meas_util import perform_extraction
         perform_extraction(mt2mg2dat)
@@ -51,24 +51,24 @@ def cli_quick_read_filename(*args):
     mt2mg2dat,mt2ml=quick_read_filename(namespace.filename,extract=(not namespace.no_extract))
 
 
-def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='raise', just_extraction=False):
-    meas_groups_prev=meas_groups
-    while True:
-        add_meas_groups1=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
-        missing=[mg for mg in add_meas_groups1 if mg not in meas_groups]
-        if on_error=='raise':
-            assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
-                                    (" to be checked." if not required_only else ".")
-        if just_extraction:
-            return list(set(meas_groups).union(set(add_meas_groups1)))
-
-        ans=CONFIG.get_dependent_analyses(meas_groups)
-        add_meas_groups2=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
-        missing=[mg for mg in add_meas_groups2 if mg not in meas_groups]
-        if on_error=='raise':
-            assert len(missing)==0, f"Measurements groups {meas_groups} affect analyses {ans}, "\
-                                    f"which require {missing}"+\
-                                    (" to be checked." if not required_only else ".")
-        meas_groups=list(set(meas_groups).union(set(add_meas_groups1).union(add_meas_groups2)))
-        if sorted(meas_groups_prev)==sorted(meas_groups): return meas_groups
-        else: meas_groups_prev=meas_groups
+#def ensure_meas_group_sufficiency(meas_groups, required_only=False, on_error='raise', just_extraction=False):
+#    meas_groups_prev=meas_groups
+#    while True:
+#        add_meas_groups1=CONFIG.get_dependency_meas_groups_for_meas_groups(meas_groups, required_only=required_only)
+#        missing=[mg for mg in add_meas_groups1 if mg not in meas_groups]
+#        if on_error=='raise':
+#            assert len(missing)==0, f"Measurement groups {meas_groups} also require {missing}"+\
+#                                    (" to be checked." if not required_only else ".")
+#        if just_extraction:
+#            return list(set(meas_groups).union(set(add_meas_groups1)))
+#
+#        ans=CONFIG.get_dependent_analyses(meas_groups)
+#        add_meas_groups2=CONFIG.get_dependency_meas_groups_for_analyses(analyses=ans)
+#        missing=[mg for mg in add_meas_groups2 if mg not in meas_groups]
+#        if on_error=='raise':
+#            assert len(missing)==0, f"Measurements groups {meas_groups} affect analyses {ans}, "\
+#                                    f"which require {missing}"+\
+#                                    (" to be checked." if not required_only else ".")
+#        meas_groups=list(set(meas_groups).union(set(add_meas_groups1).union(add_meas_groups2)))
+#        if sorted(meas_groups_prev)==sorted(meas_groups): return meas_groups
+#        else: meas_groups_prev=meas_groups

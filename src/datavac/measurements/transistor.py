@@ -334,7 +334,7 @@ class KelvinRon(MeasurementWithLinearNormColumn):
 
         W=self.get_norm(measurements)
 
-        # TODO: need less janky mechanism for adding to headers
+        # TODO: make use of UniformMeasurementTable.add_extr_headers!!!
         if (rexts is not None):
             assert self.merge_rexts_on is not None, "What to merge RExt on"
             rsext=rexts.scalar_table_with_layout_params(self.merge_rexts_on,on_missing='ignore') \

@@ -87,12 +87,18 @@ def cli_update_layout_params(*args):
 def cli_update_measurement_groups(*args):
     from datavac.database.db_modify import update_measurement_group_tables
     parser = argparse.ArgumentParser(description="Update measurement groups in the database.")
-    update_measurement_group_tables()
+    parser.add_argument('--force_extr','-fe', action='store_true',
+                        help="Force re-creation of extraction tables even if they are up-to-date.")
+    parser.add_argument('--groups','-g', type=str, nargs='*', default=None,
+                        help="Specific measurement groups to update, if None all are updated")
+    namespace = parser.parse_args(args)
+    update_measurement_group_tables(specific_groups=namespace.groups, force_extr=namespace.force_extr)
 
 def cli_update_analysis_tables(*args):
     from datavac.database.db_modify import update_analysis_tables
     parser = argparse.ArgumentParser(description="Update analysis tables in the database.")
     update_analysis_tables()
+
 
     
 def cli_sql(*args):
