@@ -1,8 +1,12 @@
-from typing import cast
+from __future__ import annotations
+from typing import cast, TYPE_CHECKING
 import pickle
 
 from datavac.util.dvlogging import logger
 from datavac.util.util import returner_context, import_modfunc
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 _dietabs=None
@@ -32,7 +36,7 @@ def get_die_geometry(mask, conn=None):
 
 # TODO: Should this be cached in DB?
 _diecrms={}
-def get_custom_dieremap(mask, remap_name, conn=None):
+def get_custom_dieremap(mask, remap_name, conn=None) -> pd.DataFrame:
     from datavac.config.data_definition import SemiDeviceDataDefinition
     from datavac.config.data_definition import DDEF
     mask_yaml=cast(SemiDeviceDataDefinition,DDEF())._get_mask_yaml()

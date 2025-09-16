@@ -11,6 +11,7 @@ from datavac.util.dvlogging import logger
 if TYPE_CHECKING:
     from datavac.io.measurement_table import MeasurementTable, UniformMeasurementTable
     import numpy as np
+    import pandas as pd
 
 @dataclasses.dataclass(eq=False,repr=False)
 class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
@@ -20,14 +21,18 @@ class MeasurementWithLinearNormColumn(SemiDevMeasurementGroup):
             self._norm_col_units={'mm':1e-3,'um':1e-6,'nm':1e-9} \
                 [self.norm_column.split("[")[1].split("]")[0]]
 
-    def get_norm(self, measurements: MeasurementTable):
+    def get_norm(self, measurements: MeasurementTable|pd.DataFrame):
+        import pandas as pd
         import numpy as np
         assert self.norm_column is not None
-        #if self.norm_column is None:
-        #    return None
-        return np.array(measurements \
-                        .scalar_table_with_layout_params(params=[self.norm_column],on_missing='ignore')[self.norm_column],dtype=np.float32) \
-            *self._norm_col_units
+        if isinstance(measurements,pd.DataFrame):
+            assert self.norm_column in measurements.columns, f"Norm column {self.norm_column} not found in DataFrame"
+            return np.array(measurements[self.norm_column],dtype=np.float32)*self._norm_col_units
+        else:
+            return np.array(measurements \
+                        .scalar_table_with_layout_params(
+                            params=[self.norm_column],on_missing='ignore')[self.norm_column],dtype=np.float32) \
+                    *self._norm_col_units
 
 @dataclasses.dataclass(eq=False,repr=False)
 class IdVg(MeasurementWithLinearNormColumn):

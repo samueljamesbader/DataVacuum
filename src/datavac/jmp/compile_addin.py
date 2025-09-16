@@ -99,7 +99,8 @@ def cli_compile_jmp_addin(*args):
             #for x in ['DATAVACUUM_CONFIG_DIR','DATAVACUUM_DB_DRIVERNAME',
             #          'DATAVACUUM_DBSTRING','DATAVACUUM_CACHE_DIR','DATAVACUUM_LAYOUT_PARAMS_DIR']:
             for x in ['DATAVACUUM_CONTEXT','DATAVACUUM_CONTEXT_DIR','DATAVACUUM_DB_DRIVERNAME',
-                      'DATAVACUUM_JMP_DEFER_INIT',*jmp_conf.get("capture_variables",{})]:
+                      'DATAVACUUM_JMP_DEFER_INIT','DATAVACUUM_DIRECT_DB_ACCESS','DATAVACUUM_READ_DIR',
+                      *jmp_conf.get("capture_variables",{})]:
                 f.write(f"os.environ['{x}']=r\"{env_values.get(x,None)}\"\n" if env_values.get(x,None) else "")
             f.write(dedent("""
                 os.environ['DATAVACUUM_FROM_JMP']='YES'
@@ -154,19 +155,19 @@ def cli_compile_jmp_addin(*args):
             {
                 'name':'Connect to Wafermap',
                 'tip':'Assign map role for current table',
-                'text': f'dv:ConnectToWafermap();',
+                'text': f'dv=:::dv;dv:ConnectToWafermap();',
                 'icon':None
             },
             *([{
                 'name':'Reload Addin',
                 'tip':'Reload this add-in',
-                'text': f'dv:ReloadAddin();',
+                'text': f'dv=:::dv;dv:ReloadAddin();',
                 'icon':None
             }] ),#if envname=="LOCAL" else []),
             {
                 'name':'Login/Re-login',
                 'tip':'Logout and login again to refresh access key',
-                'text': f'dv:ReLogin();',
+                'text': f'dv=:::dv;dv:ReLogin();',
                 'icon':None
             },
             #{
@@ -178,19 +179,19 @@ def cli_compile_jmp_addin(*args):
             {
                 'name':'Abs Currents',
                 'tip':'For headers that look like currents, take absolute value',
-                'text': f'dv:AbsCurrents();',
+                'text': f'dv=:::dv;dv:AbsCurrents();',
                 'icon':None
             },
             {
                 'name':'Attach Splits',
                 'tip':'Attach to a split table',
-                'text': f'dv:AttachSplitTable();',
+                'text': f'dv=:::dv;dv:AttachSplitTable();',
                 'icon':None
             },
             {
                 'name':'Get Data',
                 'tip':'Get data from DataVacuum',
-                'text': f'dv:GetDataWithLotGui("?","?");',
+                'text': f'dv=:::dv;dv:GetDataWithLotGui("?","?");',
                 'icon':None
             }
         ]
@@ -198,7 +199,7 @@ def cli_compile_jmp_addin(*args):
             *([{
                 'name':'Init',
                 'tip':'Initialize the add-in',
-                'text': f'dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
+                'text': f'dv=:::dv;dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
                 'icon':None
             }] if env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO")=='YES' else []),
             {'General':general_commands},*jmp_conf.get('menus',[])]

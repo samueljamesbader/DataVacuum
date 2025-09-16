@@ -7,6 +7,7 @@ import re
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, cast
 
+from datavac.config.data_definition import DVColumn
 from datavac.util.dvlogging import logger
 from datavac.trove import ReaderCard, Trove
 from datavac.trove.trove_util import get_cached_glob
@@ -21,7 +22,7 @@ class NoDataFromFileException(Exception): pass
 @dataclass(kw_only=True)
 class FolderTroveReaderCard(ReaderCard):
     glob: str
-    read_from_filename_regex: str
+    read_from_filename_regex: str = ''
     read_so_far_args: dict[str, str] = field(default_factory=dict)
     post_reads: Sequence[Callable[['pd.DataFrame'],None]] = ((lambda x: None),)
 
@@ -89,8 +90,8 @@ class SingleFolderTrove(Trove):
 
                 # Ignore obviously not-needed files
                 if f.name.startswith("~"): continue # Ignore temp files on windows
-                if f.name.startswith("IGNORE"): continue # Ignore on request
                 if only_file_names and f.name not in only_file_names: continue
+                if (not only_file_names) and f.name.startswith("IGNORE"): continue # Ignore on request
 
                 # Go through the measurement groups, and the readers available for each
                 # And see if any of the readers can read this file
@@ -107,7 +108,12 @@ class SingleFolderTrove(Trove):
                             if (mo:=cached_match(regex,f.name)) is None:
                                 raise Exception(f"Couldn't parse {f.name} with regex {regex}")
                             read_from_filename=mo.groupdict() if regex is not None else {}
-                            read_info_so_far=dict(**read_from_filename,**info_already_known)
+                            for k,v in read_from_filename.items():
+                                assert (k not in info_already_known) or (info_already_known[k]==v),\
+                                    f"Info {k}={v} from filename contradicts "\
+                                    f"info already known {k}={info_already_known[k]} "\
+                                    f"from folder for file {str(f)}"
+                            read_info_so_far=read_from_filename|info_already_known
                             completer=PCONF().data_definition.sample_info_completer
                             read_info_so_far=completer(read_info_so_far)
 
@@ -184,7 +190,7 @@ class SingleFolderTrove(Trove):
                                     str(relpath.as_posix())]*len(read_data),dtype='string')
                                 read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
                                 read_data[SAMPLE_COLNAME]=pd.Series([sample]*len(read_data),dtype='string')
-                                if 'DieXY' in read_data:
+                                if ('DieXY' in read_data) and ('Site' in read_data):
                                     read_data['FQSite']=read_data[SAMPLE_COLNAME]+'/'+read_data['DieXY']+'/'+read_data['Site']
 
                                 # Add any material LUT information to the data
@@ -221,3 +227,6 @@ class SingleFolderTrove(Trove):
                 if len(found_mgs+not_found_mgs):
                     logger.info(f"In {f.relative_to(folder)}, found {found_mgs}")
         return sample_to_mg_to_data, sample_to_sampleload_info
+
+
+fqsite_col = DVColumn('FQSite','string','Fully-qualified site name')

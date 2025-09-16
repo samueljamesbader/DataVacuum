@@ -19,8 +19,10 @@ AuxInfoItem = NamedTuple('AuxInfoItem', [('name', str),
                                         ('count', str)])
 class FolderAuxInfoReader():
 
-    def __init__(self, items: Sequence[AuxInfoItem]=()):
+    def __init__(self, items: Sequence[AuxInfoItem]=(),
+                 folder_name_reader: Callable[[Path, dict[str,Any]], dict[str,Any]]=lambda folder, info_already_known: {}):
         self._items = items
+        self._folder_name_reader = folder_name_reader
 
     def read(self, folder: Path,
              cached_glob: Optional[Callable[[Path,str],list[Path]]] = None,
@@ -28,6 +30,7 @@ class FolderAuxInfoReader():
              super_folder: Optional[Path]=None) -> dict:
         
         read_from_folder:dict[str,Any]=info_already_known.copy() if info_already_known else {}
+        read_from_folder=self._folder_name_reader(folder, read_from_folder)
         
         for i in self._items:
             cached_glob = cached_glob or get_cached_glob()

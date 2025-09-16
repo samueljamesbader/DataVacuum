@@ -65,7 +65,7 @@ class ClassicFolderTrove(Trove):
     def iter_read(self, # super Trove.read() signature
                    only_meas_groups:Optional[list[str]]=None,
                    only_sampleload_info:dict[str,Any]={},
-                   info_already_known:dict={},
+                   info_already_known:dict[str,Any]={},
                    # FolderTrove-specific arguments
                    only_file_names:Optional[list[str]]=None, only_folders: Optional[Sequence[Path]]=None,
                    cached_glob:Optional[Callable[[Path,str],list[Path]]]=None, dont_recurse:bool=False,
@@ -106,6 +106,22 @@ class ClassicFolderTrove(Trove):
             folders_by_toplevel[tl]=folders_by_toplevel.get(tl,[]) + [folder]
         for tl, folders in folders_by_toplevel.items():
 
+            # Store info known about the data at each folder in the tree up to the top-level
+            @cache
+            def get_info_from_folder(insp_folder:Path) -> dict[str,Any]:
+                if insp_folder==self.read_dir:
+                    if (not self.natural_grouping) or (self.natural_grouping in info_already_known):
+                        return info_already_known
+                    else:
+                        return dict(**info_already_known,**{self.natural_grouping:tl})
+                info_from_parent=get_info_from_folder(insp_folder.parent)
+                logger.debug(f"Looking around in {insp_folder.relative_to(self.read_dir)}")
+                info_from_this_folder=self.folder_aux_info_reader.read(
+                    insp_folder,cached_glob=cached_glob,super_folder=self.read_dir,
+                    info_already_known=info_from_parent)
+                logger.debug("Info known down to this level of the tree: "+str(info_from_this_folder))
+                return info_from_this_folder
+
             # Recurse down the folder structure reading in each
             try:
                 cached_glob=cached_glob or get_cached_glob()
@@ -125,12 +141,10 @@ class ClassicFolderTrove(Trove):
                                 logger.info(f"Reading in {curdir.relative_to(self.read_dir)}")
                             except ValueError:
                                 logger.info(f"Reading in {curdir}")
-                            info_already_known=self.folder_aux_info_reader.read(
-                                curdir,cached_glob=cached_glob,super_folder=self.read_dir,info_already_known=info_already_known)
                             contributions.append(SingleFolderTrove.read_folder_nonrecursive(
                                 folder=curdir, trove_name=self.name,
                                 only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
-                                only_file_names=only_file_names, info_already_known=info_already_known,
+                                only_file_names=only_file_names, info_already_known=get_info_from_folder(curdir),
                                 cached_glob=cached_glob, filecache_context_manager=self.filecache_context_manager))
                         except MissingFolderInfoException as e:
                             logger.info(f"Skipping {curdir.relative_to(self.read_dir)} because {str(e)}")

@@ -297,7 +297,8 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
                         only_meas_groups: Optional[list[str]] = None,
                         only_sampleload_info: dict[str,Sequence[Any]] = {},
                         info_already_known: dict[str,Any] = {}, 
-                        kwargs_by_trove: dict[str,dict[str,Any]] = {}):
+                        kwargs_by_trove: dict[str,dict[str,Any]] = {},
+                        suspend_exceptions:bool=True):
     
     exception_collections={}
     success_collections={}
@@ -321,7 +322,7 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
         last_checkpoint= datetime.now()
         for readgrp_name, sample_to_mg_to_data, sample_to_sampleloadinfo in trove.iter_read(
             only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
-            info_already_known=info_already_known, exception_callback=err_cb,
+            info_already_known=info_already_known, exception_callback=err_cb if suspend_exceptions else None,
             **(kwargs_by_trove.get(trove_name,{}))):
             try:
                 for sample, data_by_mg in sample_to_mg_to_data.items():
@@ -339,7 +340,9 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
                                                 if isinstance(an, HigherAnalysis)))
                     perform_and_enter_analysis(sample_info=sample_to_sampleloadinfo[sample], only_analyses=needed_analyses,
                                                pre_obtained_data_by_mgoa=data_by_mg, pre_obtained_mgoa_to_loadanlsid=mg_to_loadid,)
-            except Exception as e: err_cb(readgrp_name, e)
+            except Exception as e:
+                if suspend_exceptions: err_cb(readgrp_name, e)
+                else: raise e
             else: success_collection_for_trove.append((readgrp_name,-(last_checkpoint-(last_checkpoint:=datetime.now())).total_seconds()))
     for trove_name in trove_names:
         logger.info(f"Finished {trove_name} reading/uploading, here's the summary:")

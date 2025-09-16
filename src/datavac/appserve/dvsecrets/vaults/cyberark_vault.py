@@ -71,9 +71,13 @@ class CyberArkVault(Vault):
     def get_from_vault(self, account_name: str, components: Optional[str | list[str]] =None ) \
             -> dict | str | list[str]:
         import json
+
+        # Allowing JMP add-in access to vault for now
         import os
         if os.environ.get("DATAVACUUM_FROM_JMP")=='YES':
-            raise Exception("JMP add-in should not assume vault access.  Makes isolated testing difficult.")
+            from datavac.util.dvlogging import logger
+            logger.warning("JMP add-in is accessing vault.  This makes isolated testing difficult.")
+        #    raise Exception("JMP add-in should not assume vault access.  Makes isolated testing difficult.")
 
         result_text=self._getter(self.api_url,self.appid,self.safe,account_name)
         values=json.loads(result_text)
