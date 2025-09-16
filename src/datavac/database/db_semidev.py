@@ -121,13 +121,12 @@ def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, c
     ddef = cast(SemiDeviceDataDefinition, DDEF())
     split_manager= ddef.split_manager
     with avoid_db_if_possible():
-        if specific_splits is None:
-            specific_splits = list(get_flow_names(force_external=True))
-        all_desired_tabs = [DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp}') for sp in specific_splits]
+        split_names = list(get_flow_names(force_external=True)) if specific_splits is None else specific_splits
+        all_desired_tabs = [DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp}') for sp in split_names]
     with (returner_context(conn) if conn else get_engine_so().begin()) as conn:
         db_metadata = MetaData(schema=DBSTRUCT().int_schema)
-        db_metadata.reflect(bind=conn, only=[tab.name for tab in all_desired_tabs], views=True)
-        for sp_name in specific_splits:
+        db_metadata.reflect(bind=conn, only=(lambda t,_: (t.startswith("SplitTable -- ") )), views=True)
+        for sp_name in split_names:
             with avoid_db_if_possible():
                 desired_tab = DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp_name}')
             if namews(desired_tab) in db_metadata.tables:
@@ -143,3 +142,12 @@ def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, c
             if need_to_create:
                 create_split_table_view(sp_name, conn)
             upload_splits(specific_splits=[sp_name], conn=conn)
+        if specific_splits is None:
+            for t in list(db_metadata.tables.values()):
+                if t.name.startswith("SplitTable -- "):
+                    sp_name=t.name.split("SplitTable -- ")[1]
+                    if sp_name not in split_names:
+                        logger.info(f"Dropping no-longer-needed split table {t.name}")
+                        conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{sp_name}" """))
+                        db_metadata.drop_all(conn,[t],checkfirst=True)
+                        db_metadata.remove(t)
