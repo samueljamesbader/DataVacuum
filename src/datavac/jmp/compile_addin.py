@@ -80,9 +80,12 @@ def cli_compile_jmp_addin(*args):
             f.write("Names Default To Here(1);\n")
             f.write(f"dv = Namespace(\"{addin_id}\");\n")
             for varname, varvalue in dict(**jmp_conf.get("capture_variables",{}),**built_in_capture_vars).items():
-                if len(varvalue) and varvalue[0]=="%" and varvalue[-1]=="%":
-                    varvalue=env_values[varvalue[1:-1]]
-                f.write(f"dv:{varname}=\"{varvalue}\";\n")
+                try:
+                    if len(varvalue) and varvalue[0]=="%" and varvalue[-1]=="%":
+                        varvalue=env_values[varvalue[1:-1]]
+                    f.write(f"dv:{varname}=\"{varvalue}\";\n")
+                except Exception as e:
+                    logger.debug(f"Skipping {varname} because {e}")
 
 
         with open(addin_folder/"jmp16_pyinit.py",'w') as f:
