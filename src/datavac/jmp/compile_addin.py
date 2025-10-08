@@ -202,7 +202,7 @@ def cli_compile_jmp_addin(*args):
             *([{
                 'name':'Init',
                 'tip':'Initialize the add-in',
-                'text': f'dv=:::dv;dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
+                'text': f'dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
                 'icon':None
             }] if env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO")=='YES' else []),
             {'General':general_commands},*jmp_conf.get('menus',[])]

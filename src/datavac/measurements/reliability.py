@@ -32,6 +32,8 @@ class ConvertToT0DeltasAddon(ExtractionAddon):
         match self.offset_or_percent:
             case 'offset':
                 mumt[f'Delta{variable}']=df[variable]-df[f'{variable}0']
+            case '-offset':
+                mumt[f'-Delta{variable}']=df[f'{variable}0']-df[variable]
             case 'percent':
                 mumt[f'%Delta{variable.split(" [")[0]}']=100*(df[variable]-df[f'{variable}0'])/df[f'{variable}0']
             case _:
@@ -42,6 +44,8 @@ class ConvertToT0DeltasAddon(ExtractionAddon):
         added_colums= [DVColumn(f'{variable}0', 'float', f'{variable} at t=0'),]
         if self.offset_or_percent == 'offset':
             added_colums.append(DVColumn(f'Delta{variable}', 'float', f'{variable} diference from value at t=0'))
+        elif self.offset_or_percent == '-offset':
+            added_colums.append(DVColumn(f'-Delta{variable}', 'float', f'negative {variable} diference from value at t=0'))
         elif self.offset_or_percent == 'percent':
             added_colums.append(DVColumn(f'%Delta{variable.split(" [")[0]}', 'float', f'{variable} percent difference from value at t=0'))
         return asnamedict(*added_colums)

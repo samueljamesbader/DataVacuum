@@ -210,18 +210,33 @@ def run_new_analysis(an_name: str):
 
     an= DDEF().higher_analyses[an_name]
     sels=[]
-    for mgoa_name in an.required_dependencies:
-        if mgoa_name in DDEF().measurement_groups:
-            trove= DDEF().measurement_groups[mgoa_name].trove()
-            loadtab=trove.dbtables('loads')
-            sels.append(select(loadtab.c.sampleid).where(loadtab.c.MeasGroup==literal(mgoa_name)))
-        elif mgoa_name in DDEF().higher_analyses:
-            an2 = DDEF().higher_analyses[mgoa_name]
-            sels.append(select(an2.dbtables('aidt').c.sampleid))
-        else:
-            raise ValueError(f"Unknown measurement group or analysis {mgoa_name} in {an_name}")
-    assert len(sels)>0, f"No required dependencies for {an_name}"
-    sampleid_subquery = reduce(lambda x,y: x.intersect(y), sels)
+    if len(an.required_dependencies):
+        for mgoa_name in an.required_dependencies:
+            if mgoa_name in DDEF().measurement_groups:
+                trove= DDEF().measurement_groups[mgoa_name].trove()
+                loadtab=trove.dbtables('loads')
+                sels.append(select(loadtab.c.sampleid).where(loadtab.c.MeasGroup==literal(mgoa_name)))
+            elif mgoa_name in DDEF().higher_analyses:
+                an2 = DDEF().higher_analyses[mgoa_name]
+                sels.append(select(an2.dbtables('aidt').c.sampleid))
+            else:
+                raise ValueError(f"Unknown measurement group or analysis {mgoa_name} in {an_name}")
+        from sqlalchemy import intersect
+        sampleid_subquery = intersect(*sels)
+    else:
+        for mgoa_name in an.optional_dependencies:
+            if mgoa_name in DDEF().measurement_groups:
+                trove= DDEF().measurement_groups[mgoa_name].trove()
+                loadtab=trove.dbtables('loads')
+                sels.append(select(loadtab.c.sampleid).where(loadtab.c.MeasGroup==literal(mgoa_name)))
+            elif mgoa_name in DDEF().higher_analyses:
+                an2 = DDEF().higher_analyses[mgoa_name]
+                sels.append(select(an2.dbtables('aidt').c.sampleid))
+            else:
+                raise ValueError(f"Unknown measurement group or analysis {mgoa_name} in {an_name}")
+        from sqlalchemy import union
+        sampleid_subquery = union(*sels)
+        
     
     sampletab=DBSTRUCT().get_sample_dbtable()
     query=select(*sampletab.c).select_from(sampletab.join(sampleid_subquery,

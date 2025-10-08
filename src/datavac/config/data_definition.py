@@ -190,6 +190,34 @@ class HigherAnalysis():
             return False
         return self.name == other.name
 
+@dataclass(eq=False, repr=False)
+class MergedAnalysis(HigherAnalysis):
+    """A HigherAnalysis that merges the results of multiple other HigherAnalyses."""
+    
+    analyses_to_merge: list[HigherAnalysis] = field(default_factory=list)
+    """List of names of HigherAnalyses to merge."""
+    def __post_init__(self):
+        self.optional_dependencies = {an.name:(f'arg{i}') for i,an in enumerate(self.analyses_to_merge)}
+
+    def analyze(self, **kwargs) -> pd.DataFrame:
+        import pandas as pd
+        dfs = []
+        common_cols = None
+        for i,an in enumerate(self.analyses_to_merge):
+            if kwargs.get(f'arg{i}') is not None:
+                dfs.append(kwargs[f'arg{i}'])
+                if common_cols is None: common_cols = set(dfs[-1].columns)
+                else: common_cols &= set(dfs[-1].columns)
+        common_cols = [k for k in common_cols if k not in ['anlsid','anlssubid']] # type: ignore
+        return pd.concat([df[common_cols] for df in dfs], ignore_index=True)
+
+    def available_analysis_columns(self) -> dict[str, DVColumn]:
+        avail_cols = {}
+        for an in self.analyses_to_merge:
+            avail_cols.update(an.available_analysis_columns())
+        return avail_cols
+
+
 @dataclass(eq=False)
 class DataDefinition():
 
@@ -321,16 +349,19 @@ class SemiDeviceDataDefinition(DataDefinition):
         if self.layout_params_func is None:
             from datavac.config.layout_params import LayoutParameters
             self.layout_params_func=LayoutParameters
+        self.redo_sample_descriptors()
+        self.subsample_references = FunctionLazyDict(
+            getter=lambda name: self._subsample_reference(name),
+            keylister=lambda: self._subsample_reference_names())
+    
+    def redo_sample_descriptors(self):
         from datavac.config.sample_splits import get_flow_names
         self.sample_descriptors=FunctionLazyDict(
             getter=lambda name: SampleDescriptor(
                 name=name,
                 description=f'Sample descriptor for flow {name.split('-- ',maxsplit=1)[1]}.',
-                info_columns=self.split_manager.get_split_table_columns(name.split('-- ',maxsplit=1)[1])),
+                info_columns=self.split_manager._get_split_table_columns(name.split('-- ',maxsplit=1)[1])),
             keylister=lambda: [f'SplitTable -- {f}' for f in get_flow_names()])
-        self.subsample_references = FunctionLazyDict(
-            getter=lambda name: self._subsample_reference(name),
-            keylister=lambda: self._subsample_reference_names())
             
     def get_layout_params_table(self, lp_group) -> pd.DataFrame:
         """Returns the layout parameters for the given layout parameter group."""

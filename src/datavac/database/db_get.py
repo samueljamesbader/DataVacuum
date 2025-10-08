@@ -78,7 +78,7 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
                                              and ((columns is None) or (c.name in columns))}
     return sel, dtypes
 
-def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, include_sweeps: bool = True)\
+def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, include_sweeps: bool = True, sample_descriptors: list[str]= [] )\
             -> tuple[dict[Table, list[Table]], dict[Table, str]]:
         """Returns the table dependencies and join hints for a given measurement group.
         
@@ -105,14 +105,10 @@ def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, inc
             # to some sample info, we need to make sure the sample info is merged before the subsample reference
             table_depends[DBSTRUCT().get_subsample_reference_dbtable(ssr_name)]=[coretab,DBSTRUCT().get_sample_dbtable()]
 
-        # TODO: Uncomment when fnct and ot readded 
-        #fnc_tables=[self._hat(fnct) for fnct in fnc_tables]
-        #other_tables=[self._hat(ot) for ot in other_tables]
-        #for fnct in fnc_tables: table_depends[fnct]=[self._mattab]
-        #for ot in other_tables: table_depends[ot]=[self._mattab]
+        for sd_name in sample_descriptors: table_depends[DBSTRUCT().get_sample_descriptor_dbtable(sd_name)]=[sampletab]
 
         return table_depends, {}
-def get_table_depends_and_hints_for_analysis(an: HigherAnalysis)\
+def get_table_depends_and_hints_for_analysis(an: HigherAnalysis, sample_descriptors: list[str] = [])\
             -> tuple[dict[Table, list[Table]], dict[Table, str]]:
         """Returns the table dependencies and join hints for a given higher analysis.
         
@@ -134,11 +130,7 @@ def get_table_depends_and_hints_for_analysis(an: HigherAnalysis)\
             # to some sample info, we need to make sure the sample info is merged before the subsample reference
             table_depends[DBSTRUCT().get_subsample_reference_dbtable(ssr_name)]=[coretab,DBSTRUCT().get_sample_dbtable()]
 
-        # TODO: Uncomment when fnct and ot readded 
-        #fnc_tables=[self._hat(fnct) for fnct in fnc_tables]
-        #other_tables=[self._hat(ot) for ot in other_tables]
-        #for fnct in fnc_tables: table_depends[fnct]=[self._mattab]
-        #for ot in other_tables: table_depends[ot]=[self._mattab]
+        for sd_name in sample_descriptors: table_depends[DBSTRUCT().get_sample_descriptor_dbtable(sd_name)]=[sampletab]
 
         return table_depends, {}
 
@@ -249,8 +241,7 @@ def get_data_from_meas_group(
     include_sweeps: bool = False,
     unstack_headers: bool = False,
     conn: Optional[Connection] = None,
-    fnc_tables=None,
-    other_tables=None,
+    sample_descriptors: list[str]=[],
     ensure_consistent_order: bool = False,
     **factors
 ) -> 'pd.DataFrame':
@@ -262,7 +253,7 @@ def get_data_from_meas_group(
     assert not ((not include_sweeps) and unstack_headers), \
         f"Unstacking headers only makes sense when sweeps are included in the data."
 
-    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=include_sweeps)
+    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=include_sweeps, sample_descriptors=sample_descriptors)
     sel, dtypes = joined_select_from_dependencies(columns=(scalar_columns\
                                                                 +(['header','sweep']  if include_sweeps  else [])\
                                                                 +(['loadid','measid'] if unstack_headers else [])
@@ -271,7 +262,9 @@ def get_data_from_meas_group(
                                                   pre_filters=dict(**factors,**({'header': include_sweeps} if isinstance(include_sweeps,list) else {})),
                                                   join_hints=jh, order_by=['loadid','measid'] if ensure_consistent_order else None)
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
-        df = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
+        #df = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
+        #df = pd.read_sql(con=conn, sql, dtype=dtypes) # type: ignore # sometimes results in string without encoding TypeError when querying with split-tables
+        df = pd.read_sql(con=conn, sql=str(sel.compile(conn,compile_kwargs={'literal_binds':True})), dtype=dtypes) # type: ignore
 
     if include_sweeps:
         _decode_sweeps(df, meas_group)
@@ -344,22 +337,29 @@ def get_sweeps_for_jmp(mg_name: str, loadids: list[int], measids: list[int],
     return data
 
 def get_data_from_analysis(an: HigherAnalysis, scalar_columns:Optional[list[str]]=None,
-                           conn:Optional[Connection]=None, ensure_consistent_order: bool=False, **factors) -> pd.DataFrame:
+                           conn:Optional[Connection]=None, ensure_consistent_order: bool=False,
+                           sample_descriptors:list[str]=[],**factors) -> pd.DataFrame:
     import pandas as pd
     from datavac.database.db_connect import get_engine_ro
-    td, jh = get_table_depends_and_hints_for_analysis(an)
+    td, jh = get_table_depends_and_hints_for_analysis(an, sample_descriptors=sample_descriptors)
     sel, dtypes = joined_select_from_dependencies(columns=scalar_columns,
                                                   absolute_needs=list(td), table_depends=td,
                                                   pre_filters=factors, join_hints=jh,
                                                   order_by=['anlsid','anlssubid'] if ensure_consistent_order else None)
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
-        df = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
+        try:
+            #df = pd.read_sql(con=conn, sql, dtype=dtypes) # type: ignore # sometimes results in string without encoding TypeError when querying with split-tables
+            df = pd.read_sql(con=conn, sql=str(sel.compile(conn,compile_kwargs={'literal_binds':True})), dtype=dtypes) # type: ignore
+        except TypeError as e:
+            import pdb; pdb.set_trace()
+            raise e
     return df
     
 @client_server_split(method_name="get_data", return_type='pd')
 def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
              include_sweeps: bool|list[str] = False, unstack_headers: bool = False,
-             conn: Optional[Connection] = None, ensure_consistent_order:bool=False, **factors) -> DataFrame:
+             conn: Optional[Connection] = None, ensure_consistent_order:bool=False,
+             sample_descriptors:list[str]=[],**factors) -> DataFrame:
     """Retrieves data for a given measurement group or analysis name.
     
     Args:
@@ -368,6 +368,8 @@ def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
         include_sweeps: Whether to include sweep data in the result.
         unstack_headers: Whether to unstack the 'header' column in the result.
         conn: Optional SQLAlchemy Connection to use for the query. If None, a read-only connection will be created.
+        ensure_consistent_order: Whether to ensure a consistent order of results by ordering by ID columns.
+        sample_descriptors: List of sample descriptor tables to include in the result.
         factors: Additional factors to filter the data by, eg factor1=['allowed_val1','allowed_val2']
     """
     from datavac.measurements.measurement_group import MeasurementGroup
@@ -375,20 +377,22 @@ def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
     if (mg:=DDEF().measurement_groups.get(mg_or_an_name)) is not None:
         return get_data_from_meas_group(mg, scalar_columns=scalar_columns, include_sweeps=include_sweeps,
                                         unstack_headers=unstack_headers, conn=conn,
-                                        ensure_consistent_order=ensure_consistent_order, **factors)
+                                        ensure_consistent_order=ensure_consistent_order,
+                                        sample_descriptors=sample_descriptors, **factors)
     elif (an:=DDEF().higher_analyses.get(mg_or_an_name)) is not None:
         assert not include_sweeps, \
             "Higher analyses do not support sweeps, please set include_sweeps=False"
         assert not unstack_headers, \
             "Higher analyses do not support unstacking headers, please set unstack_headers=False"
         return get_data_from_analysis(an, scalar_columns=scalar_columns, conn=conn,
-                                      ensure_consistent_order=ensure_consistent_order, **factors)
+                                      ensure_consistent_order=ensure_consistent_order,
+                                      sample_descriptors=sample_descriptors,**factors)
     else:
         raise ValueError(f"Measurement group or analysis '{mg_or_an_name}' not found in data definition.")
 
 @client_server_split(method_name="get_factors", return_type='ast')
 def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:Mapping[str,Sequence]={},
-                fnc_tables:Sequence[str]=[],other_tables:Sequence[str]=[]):
+                sample_descriptors:list[str]=[]):
     import pandas as pd
     mgoa_name=meas_group_or_analysis; del meas_group_or_analysis
 
@@ -396,11 +400,11 @@ def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:M
     if mgoa_name in DDEF().measurement_groups:
         mg=DDEF().measurement_groups[mgoa_name]
         coretab=mg.dbtable('meas')
-        td, jh = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False)
+        td, jh = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False, sample_descriptors=sample_descriptors)
     elif mgoa_name in DDEF().higher_analyses:
         an=DDEF().higher_analyses[mgoa_name]
         coretab=an.dbtables('aidt')
-        td, jh = get_table_depends_and_hints_for_analysis(an)
+        td, jh = get_table_depends_and_hints_for_analysis(an, sample_descriptors=sample_descriptors)
     else:
         raise ValueError(f"Measurement group or analysis '{mgoa_name}' not found in data definition.")
     
@@ -433,9 +437,9 @@ def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:M
     from datavac.database.db_connect import get_engine_ro
     with get_engine_ro().begin() as conn:
         with time_it("Executing SQL in get_factors",threshold_time=.01):
-            records=pd.read_sql(query,conn)
+            records=pd.read_sql(query,conn,dtype=dtypes)
     if not len(records): return {f:set() for f in factor_names}
-    else: return {f:set(records.loc[records[f'ind___{f}'].notna(),f]) for f in factor_names}
+    else: return {f:set(records.loc[records[f'ind___{f}'].notna(),f].to_list()) for f in factor_names}
 
 @client_server_split(method_name="get_mgoa_names", return_type='ast')
 def get_mgoa_names():

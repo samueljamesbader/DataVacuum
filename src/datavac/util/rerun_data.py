@@ -72,6 +72,7 @@ def rerun_data():
         from datavac.config.data_definition import DDEF
         from datavac.util.util import only
 
+        PCONF().vault.clear_vault_cache()
         ensure_clear_database()
         create_all()
         #assert only(DDEF().troves.keys()) =='', "Multi-trove not implemented yet for rerun_data"
@@ -212,14 +213,19 @@ def cli_rerun_data(*args):
     parser.add_argument('-dc','--dont-compare', action='store_true', help='Skip comparing data to golden')
     parser.add_argument('-cc','--current-context', action='store_true', help='Just upload to the current db instead of forcing local/regtest.'\
                                 '  Not for regression testing, doesn\'t output a rerun dir, just a convenience for development.')
+    parser.add_argument('-old','--older', type=str, default='Golden', help='Older rerun data file to compare to (default "Golden")')
+    parser.add_argument('-jc','--just-compare', action='store_true', help='Just compare data, do not rerun')
     args = parser.parse_args(args)
 
-    if args.current_context:
-        do_the_rerun_uploads()
+    if not args.just_compare:
+        if args.current_context:
+            do_the_rerun_uploads()
+        else:
+            dat=rerun_data()
+            if not args.dont_compare:
+                compare_data(dat,older=args.older)
     else:
-        dat=rerun_data()
-        if not args.dont_compare:
-            compare_data(dat,'Golden')
+        compare_data(older=args.older)
 
 #compare_data(rerun_data(),'Golden')
 

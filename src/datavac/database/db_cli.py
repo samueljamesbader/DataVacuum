@@ -97,7 +97,12 @@ def cli_update_measurement_groups(*args):
 def cli_update_analysis_tables(*args):
     from datavac.database.db_modify import update_analysis_tables
     parser = argparse.ArgumentParser(description="Update analysis tables in the database.")
-    update_analysis_tables()
+    parser.add_argument('--force','-f', action='store_true',
+                        help="Force update of analysis tables even if they are up-to-date.")
+    parser.add_argument('--specific-analyses','-s', type=str, nargs='*', default=None,
+                        help="Specific analyses to update, if None all analyses are updated")
+    namespace=parser.parse_args(args)
+    update_analysis_tables(specific_analyses=namespace.specific_analyses, force=namespace.force)
 
 
     

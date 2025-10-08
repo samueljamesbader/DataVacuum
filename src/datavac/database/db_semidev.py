@@ -121,21 +121,25 @@ def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, c
     ddef = cast(SemiDeviceDataDefinition, DDEF())
     split_manager= ddef.split_manager
     with avoid_db_if_possible():
-        split_names = list(get_flow_names(force_external=True)) if specific_splits is None else specific_splits
-        all_desired_tabs = [DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp}') for sp in split_names]
+        for t in list(DBSTRUCT().metadata.tables.values()):
+            if t.name.startswith("SplitTable -- "):
+                DBSTRUCT().metadata.remove(t)
+        ddef.redo_sample_descriptors()
+        list(ddef.sample_descriptors.items()) # force regeneration of sample descriptors
+        split_names = specific_splits if specific_splits is not None else [t.split("SplitTable -- ")[1] for t in ddef.sample_descriptors.keys()]
+        #split_names = list(get_flow_names(force_external=True)) if specific_splits is None else specific_splits
+        all_desired_tabs = {sp:DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp}') for sp in split_names}
     with (returner_context(conn) if conn else get_engine_so().begin()) as conn:
         db_metadata = MetaData(schema=DBSTRUCT().int_schema)
         db_metadata.reflect(bind=conn, only=(lambda t,_: (t.startswith("SplitTable -- ") )), views=True)
-        for sp_name in split_names:
-            with avoid_db_if_possible():
-                desired_tab = DBSTRUCT().get_sample_descriptor_dbtable(f'SplitTable -- {sp_name}')
+        for sp_name,desired_tab in all_desired_tabs.items():
             if namews(desired_tab) in db_metadata.tables:
                 if force or _table_mismatch(desired_tab, db_metadata):
                     need_to_create = True
                     conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{sp_name}" """))
                     drops=[desired_tab]
                     db_metadata.drop_all(conn,drops,checkfirst=True)
-                    for drop in drops: db_metadata.remove(drop)
+                    #for drop in drops: db_metadata.remove(drop)
                 else: need_to_create = False
             else: need_to_create = True
             if need_to_create: desired_tab.create(conn)
@@ -150,4 +154,4 @@ def update_split_tables(specific_splits:Optional[list[str]]=None, force=False, c
                         logger.info(f"Dropping no-longer-needed split table {t.name}")
                         conn.execute(text(f"""DROP VIEW IF EXISTS {DBSTRUCT().jmp_schema}."{sp_name}" """))
                         db_metadata.drop_all(conn,[t],checkfirst=True)
-                        db_metadata.remove(t)
+                        #db_metadata.remove(t)

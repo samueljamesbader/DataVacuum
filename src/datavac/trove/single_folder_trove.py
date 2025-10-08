@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, cast
 
 from datavac.config.data_definition import DVColumn
-from datavac.util.dvlogging import logger
+from datavac.util.dvlogging import logger, time_it
 from datavac.trove import ReaderCard, Trove
 from datavac.trove.trove_util import get_cached_glob
 from datavac.util.util import only
@@ -178,8 +178,9 @@ class SingleFolderTrove(Trove):
                                     continue
 
                                 # Do the post_reads
-                                for read_df in read_dfs:
-                                    for post_read in reader_card.post_reads: post_read(read_df)
+                                with time_it("Post-reads",.01):
+                                    for read_df in read_dfs:
+                                        for post_read in reader_card.post_reads: post_read(read_df)
 
                                 # Form MeasurementTable from the data
                                 # And add some useful externally ensured columns

@@ -29,7 +29,7 @@ pd_to_sql_types: dict[str,TypeEngine]={ # type: ignore
 sql_to_pd_types: dict[TypeEngine, str]={ # type: ignore
     INTEGER:'Int32',
     VARCHAR:'string',
-    BOOLEAN: 'bool',
+    BOOLEAN: 'boolean',
     DOUBLE_PRECISION:'float64',
     TIMESTAMP:'datetime64[ns]'
 }
@@ -211,7 +211,7 @@ class DBStructure():
                                 for an2_name in an.required_dependencies if an2_name in ALL_HAS]
             optlids=[Column(f'loadid - {mg_name}',INTEGER,
                             ForeignKey(ALL_MGS[mg_name].trove().dbtables('loads').c.loadid,**_CASC),nullable=True,index=True)
-                                for mg_name in an.optional_dependencies]
+                                for mg_name in an.optional_dependencies if mg_name in ALL_MGS]
             optaids=[Column(f'anlsid - {an2_name}',INTEGER,
                             ForeignKey(ALL_HAS[an2_name].dbtables('aidt').c.anlsid,**_CASC),nullable=True,index=True)
                                 for an2_name in an.optional_dependencies if an2_name in ALL_HAS]

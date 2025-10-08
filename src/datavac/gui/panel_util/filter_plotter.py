@@ -176,10 +176,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                     if item.value!=[]: self.param.trigger('_prefilter_updated_count')
             self._pre_filters.update(pre_filters)
 
-    def get_other_tables(self) -> Sequence[Sequence[str]]:
-        return [[] for _ in self.get_meas_groups()]
-
-    def get_fnc_tables(self) -> Sequence[Sequence[str]]:
+    def get_sample_descriptors(self) -> Sequence[Sequence[str]]:
         return [[] for _ in self.get_meas_groups()]
 
     def _prefilter_updated(self, *args, **kwargs):
@@ -194,7 +191,7 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
         logger.debug(f"Pre-filter params: {pre_filter_params} for {(self._prefilter_measgroup or self.meas_groups[0])}, in {self.__class__.name}")
         with time_it("Getting factors"):
             all_factors=get_factors((self._prefilter_measgroup or self.meas_groups[0]),
-                  list(self.filter_settings),pre_filters=pre_filter_params,fnc_tables=self.get_fnc_tables()[0],other_tables= self.get_other_tables()[0])
+                  list(self.filter_settings),pre_filters=pre_filter_params,sample_descriptors=self.get_sample_descriptors()[0])
         # Get the factors of pre_filtered data
         from panel.io import hold
         with hold():
@@ -286,16 +283,15 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             return [pd.DataFrame({k:[] for k in scs+(rcs or [])}) for scs,rcs in zip(scalar_columns,raw_columns)]
         logger.info(f"About to ask hose with {factors}, scalar: {scalar_columns}, raw: {raw_columns}")
         data: list[DataFrame] = []
-        for sc, rc, meas_group, fncts, ots\
-                 in zip(scalar_columns, raw_columns, self.get_meas_groups(), self.get_fnc_tables(), self.get_other_tables()):
+        for sc, rc, meas_group, sds\
+                 in zip(scalar_columns, raw_columns, self.get_meas_groups(), self.get_sample_descriptors()):
             from datavac.config.data_definition import DDEF
             from datavac.database.db_get import get_available_columns_for_mgoa
-            assert len(ots)==0, "Other tables not implemented yet"
             allowed_factors_for_this = get_available_columns_for_mgoa(meas_group)+\
-                                        [c.name for fnct in fncts for c in DDEF().sample_descriptors[fnct].info_columns]
+                                        [c.name for sd in sds for c in DDEF().sample_descriptors[sd].info_columns]
             data.append(get_data(meas_group,
                                  scalar_columns=sc, include_sweeps=rc,
-                                 unstack_headers=(rc != False), fnc_tables=fncts, other_tables=ots,
+                                 unstack_headers=(rc != False), sample_descriptors=sds,
                                  **{k:v for k,v in factors.items() if k in allowed_factors_for_this}))
         logger.info(f"Got data from hose, lengths {[len(d) for d in data]}")
 

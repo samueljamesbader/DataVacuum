@@ -159,6 +159,10 @@ def create_all():
         for sd_name in PCONF().data_definition.sample_descriptors:
             DBSTRUCT().get_sample_descriptor_dbtable(sd_name)
 
+        # TODO: if layout params are locally cached, as is the case at present, this
+        # will recreate them in the DB to match the local cache structure, *BEFORE*
+        # the LP(force_regenerate=True) call below, which may then have different columns
+        # and this could create issues.
         for ssr_name in PCONF().data_definition.subsample_references:
             DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
 

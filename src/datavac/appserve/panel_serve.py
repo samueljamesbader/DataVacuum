@@ -134,4 +134,5 @@ def launch(index_yaml_file: Optional[Path] = None, non_blocking: bool = False):
 
 
 if __name__=='__main__':
+    print("Launching...")
     launch()

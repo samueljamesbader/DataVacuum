@@ -33,7 +33,7 @@ class FolderSampleSplitManager(SampleSplitManager):
         next(riter)
         # Get a dtypes dict
         headers=[str(c.value) for c in next(riter)]
-        to_nullable={'string':'string', 'integer': 'Int64', 'float': 'Float64'}
+        to_nullable={'string':'string', 'int':'Int64', 'integer': 'Int64', 'datetime':'datetime64[ns]', 'float': 'Float64'}
         dtypes= dict(zip(headers,[to_nullable.get(str(c.value),'IGNORE') for c in next(riter)]))
         descs= dict(zip(headers,[str(c.value) for c in next(riter)]))
         

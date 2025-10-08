@@ -55,6 +55,7 @@ class IdVg(MeasurementWithLinearNormColumn):
     Vgons: dict[str,float] = None #dataclasses.field(default_factory=lambda:{'':1})
     abs_vdlin: float = None
     abs_vdsat: float = None
+    add_gm_header: bool = False
 
     def __post_init__(self):
         super().__post_init__()
@@ -181,19 +182,22 @@ class IdVg(MeasurementWithLinearNormColumn):
         assert np.sign(DVG)==(-1 if self.pol=='p' else 1), "VG should sweep off-to-on"
 
         if has_idsat:
-            gm=savgol_filter(IDsat,*gmsavgol,deriv=1)/DVG
+            gm_sat=savgol_filter(IDsat,*gmsavgol,deriv=1)/DVG
             invswing=savgol_filter(np.log10(np.abs(IDsat.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
         else:
-            gm=VG*np.nan
+            gm_sat=VG*np.nan
             invswing=VG*np.nan
         if has_idlin:
             invswing_lin=savgol_filter(np.log10(np.abs(IDlin.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
+            if self.add_gm_header:
+                gm_lin=savgol_filter(IDlin,*gmsavgol,deriv=1)/DVG
+                measurements.add_extr_headers(**{f'fGM@VD={VDlin_str}':list(gm_lin)})
         else:
             invswing_lin=VG*np.nan
 
         all_inds=np.arange(len(VG))
-        inds_gmpeak=np.argmax(gm,axis=1)
-        gmpeak=gm[all_inds,inds_gmpeak]
+        inds_gmpeak=np.argmax(gm_sat,axis=1)
+        gmpeak=gm_sat[all_inds,inds_gmpeak]
         v_gmpeak=VG1d[inds_gmpeak]
         i_gmpeak=abs(IDsat[all_inds,inds_gmpeak])
         vt_gmpeak=v_gmpeak-np.sign(DVG)*i_gmpeak/gmpeak
@@ -231,10 +235,10 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['VTgm_sat']=vt_gmpeak
         measurements['GM_peak [S]']=gmpeak
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
-        measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
         with np.errstate(divide='ignore', invalid='ignore'):
+            measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
             sstartlin=1e3/invswing_lin[:,0]; sstartlin[sstartlin<0]=np.nan
-        measurements['SSstart_lin [mV/dec]']=sstartlin
+            measurements['SSstart_lin [mV/dec]']=sstartlin
         measurements['Igoffstart [A]']=np.abs(IGsat[:,0])
         measurements['Igoffstart_lin [A]']=np.abs(IGlin[:,0])
         measurements['Igonstop [A]']=np.abs(IGsat[:,-1])

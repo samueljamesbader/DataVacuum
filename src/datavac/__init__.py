@@ -17,15 +17,18 @@ def unload_my_imports(imports=['datavac','bokeh_transform_utils'], silent=False)
     for k in modules_to_drop:
         del sys.modules[k]
 
-class ThisModule(sys.modules[__name__].__class__):
-    @classmethod
-    @property
-    def logger(cls):
-        return datavac.util.dvlogging.logger
+#class ThisModule(sys.modules[__name__].__class__):
+#    @classmethod
+#    @property
+#    def logger(cls):
+#        return datavac.util.dvlogging.logger
+#
+#    @classmethod
+#    @property
+#    def db(cls) -> 'datavac.io.database.Database':
+#        from datavac.io.OLDdatabase import get_database, PostgreSQLDatabase
+#        return get_database()
+#sys.modules[__name__].__class__=ThisModule
 
-    @classmethod
-    @property
-    def db(cls) -> 'datavac.io.database.Database':
-        from datavac.io.OLDdatabase import get_database, PostgreSQLDatabase
-        return get_database()
-sys.modules[__name__].__class__=ThisModule
+from datavac.config.project_config import PCONF
+from datavac.config.data_definition import DDEF

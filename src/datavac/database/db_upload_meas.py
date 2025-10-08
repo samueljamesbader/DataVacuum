@@ -543,7 +543,7 @@ def perform_and_enter_analysis(sample_info:dict[str,Any], only_analyses: list[st
                                                on_no_data=None, include_extr=True)
                                 else:
                                     data = get_data(dep_mgoa, conn=conn, **{DDEF().SAMPLE_COLNAME:[samplename]}) # type: ignore
-                                if data is None:
+                                if (data is None) or len(data)==0:
                                     already_tried_no_data.add(dep_mgoa)
                                     mgoa_to_loadanlsid[dep_mgoa]=None
                                 else:

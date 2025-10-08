@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 else:
     # Otherwise Pydantic's validate_call won't be able to parse the types
     DataFrame = Any
+    DVColumn = Any
 
 @dataclass
 class SampleSplitManager():
@@ -77,7 +78,7 @@ class SampleSplitManager():
                 for col in split_table.columns if col != DDEF().SAMPLE_COLNAME]
     _cached_external_split_table_columns: dict[str, list[DVColumn]] = field(default_factory=dict, init=False)
     _cached_database_split_table_columns: dict[str, list[DVColumn]] = field(default_factory=dict, init=False)
-    def get_split_table_columns(self, flow_name: str, force_external: bool=False) -> list[DVColumn]:
+    def _get_split_table_columns(self, flow_name: str, force_external: bool=False) -> list[DVColumn]:
         from datavac.database.db_connect import get_engine_ro, can_try_db
         if not can_try_db(): force_external=True
         if self._cached_external_split_table_columns.get(flow_name) is not None:
@@ -128,3 +129,14 @@ def get_split_table(*args,**kwargs) -> DataFrame:
     sm._cached_external_split_tables= {}
     sm._cached_database_split_tables= {}
     return sm._get_split_table(*args,**kwargs)
+
+@client_server_split('get_split_table_columns', return_type='pd', split_on='is_server')
+def get_split_table_columns(*args,**kwargs) -> list[DVColumn]:
+    from datavac.config.data_definition import DDEF, SemiDeviceDataDefinition
+    sm=cast(SemiDeviceDataDefinition,DDEF()).split_manager
+    # temp fix to caching issue, stop caching TODO: remove when fixed properly
+    sm._cached_external_split_tables= {}
+    sm._cached_database_split_tables= {}
+    sm._cached_external_split_table_columns = {}
+    sm._cached_database_split_table_columns = {}
+    return sm._get_split_table_columns(*args,**kwargs)
