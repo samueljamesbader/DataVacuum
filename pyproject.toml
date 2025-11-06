@@ -24,10 +24,6 @@ dependencies = [
     # Apache-2.0 license, no relevant CVE risk as of 9/1/2026
     "pyarrow == 20.0.0",   
 
-    # BSD-3-Clause license, need to avoid exposing to untrusted data
-    # https://www.cve.org/CVERecord/SearchResults?query=scikit-learn
-    "scikit-learn ~= 1.6.1",
-    
     # BSD-3-Clause license, no CVE risk as of 11/16/2023 (searched "holoviz")
     "param ~= 2.2.0",
 
@@ -102,6 +98,12 @@ serverside =[
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
     "panel == 1.7.5",
 ]
+
+machinelearn =[
+    # BSD-3-Clause license, need to avoid exposing to untrusted data
+    # https://www.cve.org/CVERecord/SearchResults?query=scikit-learn
+    "scikit-learn ~= 1.6.1",
+] 
 
 [project.scripts]
 datavac = "datavac.util.cli:entrypoint_datavac_cli"

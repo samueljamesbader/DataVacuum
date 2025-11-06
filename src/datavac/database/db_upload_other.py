@@ -36,8 +36,8 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
         # Load the data into a temporary table and check if it is different
         create_temp_table="CREATE TEMP TABLE tmplay ("+str(CreateTable(ssrtab).compile(conn)).split("\" (",maxsplit=1)[1]+";"
         table_cols_same=(conn.execute(text(create_temp_table+\
-            "WITH A AS (SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = 'tmplay'), "\
-            "B AS (SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = :tblname) "\
+            "WITH A AS (SELECT ordinal_position, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = 'tmplay'), "\
+            "B AS (SELECT ordinal_position, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = :tblname) "\
             "SELECT CASE WHEN EXISTS (SELECT * FROM A EXCEPT SELECT * FROM B) OR EXISTS (SELECT * FROM B EXCEPT SELECT * FROM A) "\
             "THEN 'different' ELSE 'same' END AS result ;").bindparams(tblname=ssr_name)).all()[0][0] == 'same')
         if not table_cols_same: logger.debug(f"Column structure changed for {ssr_name}, updating")
@@ -51,7 +51,11 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
 
         # If the content has changed, we need to update the table
         else:
-            logger.debug(f"Content changed for {ssr_name}, updating")
+            if table_cols_same: logger.debug(f"Content changed for {ssr_name}, updating")
+
+            # Statements to drop views
+            mg_views_to_drop: list[str] = []
+            an_views_to_drop: list[str] = []
 
             # Statements to temporarily remove foreign key constraints
             removal_statements: list[str] = []
@@ -66,9 +70,13 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
                 if ssr_name in mgoa.subsample_reference_names:
                     if isinstance(mgoa, MeasurementGroup):
                         coretab=DBSTRUCT().get_measurement_group_dbtables(mgoa.name)['meas']
+                        view_namewsq = f'{DBSTRUCT().jmp_schema}."{mgoa.name}"'
+                        mg_views_to_drop.append(f"DROP VIEW IF EXISTS {view_namewsq} CASCADE;")
                         mg_views_to_recreate.append(create_meas_group_view(mgoa.name, just_DDL_string=True))
                     else:
                         coretab=DBSTRUCT().get_higher_analysis_dbtables(mgoa.name)['anls']
+                        view_namewsq = f'{DBSTRUCT().jmp_schema}."{mgoa.name}"'
+                        an_views_to_drop.append(f"DROP VIEW IF EXISTS {view_namewsq} CASCADE;")
                         an_views_to_recreate.append(create_analysis_view(mgoa.name, just_DDL_string=True))
                     if dump_extractions_and_analyses:
                         raise NotImplementedError()
@@ -81,6 +89,8 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
             all_statements=[]
 
             # Remove foreign key constraints
+            all_statements+=mg_views_to_drop
+            all_statements+=an_views_to_drop
             all_statements+=removal_statements
 
             # Bring in the new table
