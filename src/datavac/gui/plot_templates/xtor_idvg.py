@@ -1,7 +1,7 @@
 import numpy as np
 import bokeh.layouts
 import panel as pn
-from panel.io import hold
+from panel.io.document import hold
 from bokeh.models import ColumnDataSource
 
 from bokeh_transform_utils.transforms import multi_abs_transform

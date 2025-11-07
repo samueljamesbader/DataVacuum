@@ -8,7 +8,7 @@ from bokeh.plotting import figure
 from bokeh.transform import jitter
 from pandas import DataFrame
 from panel import GridBox
-from panel.io import hold
+from panel.io.document import hold
 from panel.widgets import Widget, MultiSelect, Select, CompositeWidget, StaticText
 import panel as pn
 import param as hvparam

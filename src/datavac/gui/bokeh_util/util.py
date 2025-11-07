@@ -7,16 +7,6 @@ from bokeh.io import curdoc
 
 from datavac.gui.bokeh_util.palettes import get_sam_palette
 
-
-@contextmanager
-def hold_bokeh():
-    raise Exception("Superseded by panel hold")
-    curdoc().hold()
-    try:
-        yield
-    finally:
-        curdoc().unhold()
-
 def make_serializable(df):
     df=df.copy()
     for k in df.keys():

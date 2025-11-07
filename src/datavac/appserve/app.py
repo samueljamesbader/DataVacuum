@@ -1,4 +1,6 @@
 import panel as pn
+pn.config.reconnect = True
+pn.config.notifications = True
 pn.extension('mathjax') # type: ignore
 from panel.template.base import BasicTemplate
 

@@ -30,7 +30,7 @@ dependencies = [
     # MIT license, no CVE risk as of 8/03/2025
     "watchfiles ~= 1.1.0",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
-    "bokeh ~= 3.6.2",
+    "bokeh ~= 3.8.0",
     # custom PSF-based license (https://matplotlib.org/stable/project/license.html), no CVE risk as of 11/21/2024
     "matplotlib ~= 3.9.3",
     # MIT license, no CVE risk as of 12/31/2024
@@ -96,7 +96,7 @@ test = [
 serverside =[
     "pydantic",
     # BSD-3-Clause license, no CVE risk as of 1/24/2023
-    "panel == 1.7.5",
+    "panel == 1.8.2",
 ]
 
 machinelearn =[
