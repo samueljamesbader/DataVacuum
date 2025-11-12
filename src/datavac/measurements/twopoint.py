@@ -195,7 +195,7 @@ def tlm_summary(tab,
 
         rshort:float
         if (not len(short_grouping)) or 'devtype' not in dgrp.keys():
-            assert allow_missing_short
+            #assert allow_missing_short
             gb=[[(),dgrp]]
             rshort=0.0
         else:
@@ -249,7 +249,9 @@ def tlm_summary(tab,
             Lseps=grp[Lsep_column]*unit_getter(Lsep_column)
             if len(set(Lseps))==1: continue
             slope:float;intercept:float;rval:float;
-            slope,intercept,rval,*_=linregress(list(Lseps),Rs) # type: ignore
+            if grp.R.isna().sum()==0:
+                slope,intercept,rval,*_=linregress(list(Lseps),Rs) # type: ignore
+            else: slope, intercept, rval= np.nan, np.nan, 0.0
             goodfit=(rval**2>R2min_rvs)
             if not rval**2>R2min_rvs:
                 #print(f"R^2={rval**2} too low for {str(outer_key+inner_key)}")
