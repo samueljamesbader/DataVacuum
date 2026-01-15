@@ -275,7 +275,8 @@ def get_data_from_meas_group(
 
 @client_server_split("get_sweeps_for_jmp", return_type="pd", split_on="direct_db_access")
 def get_sweeps_for_jmp(mg_name: str, loadids: list[int], measids: list[int],
-                       only_sweeps: Optional[list[str]]=None) -> DataFrame:
+                       only_sweeps: Optional[list[str]]=None,
+                       only_sweeps_like: Optional[list[str]]=None) -> DataFrame:
     import pandas as pd; import numpy as np
     from datavac.config.data_definition import DDEF
     from datavac.database.db_connect import get_engine_ro
@@ -289,6 +290,9 @@ def get_sweeps_for_jmp(mg_name: str, loadids: list[int], measids: list[int],
         .select_from(sweeptab.join(ids_cte, (sweeptab.c.loadid==ids_cte.c.loadid) & (sweeptab.c.measid==ids_cte.c.measid)))
     if only_sweeps is not None:
         sel=sel.where(sweeptab.c.header.in_(only_sweeps))
+    if only_sweeps_like is not None:
+        from sqlalchemy import or_
+        sel=sel.where(or_(*[sweeptab.c.header.like(s) for s in only_sweeps_like]))
 
     with get_engine_ro().connect() as conn:
         df = pd.read_sql(con=conn, sql=sel, dtype={'sweep': 'object', 'header': 'string'})

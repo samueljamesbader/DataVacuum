@@ -100,6 +100,8 @@ class SingleFolderTrove(Trove):
                 for mg_name, mg in PCONF().data_definition.measurement_groups.items():
                     if only_meas_groups and mg_name not in only_meas_groups: continue
                     for reader_card in cast(list[FolderTroveReaderCard],mg.reader_cards.get(trove_name,[])):
+                        if hasattr(reader_card,'allowed_folders'):
+                            if not any(fn in reader_card.allowed_folders for fn in folder.parts): continue # type: ignore
                         pattern=reader_card.glob
                         if f in cached_glob(folder,pattern):
 
@@ -143,7 +145,9 @@ class SingleFolderTrove(Trove):
                             SAMPLE_COLNAME=PCONF().data_definition.SAMPLE_COLNAME
                             ALL_SAMPLELOAD_COLNAMES=PCONF().data_definition.ALL_SAMPLELOAD_COLNAMES(trove_name)
                             sample_to_read_dfs:dict[str,list[pd.DataFrame]]=\
-                                read_dfs if type(read_dfs) is dict else {read_info_so_far[SAMPLE_COLNAME]:read_dfs} # type: ignore
+                                read_dfs if type(read_dfs) is dict\
+                                    else {read_info_so_far[SAMPLE_COLNAME]:
+                                          (read_dfs if not isinstance(read_dfs,pd.DataFrame) else [read_dfs])} # type: ignore
 
                             # For each material and sequence of dataframs
                             for sample,read_dfs in sample_to_read_dfs.items():

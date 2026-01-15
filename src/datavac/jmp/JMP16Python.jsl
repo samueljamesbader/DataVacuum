@@ -85,7 +85,7 @@ dv:PySend = Function({val,name},{Default Local},
 //        Build Query, and other JMP operations which preserve the Modify Query script.
 //        So, if you're getting fancy, you may have to supply this explicitly.
 //
-dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0}, {Default Local},
+dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0, only_headers_like=0}, {Default Local},
 	dt = If( dt!=0, dt, Current Data Table());
 	If( N Rows(dt)==0,
         Throw("No rows in the table to pull sweeps for"));
@@ -125,10 +125,13 @@ dv:PullSweeps=Function({dt=0, db_table_name=0, only_headers=0}, {Default Local},
     Show(only_headers);
     headers_str=If(only_headers==0,"None","[\!""||Concat Items(only_headers, "\!",\!"")||"\!"]");
     Show(headers_str);
+    Show(only_headers_like);
+    headers_str_like=If(only_headers_like==0,"None","[\!""||Concat Items(only_headers_like, "\!",\!"")||"\!"]");
+    Show(headers_str_like);
 
 	// Run the query in Python
 	dv:PyConn() << Send(dt,Python Name("viewdf"));
-	error=dv:PySub("sweepdf=get_sweeps_for_jmp('"||db_table_name||"',list(viewdf['loadid']),list(viewdf['measid']),only_sweeps="||headers_str||")");
+	error=dv:PySub("sweepdf=get_sweeps_for_jmp('"||db_table_name||"',list(viewdf['loadid']),list(viewdf['measid']),only_sweeps="||headers_str||",only_sweeps_like="||headers_str_like||")");
 	//Show(error);
 	//Show(error!=0);
 	If(!IsEmpty(error),
