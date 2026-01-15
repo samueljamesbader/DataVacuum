@@ -84,12 +84,45 @@ def simple_rf_mosfet_extraction(df,width):
 
     fF=1e-15; uS=1e-6
     w=2*np.pi*df['freq']
+    #df['tanThetaY12']=im(df['Y12']) / re(df['Y12'])
+    #df['tanThetaY11']=im(df['Y11']) / re(df['Y11'])
+    #df['tanThetaY22']=im(df['Y22']) / re(df['Y22'])
+    df['Cgg/W [fF/um]']= im(df['Y11']) / w / Wum /fF
     df['Cgd/W [fF/um]']=-im(df['Y12']) / w / Wum /fF
-    df['Cgs/W [fF/um]']=im(df['Y11'] + df['Y12']) / w / Wum /fF
-    df['Cds/W [fF/um]']=im(df['Y22']+df['Y12']) / w / Wum /fF
+    df['Cgs/W [fF/um]']= im(df['Y11'] + df['Y12']) / w / Wum /fF
+    df['Cds/W [fF/um]']= im(df['Y22'] + df['Y12']) / w / Wum /fF
     df['Rds*W [Ohm.um]']=1/re(df['Y22']+df['Y12']) * Wum
     df['GM/W [uS/um]']=np.abs(df['Y21']-df['Y12']) / Wum / uS
     Rs=df['Rs [Ohm.um]']=re(df['Z12']) * Wum
     df['Rd*W [Ohm.um]']=(re(df['Z22'])-Rs) * Wum
     df['Rg*W [Ohm.um]']=(re(df['Z11'])-Rs) * Wum
     df['GM/2πCgs [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgs/W [fF/um]']) #uS/fF=GHz
+
+
+def deembed(subdfd_raw, open_dfd, short_dfd):
+    # For the moment this is done by caller
+    #sparam_helper(subdfd_raw)
+    #sparam_helper(open_dfd)
+    #sparam_helper(short_dfd)
+
+    # Using Open-Short deembedding
+    # https://scikit-rf.readthedocs.io/en/latest/tutorials/Deembedding.html
+    try:
+        assert np.allclose(short_dfd['freq'], open_dfd['freq']), "Frequencies of short and open deembedders do not match"
+        assert np.allclose(subdfd_raw['freq'], open_dfd['freq']), "Frequencies of subdevice and open deembedders do not match"
+    except Exception as e:
+        raise Exception("Frequency arrays of deembedders and subdevice do not match") from e
+
+    y11_s, y12_s, y21_s, y22_s = short_dfd['Y11'], short_dfd['Y12'], short_dfd['Y21'], short_dfd['Y22']
+    y11_o, y12_o, y21_o, y22_o = open_dfd['Y11'], open_dfd['Y12'], open_dfd['Y21'], open_dfd['Y22']
+    y11_s, y12_s, y21_s, y22_s = (y11_s - y11_o), (y12_s - y12_o), (y21_s - y21_o), (y22_s - y22_o)
+    z11_s, z12_s, z21_s, z22_s = s2z(*y2s(y11_s, y12_s, y21_s, y22_s))
+    
+    y11_m, y12_m, y21_m, y22_m = subdfd_raw['Y11'], subdfd_raw['Y12'], subdfd_raw['Y21'], subdfd_raw['Y22']
+    y11_m, y12_m, y21_m, y22_m = (y11_m - y11_o), (y12_m - y12_o), (y21_m - y21_o), (y22_m - y22_o)
+    z11_m, z12_m, z21_m, z22_m = s2z(*y2s(y11_m, y12_m, y21_m, y22_m))
+    z11_m, z12_m, z21_m, z22_m = (z11_m - z11_s), (z12_m - z12_s), (z21_m - z21_s), (z22_m - z22_s)
+
+    deembeded=dict(zip(['freq','S11','S12','S21','S22'], [subdfd_raw['freq'],*z2s(z11_m, z12_m, z21_m, z22_m)]))
+    sparam_helper(deembeded)
+    return deembeded
