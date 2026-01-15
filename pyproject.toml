@@ -106,7 +106,7 @@ machinelearn =[
 ] 
 
 [project.scripts]
-datavac = "datavac.util.cli:entrypoint_datavac_cli"
+datavac = "datavac.util.entrypoint:entrypoint_datavac_cli"
 datavac_with_context = "datavac.config.contexts:cli_datavac_with_context"
 
 [tool.setuptools.packages.find]
