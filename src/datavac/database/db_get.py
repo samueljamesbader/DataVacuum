@@ -376,6 +376,7 @@ def get_data(mg_or_an_name: str, scalar_columns: Optional[list[str]] = None,
         sample_descriptors: List of sample descriptor tables to include in the result.
         factors: Additional factors to filter the data by, eg factor1=['allowed_val1','allowed_val2']
     """
+    print(mg_or_an_name, scalar_columns, include_sweeps, unstack_headers, ensure_consistent_order, sample_descriptors, factors)
     from datavac.measurements.measurement_group import MeasurementGroup
     from datavac.config.data_definition import DDEF
     if (mg:=DDEF().measurement_groups.get(mg_or_an_name)) is not None:
@@ -440,7 +441,7 @@ def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:M
     # Execute it
     from datavac.database.db_connect import get_engine_ro
     with get_engine_ro().begin() as conn:
-        with time_it("Executing SQL in get_factors",threshold_time=.01):
+        with time_it(f"Executing SQL in get_factors on table {mgoa_name} with pre_filters {pre_filters} for factors {factor_names} with sample_descriptors {sample_descriptors}",threshold_time=.01):
             records=pd.read_sql(query,conn,dtype=dtypes)
     if not len(records): return {f:set() for f in factor_names}
     else: return {f:set(records.loc[records[f'ind___{f}'].notna(),f].to_list()) for f in factor_names}
@@ -450,17 +451,17 @@ def get_mgoa_names():
     return sorted(list(DDEF().measurement_groups.keys()) + list(DDEF().higher_analyses.keys()))
 
 @client_server_split(method_name="get_available_columns", return_type='ast', split_on="direct_db_access")
-def get_available_columns(mgoa_name: str) -> list[str]:
+def get_available_columns(mgoa_name: str, sample_descriptors: list[str] = []) -> list[str]:
 
     # Get the relevant table dependencies and join hints
     if mgoa_name in DDEF().measurement_groups:
         mg=DDEF().measurement_groups[mgoa_name]
         coretab=mg.dbtable('meas')
-        td, jh = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False)
+        td, jh = get_table_depends_and_hints_for_meas_group(mg, include_sweeps=False, sample_descriptors=sample_descriptors)
     elif mgoa_name in DDEF().higher_analyses:
         an=DDEF().higher_analyses[mgoa_name]
         coretab=an.dbtables('aidt')
-        td, jh = get_table_depends_and_hints_for_analysis(an)
+        td, jh = get_table_depends_and_hints_for_analysis(an, sample_descriptors=sample_descriptors)
     else:
         raise ValueError(f"Measurement group or analysis '{mgoa_name}' not found in data definition.")
     

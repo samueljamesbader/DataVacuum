@@ -52,7 +52,7 @@ class SampleSplitManager():
         with get_engine_ro().begin() as conn:
             return pd.read_sql(f"""SELECT s."{DDEF().SAMPLE_COLNAME}", sp.*
                                FROM vac.\"SplitTable -- {flow_name}\" sp
-                               JOIN vac.\"Samples\" s on s.sampleid=sp.sampleid""", conn).drop(columns=['sampleid'])
+                               JOIN vac.\"Samples\" s on s.sampleid=sp.sampleid""", conn).drop(columns=['sampleid']).convert_dtypes()
     _cached_external_split_tables: dict[str, pd.DataFrame] = field(default_factory=dict, init=False)
     _cached_database_split_tables: dict[str, pd.DataFrame] = field(default_factory=dict, init=False)
     def _get_split_table(self, flow_name: str, force_external:bool=False) -> pd.DataFrame:

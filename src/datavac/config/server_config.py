@@ -26,6 +26,7 @@ class ServerConfig:
         '/api/get_split_table': 'read',
         '/api/get_mgoa_names': 'read',
         '/api/get_available_columns': 'read',
+        '/api/read_only_sql': 'read',
         })
     access_key_expiry_days:float = 14
 
@@ -43,8 +44,9 @@ class ServerConfig:
         from datavac.database.db_get import get_data, get_factors, get_sweeps_for_jmp, get_mgoa_names, get_available_columns
         from datavac.appserve.dvsecrets.ak_client_side import get_user
         from datavac.config.sample_splits import get_flow_names, get_split_table
+        from datavac.database.db_util import read_only_sql
         return [get_data, get_factors, get_user, get_sweeps_for_jmp, get_flow_names, get_split_table,
-                get_mgoa_names, get_available_columns]
+                get_mgoa_names, get_available_columns, read_only_sql]
 
     @property
     def api_funcs_and_roles(self) -> dict[RoutedCallable,str|None]:

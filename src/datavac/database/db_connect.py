@@ -67,8 +67,8 @@ class PostgreSQLConnectionInfo():
         return f"[{self.username}@{self.host}:{self.port} for '{self.database}']"
 
 @cache 
-def get_engine_ro():
-    return _make_engine(get_db_connection_info(DBConnectionMode.READ_ONLY))
+def get_engine_ro(only=False):
+    return _make_engine(get_db_connection_info(DBConnectionMode.READ_ONLY,max_usermode=(DBConnectionMode.READ_ONLY if only else None)))
 
 @cache 
 def get_engine_rw():
@@ -123,7 +123,7 @@ def _raw_psycopg2_connection(connection_info: PostgreSQLConnectionInfo) -> Gener
     try: yield conn
     finally: conn.close()
 
-def get_db_connection_info(min_usermode: DBConnectionMode = DBConnectionMode.READ_ONLY) -> 'PostgreSQLConnectionInfo':
+def get_db_connection_info(min_usermode: DBConnectionMode = DBConnectionMode.READ_ONLY, max_usermode: Optional[DBConnectionMode]=None) -> 'PostgreSQLConnectionInfo':
     """Fetches the connection information for the database, ensuring it is at least the specified usermode.
     
     Args:
@@ -133,6 +133,7 @@ def get_db_connection_info(min_usermode: DBConnectionMode = DBConnectionMode.REA
     at_least=False
     for usermode in DBConnectionMode: # iterate in order of usermode
         if usermode == min_usermode: at_least=True
+        if max_usermode is not None and usermode.value > max_usermode.value: continue
         if at_least:
             try: 
                 ci = get_specific_db_connection_info(usermode)

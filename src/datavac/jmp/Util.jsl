@@ -1,10 +1,11 @@
 Names Default To Here(1); dv=:::dv;
 
-dv:GetFactors=Function({mgoa, factor_names, pre_filters=[=>0]}, {Default Local},
+dv:GetFactors=Function({mgoa, factor_names, pre_filters=[=>0], sample_descriptors={}}, {Default Local},
 	dv:PySend(mgoa,"mgoa");
 	dv:PySend(factor_names,"factor_names");
 	dv:PySend(pre_filters,"pre_filters");
-	factors=dv:PySub("factors=get_factors('"||mgoa||"',factor_names,pre_filters);","factors");
+	dv:PySend(sample_descriptors,"sample_descriptors");
+	factors=dv:PySub("factors=get_factors('"||mgoa||"',factor_names,pre_filters,sample_descriptors=sample_descriptors);","factors");
 	factors
 );
 
@@ -16,9 +17,10 @@ dv:GetLots=Function({mgoa, pre_filters=[=>]}, {Default Local},
 dv:GetAvailableTables=Function({},{Default Local},
 	dv:PySub("from datavac.database.db_get import get_mgoa_names as gmn; mn=gmn();",ret="mn");
 );
-dv:GetFactorNames=Function({mgoa_name},{Default Local},
+dv:GetFactorNames=Function({mgoa_name,sample_descriptors={}},{Default Local},
 	dv:PySend(mgoa_name,"mgoa");
-	dv:PySub("from datavac.database.db_get import get_available_columns as gac; ac=gac(mgoa);",ret="ac");
+	dv:PySend(sample_descriptors,"sample_descriptors");
+	dv:PySub("from datavac.database.db_get import get_available_columns as gac; ac=gac(mgoa,sample_descriptors=sample_descriptors);",ret="ac");
 );
 
 dv:LotPreselector = Function({dbtable,single=0,additional_checkboxes=0, pre_filters=[=>]},{Default Local},
@@ -151,15 +153,26 @@ dv:AbsCurrents = Function({dt=0},
 //    )
 //);
 
-dv:GetScalarData = Function({mgoa, factors = [=>0], close previous = 1},{error, dt},
+dv:QuickSQL = Function({tablename, sql, close previous = 1}, {Default Local},
+	dv:PySend(sql,"sql");
+	error=dv:PySub("df=None;from datavac.database.db_util import read_only_sql; df=read_only_sql(sql);");
+	dt=dv:PyConn()<<Get("df");
+	dt<<Set Name(tablename);
+	dt<<New Data View();
+	dt;
+);
+
+dv:GetScalarData = Function({mgoa, factors = [=>0], close previous = 1, scalar_columns = Empty(), sample_descriptors={}},{error, dt},
 	if(close previous,
 		Try(Close(DataTable(mgoa),No Save), "No issue");
 		Try(Close(DataTable(mgoa||" -- Sweeps"),No Save), "No issue");
 	);
 	dv:PySend(mgoa,"mgoa");
 	dv:PySend(factors,"factors");
+	dv:PySend(scalar_columns,"scalar_columns");
+	dv:PySend(sample_descriptors,"sample_descriptors");
 	//dv:PySub("from datavac.appserve.dvsecrets.ak_client_side import cli_print_user as cpu; cpu();");
-	error=dv:PySub("df=None;df=get_data(mgoa,**factors);");
+	error=dv:PySub("df=None;df=get_data(mgoa,scalar_columns=scalar_columns,sample_descriptors=sample_descriptors,**factors);");
 	Write("Got data\!N");
 	dt=dv:PyConn()<<Get("df");
 	dt<<Set Name(mgoa);
@@ -174,7 +187,9 @@ dv:GetScalarData = Function({mgoa, factors = [=>0], close previous = 1},{error, 
 );
 
 dv:GetDataWithLotGui = Function({mgoa="?", factors = [=>],
-						checks = {"include sweeps","attach splits"}}, {Default Local},	
+						checks = {"include sweeps","attach splits"},
+						scalar_columns=Empty(), sample_descriptors={}
+						}, {Default Local},	
 
 	// If the user does not give a measurement group, ask
 	If(mgoa=="?",
@@ -190,7 +205,7 @@ dv:GetDataWithLotGui = Function({mgoa="?", factors = [=>],
 	
 	If(factors=="?",
 		win=New Window("Additional filters?",<<Modal,<<Return Result,
-			factorlb=ListBox(dv:GetFactorNames(mgoa)),
+			factorlb=ListBox(dv:GetFactorNames(mgoa,sample_descriptors)),
 		);
 		open_factors=win["factorlb"];
 		factors=[=>];
@@ -221,7 +236,7 @@ dv:GetDataWithLotGui = Function({mgoa="?", factors = [=>],
 	
 	// Do the post-selection for any open factors
 	If(NItems(open_factors),
-		potential_factors=dv:GetFactors(mgoa, open_factors, listed_factors);
+		potential_factors=dv:GetFactors(mgoa, open_factors, listed_factors, sample_descriptors);
 		charmaps=[=>];
 		lbs=[=>];
 		h=HListBox();
@@ -258,7 +273,7 @@ dv:GetDataWithLotGui = Function({mgoa="?", factors = [=>],
 	Show(listed_factors);
 	
 	// Get the scalar table
-	dt=dv:GetScalarData(mgoa, listed_factors, 1);
+	dt=dv:GetScalarData(mgoa, listed_factors, 1, scalar_columns=scalar_columns, sample_descriptors);
 
 	// Get sweeps if requested
 	include_sweeps=(Contains(checks,"include sweeps")!=0);
