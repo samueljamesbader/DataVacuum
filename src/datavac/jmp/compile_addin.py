@@ -29,6 +29,7 @@ def make_db_connect(addin_folder,addin_id, env_values):
 
 def cli_compile_jmp_addin(*args):
     parser=argparse.ArgumentParser(description='Makes a .jmpaddin')
+    parser.add_argument('--attempt_install', action='store_true', help='Attempt to open the add-in with JMP after building')
     #parser.add_argument('envname',nargs="*",help='Environments (ie *.env files) to use',default=[''])
     namespace=parser.parse_args(args)
     namespace.envname=[os.environ['DATAVACUUM_DEPLOYMENT_NAME']]
@@ -154,6 +155,7 @@ def cli_compile_jmp_addin(*args):
             for add_file in [*dv_base_jsl,*request_jsl]:
                 copy_in_file(add_file,addin_folder=addin_folder,addin_id=addin_id)
 
+        NOCODE=(os.environ.get("DATAVACUUM_NOCODE","False").capitalize()=='True')
         general_commands=[
             {
                 'name':'Connect to Wafermap',
@@ -161,12 +163,18 @@ def cli_compile_jmp_addin(*args):
                 'text': f'dv=:::dv;dv:ConnectToWafermap();',
                 'icon':None
             },
-            *([{
+            ({
+                'name':'Refetch Addin',
+                'tip':'Refetch and reload this add-in',
+                'text': f'dv=:::dv;dv:RefetchAddin();',
+                'icon':None
+            } if NOCODE else
+            {
                 'name':'Reload Addin',
                 'tip':'Reload this add-in',
                 'text': f'dv=:::dv;dv:ReloadAddin();',
                 'icon':None
-            }] ),#if envname=="LOCAL" else []),
+            }),
             {
                 'name':'Login/Re-login',
                 'tip':'Logout and login again to refresh access key',
@@ -265,7 +273,24 @@ def cli_compile_jmp_addin(*args):
         shutil.make_archive(str(addin_folder/f"DataVac_{envname.capitalize()}"),'zip', addin_folder)
         shutil.move(addin_folder/f"DataVac_{envname.capitalize()}.zip",addin_folder/f"DataVac_{envname.capitalize()}.jmpaddin")
 
+        jmp_path=Path(r"C:\Program Files\SAS\JMPPRO\17\Jmp.exe")
+        path_to_open=fr"{addin_folder/f'DataVac_{envname.capitalize()}.jmpaddin'}"
+
         logger.debug(f"Add-in for {envname} compiled")
-        print("\n\nNow install by opening the following file in JMP:")
-        print(fr"{addin_folder/f'DataVac_{envname.capitalize()}.jmpaddin'}")
-        print("")
+        if getattr(namespace, "attempt_install", False):
+            if jmp_path.exists():
+                import subprocess
+                try:
+                    subprocess.Popen([str(jmp_path), str(path_to_open)])
+                    print(f"Attempted to open {path_to_open} with JMP at {jmp_path}")
+                except Exception as e:
+                    print(f"Failed to open JMP: {e}")
+                    print("Please open the following file in JMP manually:")
+                    print(path_to_open)
+            else:
+                print(f"JMP executable not found at {jmp_path}. Please open the following file in JMP:")
+                print(path_to_open)
+        else:
+            print("\n\nNow install by opening the following file in JMP:")
+            print(path_to_open)
+            print("")

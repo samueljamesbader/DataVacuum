@@ -10,3 +10,16 @@ dv:ReloadAddin=Function( {}, {Default Local},
 	);
     Write("Reload complete\!N");
 );
+
+Names Default To Here(1); dv = :::dv;
+dv:RefetchAddin=Function({},{Default Local},
+    Python Term();
+	request = New HTTP Request(URL(dv:DATAVACUUM_DEPLOYMENT_URI || "/nocodesetup"), Method("GET"));
+	file = request << Download( "$TEMP/NoCodeSetup.bat", "replace", "show progress" );
+	If( !Is Empty( file ),
+		Open( file )
+	);
+	dv:ReloadAddin();
+);
+
+//dv:RefetchAddin();
