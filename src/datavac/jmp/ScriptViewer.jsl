@@ -1,0 +1,25 @@
+Names Default To Here(1); dv=:::dv;
+
+
+dv:ScriptViewer=Function({},{Default Local},
+	arr=%DEFINEARRAYSHERE%;
+	// Build a vertical list of link-like buttons
+	vb = V List Box();
+	For Each( {namepath, num}, arr,
+		{name,path}=namepath;
+		Insert Into(
+			vb,
+			Eval(Eval Expr(ButtonBox( name,
+				<<Set Function(
+					Function( {this},
+						Open( Expr(path) );
+						this<<CloseWindow();
+					)
+				),
+			)))
+		);
+	);
+
+	// Show the window
+	New Window( "Script Links",  <<Modal, VScrollBox(Size(300,700),vb));
+);

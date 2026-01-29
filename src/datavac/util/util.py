@@ -52,7 +52,10 @@ def import_modfunc(dotpath):
     return func
 
 def get_resource_path(dotpath):
-    pkg,relpath=dotpath.split("::")
+    try:
+        pkg,relpath=dotpath.split("::")
+    except ValueError:
+        raise ValueError(f"Dotpath '{dotpath}' is improperly formatted ('package.module::relative/path/to/resource')")
     try:
         with irsc.as_file(irsc.files(pkg)) as pkg_path:
             if not (pkg_path/relpath).exists():

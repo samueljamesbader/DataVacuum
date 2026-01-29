@@ -9,6 +9,16 @@ import yaml
 from datavac.util.dvlogging import logger
 from datavac.util.util import get_resource_path
 
+default_inside=[
+    'datavac.jmp::JMP16Python.jsl',
+    'datavac.jmp::DBConnect.jsl',
+    'datavac.jmp::Util.jsl',
+    'datavac.jmp::ConnectToWafermap.jsl',
+    'datavac.jmp::ReloadAddin.jsl',
+    'datavac.jmp::SplitTables.jsl',
+
+    'ScriptViewer.jsl',
+]
 
 def copy_in_file(filename,addin_folder,addin_id):
     with open(filename,'r') as f1:
@@ -21,6 +31,12 @@ def copy_in_file(filename,addin_folder,addin_id):
                      .replace("%ADDINID%",addin_id) \
                      #.replace("datavacuum_helper.local",addin_id)\
                      .replace("%LOCALADDINFOLDER%",str(addin_folder)))
+
+def get_jsl_path(inc, addin_id, jmp_conf):
+    if inc in jmp_conf.get('to_copy_in',default_inside):
+        if '::' in inc: return f"$ADDIN_HOME({addin_id})/{get_resource_path(inc).name}"
+        else: return f"$ADDIN_HOME({addin_id})/{inc}"
+    else: return get_resource_path(inc)
 
 def make_db_connect(addin_folder,addin_id, env_values):
     from datavac.config.project_config import PCONF
@@ -37,24 +53,12 @@ def make_addin_def(addin_folder, addin_id, envname):
             "addinVersion=1\n",
             "minJmpVersion=16",])
 
-def make_addin_load(addin_folder, addin_id, envname, jmp_conf, menu_includes=[]):
+def make_addin_load(addin_folder, addin_id, envname, jmp_conf, menu_includes={}):
     with open(addin_folder/"addinLoad.jsl",'w') as f:
-        generated_jsl=[]  # addin_folder/'env_vars.jsl'
-        dv_base_jsl=[get_resource_path(x) for x in [
-            'datavac.jmp::JMP16Python.jsl',
-            # 'datavac.jmp::Secrets.jsl',
-            'datavac.jmp::DBConnect.jsl',
-            'datavac.jmp::Util.jsl',
-            'datavac.jmp::ConnectToWaferMap.jsl',
-            'datavac.jmp::ReloadAddin.jsl',
-            'datavac.jmp::SplitTables.jsl',
-            # *(['datavac.jmp::ReloadAddin.jsl'] if envname=='LOCAL' else [])
-        ]]
-        request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])+ list(menu_includes)]
-        inc_files=list(dict.fromkeys([*generated_jsl,*dv_base_jsl,*request_jsl]))
-        inc_filenames=[Path(inc_file).name for inc_file in inc_files]
-        assert len(set(inc_filenames))==len(inc_filenames), \
-            f"Repeated filename in {inc_files}"
+        inside_jsl_dotpaths=jmp_conf.get('to_copy_in',default_inside)
+        all_jsl_dotpaths=list(dict.fromkeys(inside_jsl_dotpaths+jmp_conf.get('additional_jsl',[])+list(menu_includes.values())))
+        assert len([x for x in all_jsl_dotpaths])==len(set([x.split("::")[-1].lower() for x in all_jsl_dotpaths])),\
+            "Repeated JSL filename with different dot path among "+str(list(all_jsl_dotpaths))
         f.writelines([
             f'Names Default To Here(1);\n',
             f'dv=Namespace("{addin_id}");\n',
@@ -67,13 +71,14 @@ def make_addin_load(addin_folder, addin_id, envname, jmp_conf, menu_includes=[])
             # Using :::dv so that add-ins work inside of JMP projects
             # See https://community.jmp.com/t5/Discussions/Unable-to-run-addins-within-Project/td-p/383815
             f'  :::dv=dv;\n',
-            *[f'  Include( "$ADDIN_HOME({addin_id})/{Path(filename).name}" );\n'
-                for filename in inc_files],
+            *[f'  Include( "{get_jsl_path(inc,addin_id,jmp_conf)}" );\n' for inc in all_jsl_dotpaths],
+            #*[f'  Include( "{inc}");\n' for inc in menu_jsl],
             f'  dv:force_init=0;\n',
             f',//Else\n  Write("Deferred initialization of {addin_id} because of DATAVACUUM_JMP_DEFER_INIT\\!N"));'
         ])
-        for add_file in [*dv_base_jsl,*request_jsl]:
-            copy_in_file(add_file,addin_folder=addin_folder,addin_id=addin_id)
+        for add_file in inside_jsl_dotpaths:
+            if '::' in add_file:
+                copy_in_file(get_resource_path(add_file),addin_folder=addin_folder,addin_id=addin_id)
 
 def make_env_vars(addin_folder, addin_id, jmp_conf, env_values):
     from datavac.config.project_config import PCONF
@@ -121,13 +126,14 @@ def make_pyinit(addin_folder, addin_id, jmp_conf, env_values):
         """))
 
 def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
-    includes=[]
+    includes={}
     NOCODE=(os.environ.get("DATAVACUUM_NOCODE","False").capitalize()=='True')
     general_commands=[
         {
             'name':'Connect to Wafermap',
             'tip':'Assign map role for current table',
             'text': f'dv=:::dv;dv:ConnectToWafermap();',
+            'includes': ['datavac.jmp::ConnectToWafermap.jsl'],
             'icon':None
         },
         ({
@@ -158,20 +164,30 @@ def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
             'name':'Abs Currents',
             'tip':'For headers that look like currents, take absolute value',
             'text': f'dv=:::dv;dv:AbsCurrents();',
+            'includes': ['datavac.jmp::Util.jsl'],
             'icon':None
         },
         {
             'name':'Attach Splits',
             'tip':'Attach to a split table',
             'text': f'dv=:::dv;dv:AttachSplitTable();',
+            'includes': ['datavac.jmp::SplitTables.jsl'],
             'icon':None
         },
         {
             'name':'Get Data',
             'tip':'Get data from DataVacuum',
             'text': f'dv=:::dv;dv:GetDataWithLotGui("?","?");',
+            'includes': ['datavac.jmp::Util.jsl'],
             'icon':None
-        }
+        },
+        {
+            'name':'Script Viewer',
+            'tip':'View source JSL scripts',
+            'text': f'dv=:::dv;dv:ScriptViewer();',
+            #'includes': ['datavac.jmp::ScriptViewer.jsl'],
+            'icon':None
+        },
     ]
     menus=[
         *([{
@@ -197,7 +213,7 @@ def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
         dvmenu_name.text=f'DataVac_{envname.capitalize()}'
         dvmenu.append((dvmenu_caption:=gfg.Element("jm:caption")))
         dvmenu_caption.text=f'DataVac_{envname.capitalize()}'
-        def populate_menu(menu,items):
+        def populate_menu(menu,items,superm:str|None):
             for item in items:
                 assert type(item) is dict
                 if 'name' in item:
@@ -210,8 +226,9 @@ def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
                     comm.append((comm_act:=gfg.Element("jm:action")))
                     text=f'dv=Namespace("{addin_id}");'
                     for inc in command.get('includes',[]):
-                        text+=f'Include("{get_resource_path(inc)}");'
-                        includes.append(inc)
+                        text+=f'Include( "{get_jsl_path(inc, addin_id, jmp_conf)}");'
+                        includes[(superm+"->"+command['name'] if superm else command['name'])+\
+                                 " ("+Path(get_jsl_path(inc,addin_id,jmp_conf)).name+")"]=inc
                     text+=command['text']
                     comm_act.text=text
                     comm_act.set("type","text")
@@ -229,16 +246,23 @@ def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
                     sub.append((sub_cap:=gfg.Element("jm:caption")))
                     sub_cap.text=itemname
                     sub_name.text=itemname
-                    populate_menu(sub,submenu)
-        populate_menu(dvmenu,menus)
+                    populate_menu(sub,submenu,superm=superm+"->"+itemname if superm else itemname)
+        populate_menu(dvmenu,menus, superm=None)
 
         tree=gfg.ElementTree(root)
         gfg.indent(tree,'  ')
         tree.write(f)
         return includes
 
-def make_script_viewer(addin_folder, addin_id, menu_includes):
-    pass
+def make_script_viewer(addin_folder, addin_id, menu_includes:dict[str,str], jmp_conf):
+    with open(get_resource_path('datavac.jmp::ScriptViewer.jsl'),'r') as f1:
+        f1content=f1.read()
+    with open((addin_folder/"ScriptViewer.jsl"),'w') as f2:
+        f2.write(f1content\
+                 .replace("%ADDINID%",addin_id) \
+                 .replace("%LOCALADDINFOLDER%",str(addin_folder))\
+                 .replace("%DEFINEARRAYSHERE%", "{\n"+",\n".join(f'   {{"{k}" , "{get_jsl_path(v,addin_id,jmp_conf)}"}}' for k,v in menu_includes.items())+"\n}")
+                 )
 
 def cli_compile_jmp_addin(*args):
     parser=argparse.ArgumentParser(description='Makes a .jmpaddin')
@@ -251,7 +275,6 @@ def cli_compile_jmp_addin(*args):
     env_values = os.environ
     envname=(env if len(env) else "LOCAL")
     addin_id=f'datavacuum_helper.{envname.lower()}'
-    #print(f"Using {envname}")
     from datavac.config.project_config import PCONF
     CONFIG_DIR=PCONF().CONFIG_DIR
     assert CONFIG_DIR is not None, "No project configuration directory, are you in the right context?"
@@ -273,6 +296,7 @@ def cli_compile_jmp_addin(*args):
     make_pyinit(addin_folder, addin_id, jmp_conf, env_values)
     make_addin_load(addin_folder, addin_id, envname, jmp_conf, menu_includes=menu_includes)
     make_db_connect(addin_folder=addin_folder,addin_id=addin_id,env_values=env_values)
+    make_script_viewer(addin_folder, addin_id, menu_includes=menu_includes, jmp_conf=jmp_conf)
 
     shutil.make_archive(str(addin_folder/f"DataVac_{envname.capitalize()}"),'zip', addin_folder)
     shutil.move(addin_folder/f"DataVac_{envname.capitalize()}.zip",addin_folder/f"DataVac_{envname.capitalize()}.jmpaddin")

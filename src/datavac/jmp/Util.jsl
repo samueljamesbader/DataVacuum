@@ -125,34 +125,6 @@ dv:AbsCurrents = Function({dt=0},
 	);
 );
 
-// TODO: Add back SQL functionality
-//dv:QuickSQL = Function({tablename, sql, close previous=1},
-//	if(close previous,
-//		Try(Close(DataTable(tablename)), "No issue");
-//	);
-//	New SQL Query(
-//		Connection(dv:conn_str_no_pass),
-//		QueryName( tablename ),
-//		CustomSQL(sql),
-//	) << Run Foreground();
-//);
-
-// TODO: Remove
-//dv:QuickSelect = Function({tablename, sqlrestrict="", close previous=1},
-//	sql="Select * from jmp.\!""||tablename||"\!""||sqlrestrict;
-//	dv:QuickSQL(tablename, sql, close previous)
-//);
-//
-//dv:QuickSelectWithLotGui = Function({tablename, sqlrestrict="", ask_inc_sweeps=0, close previous=1},
-//    if (ask_inc_sweeps,
-//        {sqlrestrict,checks}=dv:LotPreselectorSQL(tablename,0,1,{"include sweeps"});
-//        Eval List({dv:QuickSelect(tablename, sqlrestrict, close previous),Contains(checks,"include sweeps")!=0});
-//    ,//Else
-//        sqlrestrict=dv:LotPreselectorSQL(tablename, 0, 1)||sqlrestrict;
-//        dv:QuickSelect(tablename, sqlrestrict, close previous);
-//    )
-//);
-
 dv:QuickSQL = Function({tablename, sql, close previous = 1}, {Default Local},
 	dv:PySend(sql,"sql");
 	error=dv:PySub("df=None;from datavac.database.db_util import read_only_sql; df=read_only_sql(sql);");
