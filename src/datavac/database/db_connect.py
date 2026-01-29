@@ -112,14 +112,18 @@ def _raw_psycopg2_connection(connection_info: PostgreSQLConnectionInfo) -> Gener
     from datavac.config.project_config import PCONF
     assert PCONF().direct_db_access, "Direct database access is not allowed in this environment"
     import psycopg2
-    conn = psycopg2.connect(
-            dbname=connection_info.database,
-            user=connection_info.username,
-            password=connection_info.password,
-            host=connection_info.host,
-            port=connection_info.port,
-            **connection_info.sslargs
-    )
+    try:
+        conn = psycopg2.connect(
+                dbname=connection_info.database,
+                user=connection_info.username,
+                password=connection_info.password,
+                host=connection_info.host,
+                port=connection_info.port,
+                **connection_info.sslargs
+        )
+    except Exception as e:
+        logger.error(f"Failed to connect to database {connection_info}: {e}")
+        raise
     try: yield conn
     finally: conn.close()
 

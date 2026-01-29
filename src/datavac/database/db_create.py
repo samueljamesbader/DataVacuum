@@ -34,6 +34,7 @@ def ensure_database_existence():
                     from psycopg2 import sql
                     logger.debug("Database does not exist, creating it.")
                     cur.execute(sql.SQL('CREATE DATABASE {};').format(sql.Identifier(dbname)))
+        _setup_users()
     else:
         with raw_psycopg2_connection_so() as con:
             try:
@@ -56,7 +57,7 @@ def ensure_clear_database():
                 logger.debug("Database exists, clearing it.")
 
                 # Drop all user-defined schemas 
-                cur.execute("""
+                cur.execute(r"""
                 DO $$
                 DECLARE
                     schema_name_var text;
@@ -64,6 +65,7 @@ def ensure_clear_database():
                     FOR schema_name_var IN
                         SELECT schema_name FROM information_schema.schemata
                         WHERE schema_name NOT IN ('public', 'pg_catalog', 'information_schema','pg_toast')
+                        AND schema_name NOT LIKE '%admin%'
                     LOOP
                         EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_name_var);
                     END LOOP;
@@ -183,3 +185,53 @@ def create_all():
                 create_analysis_view(an_name, conn)
         
         DDEF().populate_initial()
+
+def _setup_users():
+    """
+    Ensure that the ro, rw, and so users exist in the PostgreSQL database.
+    If they do not exist, create them.
+    """
+    from psycopg2 import sql
+    if not have_do_creds():
+        logger.warning("Database owner credentials not available; cannot create users.")
+        return
+
+    # Get usernames
+    ro_user_info = get_db_connection_info(DBConnectionMode.READ_ONLY)
+    rw_user_info = get_db_connection_info(DBConnectionMode.READ_WRITE)
+    so_user_info = get_db_connection_info(DBConnectionMode.SCHEMA_OWNER)
+    do_user_info = get_db_connection_info(DBConnectionMode.DATABASE_OWNER)
+    users = [ro_user_info, rw_user_info, so_user_info]
+
+    for user_info in users:
+        print(user_info)
+
+    with raw_psycopg2_connection_do(override_db='postgres') as con:
+        con.autocommit = True
+        with con.cursor() as cur:
+            for user_info in users:
+                user=user_info.username
+                password=user_info.password
+                # Check if user exists
+                cur.execute(
+                    "SELECT 1 FROM pg_roles WHERE rolname = %s",
+                    (user,)
+                )
+                exists = cur.fetchone()
+                if not exists:
+                    logger.info(f"User '{user}' does not exist, creating it.")
+
+                    cur.execute(
+                        sql.SQL("CREATE USER {} WITH ENCRYPTED PASSWORD {}").format(sql.Identifier(user), sql.Literal(password))
+                    )
+                else:
+                    logger.debug(f"User '{user}' already exists.")
+            if so_user_info.username != do_user_info.username:
+                logger.info(f"Ensuring schema owner '{so_user_info.username}' has CREATE privilege on database.")
+                # Ensure the database owner has all privileges
+                cur.execute(
+                    sql.SQL("GRANT CREATE ON DATABASE {} TO {}").format(
+                        sql.Identifier(get_db_connection_info(DBConnectionMode.DATABASE_OWNER).database),
+                        sql.Identifier(so_user_info.username)
+                    )
+                )

@@ -41,7 +41,9 @@ class CyberArkVault(Vault):
             ['username','password','host','port','database'],
             self.get_from_vault(f'{deployment_name}-{ {DBConnectionMode.READ_ONLY:"read",
                                                        DBConnectionMode.READ_WRITE:"rw",
-                                                       DBConnectionMode.SCHEMA_OWNER:"super"}[usermode]}',
+                                                       DBConnectionMode.SCHEMA_OWNER:"super",
+                                                       DBConnectionMode.DATABASE_OWNER:"admin",
+                                                       }[usermode]}',
                                 ['UserName','Content','Address','Port','Database'])))) # type: ignore
     
     def get_access_key_sign_seed(self) -> bytes:
