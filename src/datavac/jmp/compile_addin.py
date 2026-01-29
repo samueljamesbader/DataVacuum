@@ -50,7 +50,7 @@ def make_addin_load(addin_folder, addin_id, envname, jmp_conf, menu_includes=[])
             'datavac.jmp::SplitTables.jsl',
             # *(['datavac.jmp::ReloadAddin.jsl'] if envname=='LOCAL' else [])
         ]]
-        request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])+ menu_includes]
+        request_jsl=[get_resource_path(x) for x in jmp_conf.get('additional_jsl',[])+ list(menu_includes)]
         inc_files=list(dict.fromkeys([*generated_jsl,*dv_base_jsl,*request_jsl]))
         inc_filenames=[Path(inc_file).name for inc_file in inc_files]
         assert len(set(inc_filenames))==len(inc_filenames), \
@@ -237,6 +237,8 @@ def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
         tree.write(f)
         return includes
 
+def make_script_viewer(addin_folder, addin_id, menu_includes):
+    pass
 
 def cli_compile_jmp_addin(*args):
     parser=argparse.ArgumentParser(description='Makes a .jmpaddin')
@@ -275,12 +277,16 @@ def cli_compile_jmp_addin(*args):
     shutil.make_archive(str(addin_folder/f"DataVac_{envname.capitalize()}"),'zip', addin_folder)
     shutil.move(addin_folder/f"DataVac_{envname.capitalize()}.zip",addin_folder/f"DataVac_{envname.capitalize()}.jmpaddin")
 
-    jmp_path=Path(r"C:\Program Files\SAS\JMPPRO\17\Jmp.exe")
+    jmp_paths=[
+        Path(r"C:\Program Files\SAS\JMPPRO\17\Jmp.exe"),
+        Path(r"C:\Program Files\SAS\JMPPRO\16\Jmp.exe")
+    ]
     path_to_open=fr"{addin_folder/f'DataVac_{envname.capitalize()}.jmpaddin'}"
 
     logger.debug(f"Add-in for {envname} compiled")
     if getattr(namespace, "attempt_install", False):
-        if jmp_path.exists():
+        jmp_path=next((p for p in jmp_paths if p.exists()),None)
+        if jmp_path is not None:
             import subprocess
             try:
                 subprocess.Popen([str(jmp_path), str(path_to_open)])
@@ -290,7 +296,7 @@ def cli_compile_jmp_addin(*args):
                 print("Please open the following file in JMP manually:")
                 print(path_to_open)
         else:
-            print(f"JMP executable not found at {jmp_path}. Please open the following file in JMP:")
+            print(f"JMP executable not found. Please open the following file in JMP:")
             print(path_to_open)
     else:
         print("\n\nNow install by opening the following file in JMP:")
