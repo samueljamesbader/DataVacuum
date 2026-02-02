@@ -87,7 +87,7 @@ class StandardTLMIVPlotter(FilterPlotter):
         figlin.xaxis.axis_label="$$V\\text{ [V]}$$"
 
         figrvs = self._figrvs = figure(y_axis_type='linear',width=350,height=300)
-        figrvs.circle(x='L',y='R',source=source,legend_field='legend',color='color')
+        figrvs.circle(x='L',y='R',radius=1,source=source,legend_field='legend',color='color')
         print("X name")
         print(Normalizer.clean_up_column_name_for_label(self.lsep_name))
         figrvs.xaxis.axis_label=Normalizer.clean_up_column_name_for_label(self.lsep_name)

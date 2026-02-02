@@ -118,6 +118,8 @@ class CyberArkVault(Vault):
         
 
 def _raw_get_vault_response_text(api_url:str, appid:str, safe: str, account_name: str) -> str:
+    # The api_url should be something like 'https://<your-cyberark-server>/AIMWebService/api'
+    # Note this is the older AIM Web Service API, not the Password Vault API.
     import requests
     try:
         from requests_kerberos import HTTPKerberosAuth
