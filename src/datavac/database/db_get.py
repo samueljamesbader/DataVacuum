@@ -10,6 +10,7 @@ from datavac.util.dvlogging import time_it
 from datavac.util.util import returner_context
 #from sqlalchemy import INTEGER, Connection, select, Select, Column, Table, values
 from datavac.measurements.measurement_group import MeasurementGroup
+from datavac.util.dvlogging import logger
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -448,6 +449,7 @@ def get_factors(meas_group_or_analysis: str,factor_names:list[str],pre_filters:M
 
 @client_server_split(method_name="get_mgoa_names", return_type='ast')
 def get_mgoa_names():
+    logger.debug("Getting measurement group and analysis names from data definition")
     return sorted(list(DDEF().measurement_groups.keys()) + list(DDEF().higher_analyses.keys()))
 
 @client_server_split(method_name="get_available_columns", return_type='ast', split_on="direct_db_access")
