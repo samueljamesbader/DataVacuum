@@ -148,7 +148,7 @@ def pickle_db_cached(namer: Union[Callable[[],str],str], namespace:str, conn:Opt
     return wrapper
 
 
-def clear_local_cache(cache_dir: Optional[str | Path]):
+def clear_local_cache(cache_dir: Optional[str | Path]=None):
     """
     Clears the cache directory by removing it and creating a new empty one.
     

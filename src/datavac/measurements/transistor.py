@@ -234,6 +234,7 @@ class IdVg(MeasurementWithLinearNormColumn):
                 -1000*(measurements[f'VTcc{k}_sat']-measurements[f'VTcc{k}_lin'])/(VDsat-VDlin)
         measurements['VTgm_sat']=vt_gmpeak
         measurements['GM_peak [S]']=gmpeak
+        #measurements['GM_peak/W [S/m]']=gmpeak/W
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         with np.errstate(divide='ignore', invalid='ignore'):
             measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
@@ -335,6 +336,20 @@ class KelvinRon(MeasurementWithLinearNormColumn):
     def get_preferred_dtype(self,header):
         import numpy as np
         return np.float32
+    
+    def _get_main_ron_id(self, measurements):
+
+        fron_headers=[h for h in measurements.headers if 'fRon@ID=' in h]
+        if self.main_ron_id is None:
+            if len(fron_headers)==1:
+                main_ron_id=fron_headers[0].split("=")[-1]
+            else:
+                # Pick the largest ID for main Ron
+                #print(f"Multiple Ron headers found: {fron_headers}, picking the one with largest ID for main Ron")
+                main_ron_id=max((h.split("=")[-1] for h in fron_headers),key=lambda x:float(x))
+        else: main_ron_id=self.main_ron_id
+        assert main_ron_id is not None
+        return main_ron_id
 
     def extract_by_umt(self, measurements,rexts=None):
         import pandas as pd 
@@ -342,6 +357,7 @@ class KelvinRon(MeasurementWithLinearNormColumn):
         from datavac.util.maths import YatX
 
         W=self.get_norm(measurements)
+        new_headers={}
 
         # TODO: make use of UniformMeasurementTable.add_extr_headers!!!
         if (rexts is not None):
@@ -354,25 +370,16 @@ class KelvinRon(MeasurementWithLinearNormColumn):
 
             id_strs=[h.split("=")[1] for h in measurements.headers if 'fRon@ID=' in h]
             for id in id_strs:
-                measurements._the_dataframe[f'VGSi@ID={id}']= \
+                new_headers[f'VGSi@ID={id}']= \
                     list((measurements[f'VG'].T-float(id)*np.array(measurements['Rs_ext [ohm]'])).T)
-                if f'VGSi@ID={id}' not in measurements.headers: measurements.headers.append(f'VGSi@ID={id}')
         else:
             assert self.merge_rexts_on is None, "This category requires RExt measurements"
             for k in measurements.headers:
                 VS=measurements[k]
                 if 'SourceSense' in k:
-                    if k.replace("VSourceSense","VGSi") not in measurements.headers:
-                        measurements.headers.append(k.replace("VSourceSense","VGSi"))
-                    measurements._the_dataframe[k.replace("VSourceSense","VGSi")]=measurements['VG']-VS
-
-        fron_headers=[h for h in measurements.headers if 'fRon@ID=' in h]
-        if self.main_ron_id is None:
-            if len(fron_headers)==1:
-                main_ron_id=fron_headers[0].split("=")[-1]
-            else: main_ron_id=None
-        else: main_ron_id=self.main_ron_id
-        assert main_ron_id is not None
+                    new_headers[k.replace("VSourceSense","VGSi")]=measurements['VG']-VS
+        measurements.add_extr_headers(**new_headers)
+        main_ron_id=self._get_main_ron_id(measurements)
         if (k:=('fRon@ID='+str(main_ron_id))) in measurements.headers:
             #if self.vg_for_ron is not None:
             #    ind_vg=np.argmin(np.abs(measurements['VG']-self.vg_for_ron))

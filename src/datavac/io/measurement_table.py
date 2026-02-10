@@ -297,6 +297,7 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         self._the_dataframe=self._the_dataframe.assign(**kwargs)
     
     def add_extr_headers(self,**new_headers):
+        if len(new_headers)==0: return
         assert all(h not in self.headers for h in new_headers),\
                 f"Can't add extr headers {new_headers.keys()} as they already exist in {self.headers}"
         import pandas as pd

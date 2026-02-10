@@ -71,8 +71,10 @@ def rerun_data():
         from datavac.database.db_get import get_data
         from datavac.config.data_definition import DDEF
         from datavac.util.util import only
+        from datavac.util.caching import clear_local_cache
 
         PCONF().vault.clear_vault_cache()
+        clear_local_cache()
         ensure_clear_database()
         create_all()
         #assert only(DDEF().troves.keys()) =='', "Multi-trove not implemented yet for rerun_data"
