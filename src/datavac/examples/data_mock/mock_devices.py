@@ -116,7 +116,7 @@ class Transistor4T:
         VD=1e-3
         return VD/self.DCIV(VG=np.array(VG),VD=VD,VS=0,VB=0)['ID']
 
-    def generate_potential_idvg(self,VDs,VGrange, do_plot=False) -> dict:
+    def generate_potential_idvg(self,VDs,VGrange, do_plot=False) -> dict[str,np.ndarray[tuple[int],np.dtype[np.float32]]]:
         # Make a simple IdVg curve
         npoints=51
         VG=np.linspace(VGrange[0], VGrange[1], npoints)
@@ -144,3 +144,24 @@ class Transistor4T:
             plt.show()
 
         return data
+
+class Capacitor:
+    def __init__(self, capacitance):
+        self.capacitance = capacitance
+    def generate_potential_cv(self, VArange: tuple[float,float], freqs:list[str], do_plot=False):
+        VA=np.linspace(VArange[0],VArange[1],51)
+        C = self.capacitance * np.ones_like(VA)
+        if do_plot:
+            import matplotlib.pyplot as plt
+            plt.figure()
+            for f in freqs:
+                plt.plot(VA, C, label=f'freq={f}Hz')
+            plt.xlabel('VA [V]')
+            plt.ylabel('C [F]')
+            plt.title('C-V Curve')
+            plt.legend()
+            plt.grid(True)
+            plt.show()
+        res= {'VA': VA}
+        for f in freqs: res[f'fCp@freq={f}']=C.astype('float32')
+        return res

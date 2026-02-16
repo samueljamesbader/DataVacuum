@@ -6,10 +6,11 @@ from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
 from datavac.config.layout_params.folder_layout_params import get_folder_layout_params
 from datavac.config.project_config import ProjectConfiguration
 from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
-from datavac.examples.demo1.example_data import read_csv
+from datavac.examples.demo1.demo1_example_data import read_csv
 from datavac.measurements.logic_cell import InverterDC, OscopeDivider, OscopeFormulaLogic, OscopeRingOscillator
 from datavac.measurements.measurement_group import SemiDevMeasurementGroup
 from datavac.measurements.transistor import IdVg
+from datavac.measurements.capacitor import CapCV
 from datavac.trove.classic_folder_trove import ClassicFolderTrove, ClassicFolderTroveReaderCard
 from datavac.util.util import asnamedict
 from datavac.examples.demo1 import EXAMPLE_DATA_DIR, dbname
@@ -37,6 +38,19 @@ def get_project_config() -> ProjectConfiguration:
             only_extr_columns=['SS [mV/dec]', 'RonW [ohm.um]', 'Ron [ohm]'],
             reader_cards=make_reader_cards('*_pMOS_IdVg.csv'),
             layout_param_group='IdVg', pol='p',
+        ),
+        CapCV(name='Cap_CV',
+            description='Capacitor CV measurements', 
+            meas_columns=[DVColumn('FileName','str','File name of the measurement'),],
+            reader_cards=make_reader_cards('*_Cap_CV.csv'),
+            layout_param_group='Cap', optional_dependencies={'Open_CV':'opens'},
+            open_match_cols=['layout_style'],
+        ),
+        CapCV(name='Open_CV',
+            description='Open capacitor CV measurements for subtraction from Cap_CV',
+            meas_columns=[DVColumn('FileName','str','File name of the measurement'),],
+            reader_cards=make_reader_cards('*_Open_CV.csv'),
+            layout_param_group='Cap',
         ),
         InverterDC(name='inverter_DC',
             description='Inverter DC measurements',

@@ -1,14 +1,13 @@
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Mapping
 
 import numpy as np
 import pandas as pd
 import platformdirs
 
-from datavac.examples.demo1 import EXAMPLE_DATA_DIR
-from datavac.examples.data_mock.mock_devices import Transistor4T
+from datavac.examples.data_mock.mock_devices import Capacitor, Transistor4T
 from datavac.examples.data_mock.mock_logic import AndGate, OrGate, DFlipFlop, TieHi, TieLo, RingOscillator, Divider, \
     InverterDC
 from datavac.config.layout_params import LP
@@ -26,17 +25,16 @@ from datavac.config.layout_params import LP
 #        sweep_data= transistor.DCIV(VG, try_vd, VS=0)
 #        data[f'fVDS@ID={ID}']
 
-def write_example_data_file(lot,sample,meas_name,data_dicts:dict[str,dict[str,np.ndarray]]):
-    from datavac.examples.demo1.demo1_dvconfig import EXAMPLE_DATA_DIR
+
+def write_example_data_file(lot,sample,meas_name,data_dicts:Mapping[str,Mapping[str,np.ndarray]],EXAMPLE_DATA_DIR:Path):
     data=pd.concat([pd.DataFrame(subdata).assign(**{'Site':site,'MeasNo':i}) for i,(site,subdata) in enumerate(data_dicts.items())])
     (EXAMPLE_DATA_DIR/lot).mkdir(parents=True,exist_ok=True)
     data.to_csv(EXAMPLE_DATA_DIR/lot/f"{lot}_{sample}_{meas_name}.csv",index=False)
 
-def read_csv(file:str|Path, mg_name: str, only_sampleload_info: dict = {},
+def read_csv(file:Path, mg_name: str, only_sampleload_info: dict = {},
              read_info_so_far: Optional[dict] = None) -> list[pd.DataFrame]:
     assert len(only_sampleload_info) == 0, "Only sampleload_info is not supported in this example"
-    from datavac.examples.demo1.demo1_dvconfig import EXAMPLE_DATA_DIR
-    rawcsv=pd.read_csv(EXAMPLE_DATA_DIR/file)
+    rawcsv=pd.read_csv(file)
     data=[{'RawData':grp.drop(columns=['Site','MeasNo']).to_dict('list'),
            'Site':grp['Site'].iloc[0],
            'MeasLength':len(grp),}
@@ -48,6 +46,11 @@ def get_transistor(mask,structure):
     site_params=lp.get_params([structure],mask=mask).iloc[0]
     return Transistor4T(W=site_params['W [um]']*1e-6,L=site_params['L [um]']*1e-6,
                VT0=site_params['VT0_target [V]'],n=site_params['n_target'],pol=site_params['pol'])
+
+def get_capacitor(mask,structure):
+    lp=LP()
+    site_params=lp.get_params([structure],mask=mask).iloc[0]
+    return Capacitor(capacitance=site_params['C_target']+site_params['C_route'])
 
 def get_inverter(mask,structure):
     lp=LP()
@@ -62,7 +65,8 @@ def get_ring(mask,structure) -> RingOscillator:
                           div_by=site_params['div_by'])
 
 
-def make_example_data():
+def make_example_data_demo1():
+    from datavac.examples.demo1 import EXAMPLE_DATA_DIR
 
     # Clear the directory if it exists and remake it
     if EXAMPLE_DATA_DIR.exists(): shutil.rmtree(EXAMPLE_DATA_DIR)
@@ -73,20 +77,30 @@ def make_example_data():
     ###
     data={structure: get_transistor('Mask1',structure).generate_potential_idvg(VDs=[ .01,  1], VGrange=[0,  1], do_plot=False)
           for structure in ['nmos1','nmos2','nmos3']}
-    write_example_data_file('lot1','sample1','nMOS_IdVg',data)
+    write_example_data_file('lot1','sample1','nMOS_IdVg',data, EXAMPLE_DATA_DIR)
 
     ###
     # pMOS Id-Vgs
     ###
     data={structure: get_transistor('Mask1',structure).generate_potential_idvg(VDs=[-.01, -1], VGrange=[0, -1], do_plot=False)
           for structure in ['pmos1','pmos2','pmos3']}
-    write_example_data_file('lot1','sample1','pMOS_IdVg',data)
+    write_example_data_file('lot1','sample1','pMOS_IdVg',data, EXAMPLE_DATA_DIR)
+
+    ###
+    # Capacitor CVs
+    ###
+    data={structure: get_capacitor('Mask1',structure).generate_potential_cv(VArange=(-1,1),freqs=['1k','10k'], do_plot=False)
+          for structure in ['cap1','cap2']}
+    write_example_data_file('lot1','sample1','Cap_CV',data, EXAMPLE_DATA_DIR)
+    data={structure: get_capacitor('Mask1',structure).generate_potential_cv(VArange=(-1,1),freqs=['1k','10k'], do_plot=False)
+          for structure in ['op1','op2']}
+    write_example_data_file('lot1','sample1','Open_CV',data, EXAMPLE_DATA_DIR)
 
     ###
     # DC inverters
     ###
     data={structure: get_inverter('Mask1',structure).generate_potential_iv() for structure in ['inv1','inv2']}
-    write_example_data_file('lot1','sample1','invs',data)
+    write_example_data_file('lot1','sample1','invs',data, EXAMPLE_DATA_DIR)
 
     ###
     # Tie-Hi
@@ -95,7 +109,7 @@ def make_example_data():
         'good_tihi': TieHi().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=1, bandwidth=1e9),
         'bad_tihi': TieLo().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=1, bandwidth=1e9),
     }
-    write_example_data_file('lot1','sample1','tiehi_logic',data)
+    write_example_data_file('lot1','sample1','tiehi_logic',data, EXAMPLE_DATA_DIR)
 
     ###
     # OR gates
@@ -104,7 +118,7 @@ def make_example_data():
         'good_or': OrGate().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=2, bandwidth=1e9),
         'bad_or': AndGate().generate_potential_traces(clk_period=1e-9, samples_per_period=20, repeats=2, bandwidth=1e9),
     }
-    write_example_data_file('lot1','sample1','orcell_logic',data)
+    write_example_data_file('lot1','sample1','orcell_logic',data, EXAMPLE_DATA_DIR)
 
     ###
     # D Flip-Flops
@@ -119,7 +133,7 @@ def make_example_data():
     data['bad_dff']['o'] = 1-data['bad_dff']['o']
     # Flip just first period, shouldn't matter because output is undefined
     data['good_dff2']['o'][:spp] = 1-data['good_dff2']['o'][:spp]
-    write_example_data_file('lot1','sample1','dff_logic',data)
+    write_example_data_file('lot1','sample1','dff_logic',data, EXAMPLE_DATA_DIR)
 
     ###
     # Divs
@@ -134,14 +148,14 @@ def make_example_data():
     iglitch_start=np.arange(len(bd4a)-1)[np.diff(bd4a>Divider().vmid)!=0][5]+1
     iglitch_stop= np.arange(len(bd4a)-1)[np.diff(bd4a>Divider().vmid)!=0][6]+1
     bd4o[iglitch_start:iglitch_stop]=Divider().vhi-bd4o[iglitch_start:iglitch_stop]
-    write_example_data_file('lot1','sample1','divs',data)
+    write_example_data_file('lot1','sample1','divs',data, EXAMPLE_DATA_DIR)
 
     ###
     # ROs
     ###
     data={structure: get_ring('Mask1',structure).generate_potential_traces(n_samples=5000*3,sample_rate=10e6,enable_period=500e-6,) for structure in ['ro1','ro2','ro3','ro4']}
-    write_example_data_file('lot1','sample1','ros',data)
+    write_example_data_file('lot1','sample1','ros',data, EXAMPLE_DATA_DIR)
 
 
 if __name__ == '__main__':
-    make_example_data()
+    make_example_data_demo1()

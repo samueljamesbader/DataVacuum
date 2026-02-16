@@ -1,12 +1,13 @@
 from __future__ import annotations
 import dataclasses
-from typing import Optional, Union, cast, TYPE_CHECKING
+from types import MappingProxyType
+from typing import Any, Mapping, Optional, Sequence, Union, cast, TYPE_CHECKING
 
 from datavac.config.data_definition import DVColumn
 from datavac.measurements.measurement_group import SemiDevMeasurementGroup
 
 from datavac.util.util import asnamedict, only
-from datavac.util.dvlogging import logger
+from datavac.util.dvlogging import logger, time_it
 
 if TYPE_CHECKING:
     from datavac.io.measurement_table import MeasurementTable, UniformMeasurementTable
@@ -432,3 +433,104 @@ class KelvinRon(MeasurementWithLinearNormColumn):
 
     def __str__(self):
         return 'KelvinRon'
+
+@dataclasses.dataclass(eq=False,repr=False,kw_only=True)    
+class CV(SemiDevMeasurementGroup):
+
+    open_match_cols:Sequence[str] = ()
+    open_filter_cols:Mapping[str,Any] = MappingProxyType({})
+    gates_column: Optional[str] = None
+    area_column: Optional[str] = None
+    open_aggregation_func:str='mean'
+
+    def get_preferred_dtype(self,header):
+        import numpy as np
+        return np.float32
+
+    def __str__(self):
+        return 'C-V'
+
+    def extract_by_umt(self, measurements:UniformMeasurementTable, opens=None):
+        import numpy as np
+        import pandas as pd
+        cv:UniformMeasurementTable=measurements
+        fstrs=[(k.split("@")[-1].split("=")[-1]) for k in cv.headers if 'fCp@freq=' in k]
+        assert all([fstr.endswith('k') for fstr in fstrs])
+        maxfstr=max(fstrs,key=lambda fstr:float(fstr[:-1]))
+        maxf=float(maxfstr[:-1])*1e3
+
+        from datavac.measurements.capacitor import CapCV
+        CapCV.open_subtraction(cv,opens,self.open_match_cols,self.open_filter_cols,open_aggregation_func=self.open_aggregation_func)
+
+        needed_lay_columns=[c for c in [self.gates_column,self.area_column] if c is not None]
+        if len(needed_lay_columns):
+            lay=cv.scalar_table_with_layout_params(needed_lay_columns,on_missing='ignore')
+        else: lay=None
+        cv['Coff+Copen [F]']=np.mean(cv[f'fCp@freq={maxfstr}'][:, :4],axis=1)
+        cv['Coff [F]']=cv['Coff+Copen [F]']-cv['Copen [F]']
+        cv['Con+Copen [F]'] =np.mean(cv[f'fCp@freq={maxfstr}'][:,-4:],axis=1)
+        cv['Con [F]']=cv['Con+Copen [F]']-cv['Copen [F]']
+        cv['Cdel [F]']=cv['Con [F]']-cv['Coff [F]']
+        #if 'gates' not in cv: return
+        #from scipy.signal import savgol_filter
+        #cv['VTcv']=savgol_filter(cv[f'Cp_fwd_{maxfstr}'],5,1,deriv=1)
+        # This is the VT defined by linear extrapolation of Qchannel(V) curve from on-state to where Q=0
+        # Where Qchannel is integral of C(V)-Coff dV, and the slope at on-state is Cdel:
+        Q=np.trapezoid(  (cv[f'fCp@freq={maxfstr}']-np.atleast_2d(cv['Coff+Copen [F]']).T)  ,  cv['VG'])
+        cv['VTq [V]']=cv['VG'][:,-1]-Q/cv['Cdel [F]']
+        if self.gates_column is not None:
+            assert lay is not None
+            cv['Coff/gate [fF]']=cv['Coff [F]']/lay[self.gates_column]*1e15
+            cv['Con/gate [fF]']=cv['Con [F]']/lay[self.gates_column]*1e15
+            cv['Cdel/gate [fF]']=cv['Cdel [F]']/lay[self.gates_column]*1e15
+
+        no_huge_downs=np.min(np.diff(cv[f'fCp@freq={maxfstr}']),axis=-1)>-cv['Cdel [F]']/5
+        coff_is_min=(np.min(cv[f'fCp@freq={maxfstr}'],axis=-1)-cv['Coff+Copen [F]'])>-cv['Cdel [F]']/5
+        con_is_max= (np.max(cv[f'fCp@freq={maxfstr}'],axis=-1)-cv['Con+Copen [F]'])<cv['Cdel [F]']/5
+        if f'fG@freq={maxfstr}' in cv.headers:
+            theta=(180/np.pi)*np.arctan2(
+                2*np.pi*maxf*(cv[f'fCp@freq={maxfstr}']-np.atleast_2d(cv['Copen [F]']).T),
+                cv[f'fG@freq={maxfstr}'])
+            theta_is_okay=np.logical_and(np.min(theta,axis=1)>85,np.max(theta,axis=1)<95)
+        else:
+            theta=cv[f'fCp@freq={maxfstr}']*np.nan
+            theta_is_okay=np.array([False]*len(cv))
+
+        cv['is_valid']=np.all([no_huge_downs,coff_is_min,con_is_max],axis=0)
+        cv['bin']=pd.Series(
+                    np.where(theta_is_okay,
+                        np.where(no_huge_downs,
+                            np.where(np.logical_and(coff_is_min,con_is_max),
+                                'good','weird'
+                            ),'noisy',
+                        ),'leaky'),
+                    dtype='string')
+
+        if self.area_column is not None:
+            assert lay is not None
+            assert 'um^2' in self.area_column, f"Expected area column to be in um^2, got {self.area_column}"
+            from scipy.constants import epsilon_0 as eps0
+            cv['tox [Å]'] =3.9*eps0*(lay[self.area_column] *1e-12)/cv['Cdel [F]'] /1e-10
+
+    def available_extr_columns(self) -> dict[str, DVColumn]:
+        add_columns=[
+                    DVColumn('Copen [F]', 'float', 'Open capacitance [F]'),
+                    DVColumn('Coff+Copen [F]', 'float', 'Coff+Copen capacitance [F]'),
+                    DVColumn('Coff [F]', 'float', 'Coff capacitance [F]'),
+                    DVColumn('Con+Copen [F]', 'float', 'Con+Copen capacitance [F]'),
+                    DVColumn('Con [F]', 'float', 'Con capacitance [F]'),
+                    DVColumn('Cdel [F]', 'float', 'Cdel capacitance [F]'),
+                    DVColumn('VTq [V]', 'float', 'VT defined by linear extrapolation of Qchannel(V) curve from on-state to where Q=0'),
+                    DVColumn('is_valid', 'boolean', 'True if the measurement is valid, False if it is leaky or noisy'),
+                    DVColumn('bin', 'string', 'Binning of the measurement based on validity and theta'),]
+        if self.gates_column is not None:
+            add_columns.extend([
+                DVColumn('Coff/gate [fF]', 'float', 'Coff capacitance normalized to gate area [fF]'),
+                DVColumn('Con/gate [fF]', 'float', 'Con capacitance normalized to gate area [fF]'),
+                DVColumn('Cdel/gate [fF]', 'float', 'Cdel capacitance normalized to gate area [fF]'),
+            ])
+        if self.area_column is not None:
+            add_columns.append(
+                DVColumn('tox [Å]', 'float', 'Effective oxide thickness [Å] based on Cdel capacitance and area'))
+        return {**super().available_extr_columns(),
+                **asnamedict(*add_columns)}

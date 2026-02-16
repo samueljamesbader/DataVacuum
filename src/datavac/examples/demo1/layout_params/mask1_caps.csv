@@ -1,0 +1,5 @@
+Structure, layout_style, C_target, C_route
+cap1, 1, 10e-15, 2e-15
+cap2, 2, 20e-15, 3e-15
+op1, 1, 0, 2e-15
+op2, 2, 0, 3e-15

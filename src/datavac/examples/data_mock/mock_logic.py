@@ -115,7 +115,7 @@ class LogicBlock:
         return time,inputs
 
     def generate_potential_traces(self, clk_period:float, samples_per_period:int, repeats:int, bandwidth: Optional[float]) \
-            -> dict[str,np.ndarray[float]]:
+            -> dict[str,np.ndarray[tuple[int],np.dtype[np.float32]]]:
         time,inputs=self.generate_potential_inputs(clk_period,samples_per_period,repeats,bandwidth)
         outputs=self.vouts(time,**inputs)
         return dict(Time=time,**inputs,**outputs)

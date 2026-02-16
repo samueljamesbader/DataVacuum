@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 class LayoutParameters:
 
-    drop_col_when_merging_with_layout_params: Callable[[str],bool] = (lambda c: c.startswith("PAD:"))
+    drop_col_when_merging_with_layout_params: Callable[[str],bool] = (lambda self, c: c.startswith("PAD:"))
 
     _tables_by_meas: dict[str, pd.DataFrame] = {}
 
@@ -57,8 +57,12 @@ class LayoutParameters:
                         suffixes=(None,'_param'))
         return merged
 
+    #def get_params(self,structures,mask,drop_pads=True,for_measurement_group=None,allow_partial=False):
+    def get_params(self,structures: list[str], mask: Optional[str] = None, drop_pads: bool = True,
+                   for_measurement_group: Optional[MeasurementGroup] = None, allow_partial: bool = False) -> pd.DataFrame:
+        raise NotImplementedError("This method should be implemented in a subclass")
 
-def LP(force_regenerate:bool=False):
+def LP(force_regenerate:bool=False) -> LayoutParameters:
     from datavac.config.data_definition import SemiDeviceDataDefinition
     from datavac.config.data_definition import DDEF
     return cast(SemiDeviceDataDefinition,DDEF()).layout_params_func(force_regenerate=force_regenerate)
