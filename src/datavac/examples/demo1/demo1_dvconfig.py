@@ -6,7 +6,7 @@ from datavac.config.data_definition import DVColumn, SemiDeviceDataDefinition
 from datavac.config.layout_params.folder_layout_params import get_folder_layout_params
 from datavac.config.project_config import ProjectConfiguration
 from datavac.appserve.dvsecrets.vaults.demo_vault import DemoVault
-from datavac.examples.demo1.demo1_example_data import read_csv
+from datavac.examples.example_data import read_csv
 from datavac.measurements.logic_cell import InverterDC, OscopeDivider, OscopeFormulaLogic, OscopeRingOscillator
 from datavac.measurements.measurement_group import SemiDevMeasurementGroup
 from datavac.measurements.transistor import IdVg

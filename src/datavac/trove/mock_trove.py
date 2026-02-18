@@ -12,10 +12,12 @@ class MockTrove(Trove):
     load_info_columns:list[DVColumn] = []
 
     def iter_read(self,
-             only_meas_groups: list[str] = None,
+             only_meas_groups: list[str] = None, # type: ignore
              only_sampleload_info: dict[str, list[str]] = {},
              info_already_known: dict = {}, **kwargs)\
-            -> Generator[tuple[str,dict[str, dict[str, MultiUniformMeasurementTable]], dict[str, dict[str, str]]]]:
+                -> Generator[tuple[str,dict[str,dict[str,'MultiUniformMeasurementTable']],
+                                        dict[str,dict[str,str]],
+                                        dict[str,dict[str,Any]]]]:
         from datavac.config.project_config import PCONF
         from datavac.io.measurement_table import MultiUniformMeasurementTable
         completer=PCONF().data_definition.sample_info_completer
@@ -40,7 +42,7 @@ class MockTrove(Trove):
                         MultiUniformMeasurementTable.from_read_data(rc.read(
                             mg_name=mg_name,only_sampleload_info={k:[v] for k,v in sample_info.items()}),mg)
                     sample_to_sampleload_info[sample] = sample_info
-        yield '', sample_to_mg_to_data, sample_to_sampleload_info           
+        yield '', sample_to_mg_to_data, sample_to_sampleload_info,{}        
 
 
 @dataclass

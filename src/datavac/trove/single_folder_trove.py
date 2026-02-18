@@ -5,17 +5,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Generator, Mapping, Optional, Sequence, cast
 
 from datavac.config.data_definition import DVColumn
 from datavac.util.dvlogging import logger, time_it
 from datavac.trove import ReaderCard, Trove
-from datavac.trove.trove_util import get_cached_glob
+from datavac.trove.trove_util import PathWithMTime, get_cached_glob
 from datavac.util.util import only
+from datavac.util.util import returner_context
 
 if TYPE_CHECKING:
     import pandas as pd
     from datavac.io.measurement_table import MultiUniformMeasurementTable
+    from sqlalchemy import MetaData, Table, Connection
+    import pandas as pd
 
 class NoDataFromFileException(Exception): pass
 
@@ -45,17 +48,30 @@ class SingleFolderTrove(Trove):
     def iter_read(self,
              only_meas_groups:Optional[list[str]]=None, only_sampleload_info:dict[str,Any]={},
              only_file_names:Optional[list[str]]=None, info_already_known:dict={},
-             cached_glob:Optional[Callable[[Path,str],list[Path]]]=None,
+             cached_glob:Optional[Callable[[Path,str],list[PathWithMTime]]]=None,
+             incremental:bool=False,
              exception_callback:Optional[Callable[[str,Exception],None]]=None)\
                 -> Generator[tuple[str,dict[str,dict[str,'MultiUniformMeasurementTable']],
-                                        dict[str,dict[str,str]]]]:
+                                        dict[str,dict[str,str]],
+                                        dict[str,dict[str,Any]]]]:
         """Read the folder and return the data and material/load information."""
+        ## If incremental, get the modified times of all files in the folder from the database
+        if incremental: raise NotImplementedError("Incremental read not yet implemented for SingleFolderTrove")
+        #if incremental:
+        #    from datavac.database.db_util import get_engine_ro
+        #    from datavac.database.db_structure import DBSTRUCT
+        #    from sqlalchemy import select
+        #    file_tab=DBSTRUCT().get_trove_dbtables(trove_name)['files']
+        #    with get_engine_ro().connect() as conn:
+        #        db_modtimes_result=conn.execute(select(file_tab.c['FilePath'],file_tab.c['ModifiedTime']).where(
+        #            file_tab.c.FilePath.in_([str(f.as_posix()) for f in cached_glob(folder,'*')]))).fetchall()
+        #        db_modtimes:dict[str,int]=dict(db_modtimes_result)# type: ignore
         try:
             yield str(self.read_dir),*self.read_folder_nonrecursive(
                 folder=self.read_dir, trove_name=self.name, cached_glob=cached_glob,
-                filecache_context_manager=self.filecache_context_manager,
+                filecache_context_manager=self.filecache_context_manager,incremental=incremental,
                 only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
-                only_file_names=only_file_names, info_already_known=info_already_known,)
+                only_file_names=only_file_names, info_already_known=info_already_known,),{}
         except Exception as e:
             if exception_callback: exception_callback(str(self.read_dir),e)
             else: raise e
@@ -64,7 +80,8 @@ class SingleFolderTrove(Trove):
     def read_folder_nonrecursive(folder:Path,trove_name:str,
                    only_meas_groups:Optional[list[str]]=None, only_sampleload_info:dict[str,Any]={},
                    only_file_names:Optional[list[str]]=None, info_already_known:dict={},
-                   cached_glob:Optional[Callable[[Path,str],list[Path]]]=None,
+                   cached_glob:Optional[Callable[[Path,str],list[PathWithMTime]]]=None,
+                   incremental_tracker:dict[str,dict[str,Any]]|None=None, super_folder_for_filepaths: Optional[Path] = None, 
                    filecache_context_manager:Optional[Callable[[],Any]]=None)\
                  -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
 
@@ -73,22 +90,45 @@ class SingleFolderTrove(Trove):
         #if only_meas_groups is not None:
         #    ensure_meas_group_sufficiency(only_meas_groups, required_only=False)
         assert folder.exists(), f"Can't find folder {str(folder)}"
+        if super_folder_for_filepaths is None: super_folder_for_filepaths=folder
+        assert super_folder_for_filepaths is not None
 
         # Collations of data and material/load information
         sample_to_mg_to_data={}
         sample_to_sampleload_info={}
 
         # For caching the glob lists and regex-extraction from the filename
-        cached_glob=cached_glob or get_cached_glob()
+        cached_glob=cached_glob or get_cached_glob(super_folder_for_filepaths)
         cached_match=cache(re.match)
 
         # Go through all files in the folder
         for f in cached_glob(folder,'*'):
+            if f.cached_is_dir: continue
+
+            if incremental_tracker is not None:
+                fstr=str(f.as_posix())
+                if fstr in incremental_tracker:
+                    if incremental_tracker[fstr]['DBModifiedTime']==f.mtime_ns:
+                        logger.info(f"Skipping {f} because it hasn't been modified since last read")
+                        incremental_tracker[fstr]['State']='Unchanged'
+                        continue
+                    else:
+                        logger.info(f"File {f} has been modified since last read (DB: {incremental_tracker[fstr]['DBModifiedTime']} vs local: {f.mtime_ns}), including in read")
+                        incremental_tracker[fstr]['State']='Modified'
+                        incremental_tracker[fstr]['LocalModifiedTime']=f.mtime_ns
+                else:
+                    logger.info(f"File {f} is new since last read, including in read")
+                    incremental_tracker[fstr]={'State':'New', 'LocalModifiedTime':f.mtime_ns, 'DBMeasGroups':[]}
+
+            #if incremental and (f.mtime_ns is not None) and (f.mtime_ns==db_modtimes.get(str(f.as_posix()),None)):
+            #    logger.info(f"Skipping {f} because it hasn't been modified since last read")
+            #    continue
 
             # Set up the caching manager for files
             with (filecache_context_manager or nullcontext)():
 
                 # Ignore obviously not-needed files
+                if f.cached_is_dir: continue
                 if f.name.startswith("~"): continue # Ignore temp files on windows
                 if only_file_names and f.name not in only_file_names: continue
                 if (not only_file_names) and f.name.startswith("IGNORE"): continue # Ignore on request
@@ -115,7 +155,7 @@ class SingleFolderTrove(Trove):
                                     f"Info {k}={v} from filename contradicts "\
                                     f"info already known {k}={info_already_known[k]} "\
                                     f"from folder for file {str(f)}"
-                            read_info_so_far=read_from_filename|info_already_known
+                            read_info_so_far=read_from_filename|info_already_known|{'ModifiedTime': f.mtime_ns}
                             completer=PCONF().data_definition.sample_info_completer
                             read_info_so_far=completer(read_info_so_far)
 
@@ -130,7 +170,7 @@ class SingleFolderTrove(Trove):
 
                             # Read data
                             try:
-                                read_dfs=reader_card.read(file=f,
+                                read_dfs=reader_card.read(file=super_folder_for_filepaths/f,
                                         mg_name=mg_name,only_sampleload_info=only_sampleload_info,
                                         read_info_so_far=read_info_so_far)
                                 if not len(read_dfs): raise NoDataFromFileException('Empty sheet')
@@ -189,10 +229,8 @@ class SingleFolderTrove(Trove):
                                 # Form MeasurementTable from the data
                                 # And add some useful externally ensured columns
                                 read_data=MultiUniformMeasurementTable.from_read_data(read_dfs=read_dfs,meas_group=mg)
-                                try: relpath=f.relative_to(os.environ['DATAVACUUM_READ_DIR'])
-                                except: relpath=f
                                 read_data['FilePath']=pd.Series([
-                                    str(relpath.as_posix())]*len(read_data),dtype='string')
+                                    str(f.as_posix())]*len(read_data),dtype='string')
                                 read_data['FileName']=pd.Series([str(f.name)]*len(read_data),dtype='string')
                                 read_data[SAMPLE_COLNAME]=pd.Series([sample]*len(read_data),dtype='string')
                                 if ('DieXY' in read_data) and ('Site' in read_data):
@@ -230,8 +268,120 @@ class SingleFolderTrove(Trove):
 
                 # If this file got checked for any meas groups, notify about what's been found
                 if len(found_mgs+not_found_mgs):
-                    logger.info(f"In {f.relative_to(folder)}, found {found_mgs}")
+                    logger.info(f"In {(super_folder_for_filepaths/f).relative_to(folder)}, found {found_mgs}")
+        if incremental_tracker is not None:
+            folder_str=str((folder.relative_to(super_folder_for_filepaths)).as_posix())
+            for fstr,info in incremental_tracker.items():
+                if (info['State'] is None) and fstr.startswith(folder_str+'/') and '/' not in fstr[len(folder_str)+1:]:
+                    logger.info(f"File {fstr} is no longer present, marking as removed")
+                    info['State']='Removed'
+            db_sample_names=set([s for info in incremental_tracker.values() for s in info.get('DBSampleNames',[])])
+            from datavac.config.data_definition import DDEF
+            for sample in db_sample_names:
+                if sample not in sample_to_sampleload_info:
+                    sample_to_mg_to_data[sample]={}
+                    sample_to_sampleload_info[sample]=None
         return sample_to_mg_to_data, sample_to_sampleload_info
 
+    def additional_tables(self, int_schema: str, metadata: MetaData, load_tab: Table) -> tuple[dict[str, Table], dict[str, Table]]:
+        from sqlalchemy import Table, Column, INTEGER, VARCHAR, ForeignKey, UniqueConstraint, BigInteger
+        from datavac.database.db_structure import _CASC
+        #addtabs=super().additional_tables(int_schema, metadata, load_tab=load_tab) # causes trouble for using this for classic folder trove which inherits from this, so skipping for now
+        addtabs={}
+        t= metadata.tables.get(int_schema+f'.TTTT --- Files_{self.name}')
+        addtabs['files']=file_tab= t if (t is not None) else \
+            Table(f'TTTT --- Files_{self.name}', metadata,
+                  Column('fileid',INTEGER,primary_key=True,autoincrement=True),
+                  Column('FilePath',VARCHAR,nullable=False,unique=True),
+                  Column('FileName',VARCHAR,nullable=False,unique=False),
+                  # store as nanoseconds since epoch for easy comparison with filesystem timestamps.  Must be bigint
+                  Column('ModifiedTime',BigInteger,nullable=False),
+                  # Not really used by SingleFolderTrove but useful for ClassicFolderTrove which reuses this function
+                  Column('ReadgroupName',VARCHAR,nullable=False),
+                  schema=int_schema)
+        t= metadata.tables.get(int_schema+f'.TTTT --- FileLoads_{self.name}')
+        addtabs['fileloads']=fileload_tab= t if (t is not None) else \
+            Table(f'TTTT --- FileLoads_{self.name}', metadata,
+                  Column('fileid',INTEGER,ForeignKey(file_tab.c.fileid,**_CASC),nullable=False),
+                  Column('loadid',INTEGER,ForeignKey(load_tab.c.loadid,**_CASC),nullable=False),
+                  UniqueConstraint('fileid','loadid',name=f'uq_file_load_{self.name}'),
+                  schema=int_schema)
+        return {'files':addtabs['files']}, {'fileloads':addtabs['fileloads']}
+    
+    def trove_reference_columns(self) -> Mapping[DVColumn,str]:
+        return {DVColumn('fileid','int','Source file identifier'): 'files'}
+    
+    def transform(self, df: pd.DataFrame, loadid: int, sample_info:dict[str,Any], conn:Optional[Connection]=None, readgrp_name:str|None=None):
+        # df will have columns 'FilePath' and 'ModificationTime'.
+        # First, update the "TTTT -- Files" with all the new FilePaths (in one query), retrieving the fileids for the new entries.
+        # Then, replace the FilePath column in df with the corresponding fileids.
+        # Then update the "TTTT -- FileLoads" to connect the loadid to the fileids for the files that were just added.
+        if 'FilePath' not in df.columns:
+            raise Exception("ClassicFolderTrove.transform() expects a column 'FilePath' in the dataframe.")
+        file_tab=self.dbtables('files')
+        from datavac.database.db_connect import get_engine_rw
+        from sqlalchemy.dialects.postgresql import insert as pgsql_insert
+        with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
+            assert conn is not None
+            fp_to_mt=dict(df[['FilePath','ModifiedTime']].drop_duplicates().set_index('FilePath', verify_integrity=True)['ModifiedTime'])
+            fp_to_mtfn={fp:{'ModifiedTime': mt, 'FileName': os.path.basename(fp)} for fp,mt in fp_to_mt.items()}
+            # moved cleaning to elsewher
+            #uniq_fps_clean={fp:str(Path(fp).relative_to(self.read_dir)) for fp in fp_to_mt.keys()}
+            uniq_fps_clean={fp:fp for fp in fp_to_mt.keys()}
+            update_info=[{'FilePath': cfp,'ModifiedTime':int(fp_to_mtfn[rfp]['ModifiedTime']),
+                          'FileName':fp_to_mtfn[rfp]['FileName'],'ReadgroupName':readgrp_name}
+                      for rfp,cfp in uniq_fps_clean.items()]
+            fileid_from_clean_lookup={v:k for k,v in conn.execute(pgsql_insert(file_tab)\
+                         .values(update_info)\
+                         .on_conflict_do_update(index_elements=['FilePath'],set_=file_tab.c)\
+                         .returning(file_tab.c.fileid, file_tab.c.FilePath)).fetchall()}
+            oldfps=[fp for fp in uniq_fps_clean.values() if fp not in fileid_from_clean_lookup]
+            if len(oldfps):
+                fileid_from_clean_lookup.update({v:k for k,v in conn.execute(file_tab.select()\
+                    .where(file_tab.c.FilePath.in_(oldfps))).fetchall()})
+            fileid_from_raw_lookup={uniq_fps_clean[fp]:fileid_from_clean_lookup[uniq_fps_clean[fp]] for fp in fp_to_mt}
+            df['fileid']=df['FilePath'].map(fileid_from_raw_lookup)
+            df.drop(columns=['FilePath'], inplace=True)
+
+            fileload_tab=self.dbtables('fileloads')
+            conn.execute(pgsql_insert(fileload_tab)\
+                            .values([{'fileid': fid, 'loadid': loadid} for fid in fileid_from_raw_lookup.values()]))
+    def affected_meas_groups_and_filters(self, samplename: Any, comp: dict[str,dict[str,Any]],
+                                         data_by_mg: dict[str,MultiUniformMeasurementTable], conn: Optional[Connection] = None)\
+            -> tuple[list[str], list[str], dict[str,Sequence[Any]]]:
+        affected_files_maybe_not_in_dbm=[fstr for fstr,info in comp.items()
+                        if info['State'] in ('Modified','Removed') # if 'New', then will have to be in data_by_mg to matter
+                        and samplename in info['DBSampleNames']]
+        unaffected_files=[fstr for fstr,info in comp.items()
+                          if info['State']=='Unchanged'
+                          and samplename in info['DBSampleNames']]
+        affected_mgs=set([mg_name for mg_name in data_by_mg]+\
+                         [mg_name for af in affected_files_maybe_not_in_dbm for mg_name in comp[af]['DBMeasGroups']])
+        mgs_with_old_data=set([mg_name for info in comp.values()
+                               if info['State']!='New' and samplename in info['DBSampleNames']
+                                   for mg_name in info['DBMeasGroups']])
+        
+        #from datavac.database.db_connect import get_engine_ro
+        #from datavac.database.db_structure import DBSTRUCT
+        #from sqlalchemy import select
+        #from datavac.config.project_config import PCONF
+        #samplename_col=PCONF().data_definition.SAMPLE_COLNAME
+        #with (returner_context(conn) if conn is not None else get_engine_ro().begin()) as conn:
+        #    sampletab=DBSTRUCT().get_sample_dbtable()
+        #    loadtab=DBSTRUCT().get_trove_dbtables(self.name)['loads']
+        #    fileloadtab=DBSTRUCT().get_trove_dbtables(self.name)['fileloads']
+        #    filetab=DBSTRUCT().get_trove_dbtables(self.name)['files']
+        #    query=select(loadtab.c.MeasGroup).distinct().select_from(loadtab\
+        #        .join(sampletab, loadtab.c.sampleid==sampletab.c.sampleid)\
+        #        .join(fileloadtab, fileloadtab.c.loadid==loadtab.c.loadid) \
+        #        .join(filetab, filetab.c.fileid==fileloadtab.c.fileid)) \
+        #        .where(sampletab.c[samplename_col]==samplename)\
+        #        .where(filetab.c.FilePath.in_(affected_files))
+        #    affected_mgs_with_old_data=[row[0] for row in conn.execute(query).fetchall()]
+
+        affected_mgs_with_old_data=[mg_name for mg_name in affected_mgs if mg_name in mgs_with_old_data]
+        affected_mgs_without_old_data=[mg_name for mg_name in data_by_mg if mg_name not in mgs_with_old_data]
+        return affected_mgs_with_old_data,affected_mgs_without_old_data, {'FilePath': unaffected_files}
+        
 
 fqsite_col = DVColumn('FQSite','string','Fully-qualified site name')

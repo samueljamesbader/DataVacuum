@@ -1,7 +1,7 @@
 def test_IdVg():
     import numpy as np
     from datavac.trove.trove_util import quick_read_filename
-    from datavac.examples.demo1.demo1_example_data import get_transistor
+    from datavac.examples.example_data import get_transistor
 
     mt2mg2dat,mg2ml=quick_read_filename('lot1/lot1_sample1_nMOS_IdVg.csv')
     print(mt2mg2dat['lot1_sample1']['nMOS_IdVg'][['SS [mV/dec]','Ron [ohm]','RonW [ohm.um]']])

@@ -1,7 +1,7 @@
 def test_CV():
     import numpy as np
     from datavac.trove.trove_util import quick_read_filename
-    from datavac.examples.demo1.demo1_example_data import get_capacitor
+    from datavac.examples.example_data import get_capacitor
 
     mt2mg2dat, mg2ml = quick_read_filename('lot1')
     capdat = mt2mg2dat['lot1_sample1']['Cap_CV']

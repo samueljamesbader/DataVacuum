@@ -1,6 +1,9 @@
+from datavac.examples.example_data import get_inverter
+
+
 def test_logic():
     import numpy as np
-    from datavac.examples.demo1.demo1_example_data import get_ring, get_inverter
+    from datavac.examples.example_data import get_ring
     from datavac.trove.trove_util import quick_read_filename
 
     mt2mg2dat,mg2ml=quick_read_filename('lot1/lot1_sample1_invs.csv')

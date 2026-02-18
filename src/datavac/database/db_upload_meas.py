@@ -126,7 +126,8 @@ def _upload_binary_helper(sstab: pd.DataFrame, mg_name: str, loadid: int, conn: 
 
 def upload_measurement(trove: Trove, sampleload_info: Mapping[str,Any],
                        data_by_meas_group: Mapping[str, MeasurementTable],
-                       only_meas_groups: Optional[list[str]] = None) -> dict[str,int]:
+                       only_meas_groups: Optional[list[str]] = None,
+                       readgrp_name:str|None=None) -> dict[str,int]:
     sampletab=DBSTRUCT().get_sample_dbtable()
     loadtab=DBSTRUCT().get_trove_dbtables(trove.name)['loads']
     sample_info={k:v for k,v in sampleload_info.items()
@@ -143,6 +144,9 @@ def upload_measurement(trove: Trove, sampleload_info: Mapping[str,Any],
 
         mg_to_loadid={}
         for mg_name, meas_data in data_by_meas_group.items():
+
+            # Note that meas_data=None results in the prior load being deleted but no new load being entered, which is the desired behavior
+            if meas_data is None: continue
 
             # Put an entry into the Loads table and get the loadid
             mg_to_loadid[mg_name]=loadid=conn.execute(pgsql_insert(loadtab)\
@@ -162,6 +166,7 @@ def upload_measurement(trove: Trove, sampleload_info: Mapping[str,Any],
             for ssr_name in PCONF().data_definition.measurement_groups[mg_name].subsample_reference_names:
                 PCONF().data_definition.subsample_references[ssr_name]\
                     .transform(content, sample_info=sample_info, conn=conn)
+            trove.transform(content, loadid=loadid, sample_info=sample_info, conn=conn, readgrp_name=readgrp_name)
             upload_csv(content[list(meastab.c.keys())],
                        conn, DBSTRUCT().int_schema, meastab.name)
             
@@ -291,15 +296,53 @@ def upload_extraction(trove: Trove, samplename: Any,
             #print(query_str)
             conn.execute(text(query_str))
     return mg_name_to_loadid
-        
+
+def pull_affected_meas_groups(trove: Trove, samplename: Any, comp: dict[str,dict[str,Any]],
+                              data_by_mg: dict[str, MultiUniformMeasurementTable]):
+    """ Note: if there's no data in a mg, there will be an entry in data_by_mg with value None."""
+    amg_w,amg_wo,filters=trove.affected_meas_groups_and_filters(samplename, comp, data_by_mg)
+    
+    if len(amg_w):
+        from datavac.database.db_connect import get_engine_ro
+        from datavac.database.db_get import get_data_as_mumt
+        with get_engine_ro().begin() as conn:
+            for mg_name in amg_w:
+                # None if no data
+                from_db= get_data_as_mumt(DDEF().measurement_groups[mg_name], conn=conn, samplename=samplename,
+                           on_no_data=None, include_extr=False, include_sweeps=True, filters=filters)
+                if from_db is not None:
+                    data_by_mg[mg_name] = (from_db+data_by_mg[mg_name] if data_by_mg.get(mg_name) is not None else from_db)
+                else:
+                    if mg_name not in data_by_mg: data_by_mg[mg_name]=None # type: ignore
+    return amg_w+amg_wo
+
+def get_existing_sampleloadinfo_for_sample(trove: Trove, samplename: str, only_meas_groups: list[str]):
+    from datavac.database.db_connect import get_engine_ro
+    import pandas as pd
+    with get_engine_ro().begin() as conn:
+        sampletab=DBSTRUCT().get_sample_dbtable()
+        loadtab=DBSTRUCT().get_trove_dbtables(trove.name)['loads']
+        sel=select(sampletab,loadtab)\
+            .select_from(sampletab.join(loadtab))\
+            .where(sampletab.c[DDEF().SAMPLE_COLNAME]==samplename)\
+            .where(loadtab.c.MeasGroup.in_(only_meas_groups))
+        df=pd.read_sql(sel, conn)
+        ALL_SAMPLELOAD_COLNAMES=PCONF().data_definition.ALL_SAMPLELOAD_COLNAMES(trove.name)
+        df=df[ALL_SAMPLELOAD_COLNAMES].drop_duplicates()
+        assert len(df)==1, f"Non-unique sampleload info for sample '{samplename}' and meas groups {only_meas_groups}:\n{df}"
+        return df.iloc[0].to_dict()
 
 def read_and_enter_data(trove_names: Optional[list[str]] = None,
                         only_meas_groups: Optional[list[str]] = None,
                         only_sampleload_info: dict[str,Sequence[Any]] = {},
                         info_already_known: dict[str,Any] = {}, 
                         kwargs_by_trove: dict[str,dict[str,Any]] = {},
-                        suspend_exceptions:bool=True):
+                        suspend_exceptions:bool=True, incremental:bool=False):
     
+    if incremental:
+        assert (only_meas_groups is None) and (only_sampleload_info=={}) and (info_already_known=={}), \
+            "Don't get fancy with restrictions when doing incremental reading, let the trove see everything."
+
     exception_collections={}
     success_collections={}
     trove_names = trove_names or list(PCONF().data_definition.troves.keys())
@@ -320,19 +363,34 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
             logger.error("Moving onto next.")
 
         last_checkpoint= datetime.now()
-        for readgrp_name, sample_to_mg_to_data, sample_to_sampleloadinfo in trove.iter_read(
+        for readgrp_name, sample_to_mg_to_data, sample_to_sampleloadinfo,comp in trove.iter_read( incremental=incremental,
             only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
             info_already_known=info_already_known, exception_callback=err_cb if suspend_exceptions else None,
             **(kwargs_by_trove.get(trove_name,{}))):
             try:
                 for sample, data_by_mg in sample_to_mg_to_data.items():
+                    if incremental:
+                        # Note, after pull_affected_meas_groups,
+                        # data_by_mg will only have entries for the affected measurement groups
+                        # and the values may be None's where the post-incremental result is no data
+                        only_meas_groups=pull_affected_meas_groups(trove, sample, comp, data_by_mg)
+                        if not len(only_meas_groups):
+                            logger.info(f"No affected measurement groups for sample '{sample}' in incremental read, skipping.")
+                            continue
+                        # If incremental reading only recognized that some files were deleted
+                        # then the sampleloadinfo may not be available, so get from DB
+                        if sample_to_sampleloadinfo[sample] is None:
+                            sample_to_sampleloadinfo[sample]=get_existing_sampleloadinfo_for_sample(trove, sample, only_meas_groups=only_meas_groups)
                     assert PCONF().data_definition.SAMPLE_COLNAME in sample_to_sampleloadinfo[sample], \
                         f"Sample info for '{sample}' does not have the sample identifier column "\
-                        f"'{PCONF().data_definition.SAMPLE_COLNAME}', just\n{sample_to_sampleloadinfo[sample]}" 
+                        f"'{PCONF().data_definition.SAMPLE_COLNAME}', just\n{sample_to_sampleloadinfo[sample]}"
+                    # Make use of the fact that None values will result in the prior load being deleted but no new load being entered
                     mg_to_loadid=upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg,
-                                                    only_meas_groups=only_meas_groups)
+                                                    only_meas_groups=only_meas_groups, readgrp_name=readgrp_name)
+
+                    # Now extract and enter analyses dependent on the measurement groups that were just entered
                     data_by_mg,mg_to_loadid=perform_and_enter_extraction(trove, samplename=sample,
-                                    only_meas_groups=list(data_by_mg),
+                                    only_meas_groups=list(data_by_mg.keys()),
                                     pre_obtained_data_by_mg=data_by_mg,
                                     pre_obtained_mg_to_loadid=mg_to_loadid)
                     needed_analyses = list(set(an.name for mg in data_by_mg
@@ -377,10 +435,10 @@ def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups
     with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
 
         data_by_mg = {}
-        required_meas_groups = set(only_meas_groups)
-        mg_retrieval_queue = [mg.name for mg in DDEF().get_meas_groups_topo_sorted() if mg.name in only_meas_groups]
+        required_meas_groups = set()
         already_tried_no_data = set()
         should_reextract = set(only_meas_groups)
+        mg_retrieval_queue = [mg.name for mg in DDEF().get_meas_groups_topo_sorted() if mg.name in only_meas_groups]
 
         # Go through the retrieval queue until emptied
         while len(mg_retrieval_queue):
@@ -397,7 +455,8 @@ def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups
             
             # Use the pre-obtained data if possible
             if mg_name in pre_obtained_data_by_mg:
-                data_by_mg[mg_name] = data = pre_obtained_data_by_mg[mg_name]
+                data = pre_obtained_data_by_mg[mg_name]
+                if data is not None: data_by_mg[mg_name] = data
             # Otherwise get the data for this measurement group
             else:
                 # Raise error if a required measurement group has no data
@@ -410,6 +469,7 @@ def perform_and_enter_extraction(trove: Trove, samplename: Any, only_meas_groups
                 already_tried_no_data.add(mg_name)
             else:
                 data_by_mg[mg_name] = data
+            if (data is not None) or (mg_name in only_meas_groups):
                 # If the group should be re-extracted, add its dependencies to the queue
                 # and add its dependent groups to the queue and set of groups to re-extract
                 if mg_name in should_reextract:

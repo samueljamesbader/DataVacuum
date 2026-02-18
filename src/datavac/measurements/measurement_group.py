@@ -158,12 +158,13 @@ class MeasurementGroup():
 @dataclass(eq=False)
 class SemiDevMeasurementGroup(MeasurementGroup):
     layout_param_group: Optional[str] = None
+    connect_to_dies: bool = True
     
     subsample_reference_names: list[str]= field(init=False,
             default=property(lambda self: self._subsample_reference_names())) # type: ignore
     def _subsample_reference_names(self) -> list[str]:
         """Returns the subsample references for this measurement group."""
-        ssrs = ["Dies"]
+        ssrs = ["Dies"] if self.connect_to_dies else []
         if self.layout_param_group:
             ssrs.append(f'LayoutParams -- {self.layout_param_group}')
         return ssrs

@@ -79,7 +79,8 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
                                              and ((columns is None) or (c.name in columns))}
     return sel, dtypes
 
-def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, include_sweeps: bool = True, sample_descriptors: list[str]= [] )\
+def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, include_sweeps: bool = True,
+                                               include_ssrs: bool = True, sample_descriptors: list[str]= [] )\
             -> tuple[dict[Table, list[Table]], dict[Table, str]]:
         """Returns the table dependencies and join hints for a given measurement group.
         
@@ -97,14 +98,17 @@ def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, inc
         table_depends={}
         table_depends[coretab:=(meastab:=DBSTRUCT().get_measurement_group_dbtables(meas_group.name)['meas'])]=[]
         table_depends[         (extrtab:=DBSTRUCT().get_measurement_group_dbtables(meas_group.name)['extr'])]=[meastab]
-        table_depends[loadtab:=(DBSTRUCT().get_trove_dbtables(trove_name)['loads'])]=[coretab]
+        table_depends[loadtab:=(DBSTRUCT().get_trove_dbtables(trove_name)['loads'])]=[coretab] # Note: this one gets overwritten in the tt loop below
         table_depends[sampletab:=(DBSTRUCT().get_sample_dbtable())]=[loadtab]
         if include_sweeps and meas_group.involves_sweeps:
             table_depends[sweeptab:=(DBSTRUCT().get_measurement_group_dbtables(meas_group.name)['sweep'])]=[meastab]
-        for ssr_name in meas_group.subsample_reference_names:
-            # Note: just including the sample table here because in case the subsample reference has foreign keys
-            # to some sample info, we need to make sure the sample info is merged before the subsample reference
-            table_depends[DBSTRUCT().get_subsample_reference_dbtable(ssr_name)]=[coretab,DBSTRUCT().get_sample_dbtable()]
+        if include_ssrs:
+            for ssr_name in meas_group.subsample_reference_names:
+                # Note: just including the sample table here because in case the subsample reference has foreign keys
+                # to some sample info, we need to make sure the sample info is merged before the subsample reference
+                table_depends[DBSTRUCT().get_subsample_reference_dbtable(ssr_name)]=[coretab,sampletab]
+        for tt in DBSTRUCT().get_trove_dbtables(trove_name,exclude_system=True).values():
+            table_depends[tt]=[coretab]
 
         for sd_name in sample_descriptors: table_depends[DBSTRUCT().get_sample_descriptor_dbtable(sd_name)]=[sampletab]
 
@@ -177,7 +181,7 @@ def _decode_sweeps(data: pd.DataFrame, meas_group: MeasurementGroup):
         data['sweep']=data['sweep'].map(sweepconv)
 
 def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_sweeps: bool = True, include_extr: bool = True,
-                        on_no_data: str | None ='raise', conn: Optional[Connection] = None) -> MultiUniformMeasurementTable:
+                        on_no_data: str | None ='raise', conn: Optional[Connection] = None, filters: dict[str,Sequence[Any]]={}) -> MultiUniformMeasurementTable:
     """Retrieves data for re-extraction (ie measured data only, no extr data).
     
     Args:
@@ -193,8 +197,10 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
     from datavac.io.measurement_table import MultiUniformMeasurementTable, UniformMeasurementTable
 
 
-    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group, include_sweeps=(include_sweeps and meas_group.involves_sweeps))
-    pre_filters={DDEF().SAMPLE_COLNAME: [samplename]}
+    td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group,
+                                                        include_sweeps=(include_sweeps and meas_group.involves_sweeps),
+                                                        include_ssrs=include_extr) # if excluding extr, also exclude e.g. layout params
+    pre_filters={DDEF().SAMPLE_COLNAME: [samplename],**filters}
     if not include_extr:
         td = {t: d for t, d in td.items() if 'Extr' not in t.name}
         if include_sweeps and meas_group.involves_sweeps:

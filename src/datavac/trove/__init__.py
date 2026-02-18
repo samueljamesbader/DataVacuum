@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Generator, Mapping, Optional, Sequence, Union
 from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
     import pandas as pd
     from datavac.config.data_definition import DVColumn
     from datavac.io.measurement_table import MultiUniformMeasurementTable
-    from sqlalchemy import Table
+    from sqlalchemy import Table, MetaData, Connection
 
 @dataclass
 class ReaderCard():
@@ -45,7 +45,7 @@ class Trove():
                  -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
         total_mg_to_sample_to_data = {}
         total_sample_to_sampleloadinfo = {}
-        for readgrp_name, mg_to_sample_to_data, sample_to_sampleloadinfo in self.iter_read(*args,**kwargs):
+        for readgrp_name, mg_to_sample_to_data, sample_to_sampleloadinfo,_ in self.iter_read(*args,**kwargs):
             for mg_name, sample_to_data in mg_to_sample_to_data.items():
                 if mg_name not in total_mg_to_sample_to_data:
                     total_mg_to_sample_to_data[mg_name] = {}
@@ -60,8 +60,8 @@ class Trove():
     def iter_read(self,
              only_meas_groups:Optional[list[str]]=None,
              only_sampleload_info:dict[str,Sequence[Any]]={},
-             info_already_known:dict={}, **kwargs)\
-                 -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]]:
+             info_already_known:dict={}, incremental:bool=False, **kwargs)\
+                 -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]],dict[str,dict[str,Any]]]]:
         """Reads data from the trove.
 
         Args:
@@ -71,6 +71,8 @@ class Trove():
                 and each value is a sequence of values that are allowed for that column.
             info_already_known: If set, this is a dictionary of information that is already known
                 about the sample or load based on context.
+            incremental: If True, this read is being done as part of an incremental upload,
+                and the trove can optimize for this if desired.
             **kwargs: Additional arguments that may be used by the specific Trove implementation.
         Yields:
             A tuple of a string and two dictionaries:
@@ -89,3 +91,29 @@ class Trove():
         """Returns the database table associated with this trove for the given key."""
         from datavac.database.db_structure import DBSTRUCT
         return DBSTRUCT().get_trove_dbtables(self.name)[key]
+
+    def additional_tables(self, int_schema: str, metadata: 'MetaData', load_tab: 'Table') -> tuple[dict[str, Table], dict[str, Table]]:
+        """Returns additional database tables that should be created for this trove,
+        e.g. for additional information associated with the load.
+        
+        Note: when implementing, see datavac.database.db_structure.DBSTRUCT.get_trove_dbtables()
+        for how to integrate these additional tables into the database structure and follow the pattern.
+        
+        The first return is for data tables that should be included in getting data, while the second are for trove's internal use.
+        """
+        return {},{}
+    
+    def trove_reference_columns(self) -> Mapping[DVColumn,str]:
+        """Returns a mapping of DVColumns that are associated with this trove to the relevant trove table name"""
+        return {}
+    
+    def transform(self, df: pd.DataFrame, loadid: int, sample_info:dict[str,Any], conn:Optional[Connection]=None, readgrp_name:str|None=None):
+        """Applies a transformation to the dataframe to e.g. map read info to trove table columns.
+        
+        May modify the trove tables, but will not commit the connection (if the connection is provided)."""
+        pass
+
+    def affected_meas_groups_and_filters(self, samplename: Any, comp: dict[str,dict[str,Any]],
+                                         data_by_mg: dict[str,MultiUniformMeasurementTable], conn: Optional[Connection] = None)\
+            -> tuple[list[str], list[str], dict[str,Sequence[Any]]]:
+        raise NotImplementedError("Trove.affected_meas_groups() must be implemented by subclasses if incremental upload is desired.")

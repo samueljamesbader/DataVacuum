@@ -67,7 +67,7 @@ class DBStructure():
                   *[Column(c.name, c.sql_dtype, nullable=False) for c in self.datadef.sample_info_columns],
                   schema=self.int_schema)
 
-    def get_trove_dbtables(self, trove_name: str) -> dict[str,Table]:
+    def get_trove_dbtables(self, trove_name: str, exclude_system:bool=False) -> dict[str,Table]:
         """Returns an SQLAlchemy Table object for the given trove's Loads table."""
         trove = self.datadef.troves[trove_name]
         t= self.metadata.tables.get(self.int_schema+f'.Loads_{trove_name}')
@@ -93,7 +93,11 @@ class DBStructure():
                     Column('loadid', INTEGER, ForeignKey(load_tab.c.loadid, **_CASC), nullable=False),
                     #Column('MeasGroup',VARCHAR,primary_key=True,nullable=False),
                     schema=self.int_schema)
-        return {'loads': load_tab, 'reload': reload_tab, 'reextr': reextr_tab}
+        att_data,att_syst=trove.additional_tables(int_schema=self.int_schema, metadata=self.metadata, load_tab=load_tab)
+        if exclude_system:
+            return {'loads': load_tab, **att_data}
+        else:
+            return {'loads': load_tab, 'reload': reload_tab, 'reextr': reextr_tab, **att_data, **att_syst}
                     
     
     def get_sample_reference_dbtable(self, sr_name: str) -> Table:
@@ -148,11 +152,19 @@ class DBStructure():
                              ForeignKey(self.get_subsample_reference_dbtable(ssr_name).c[ssr.key_column.name],
                                         name=f'fk_{ssr.key_column.name} -- {mg_name}',**_CASC),nullable=False)
                          for ssr_name, ssr in subsample_references.items()]
+            trove_reference_columns =\
+                [Column(c.name, c.sql_dtype,
+                         ForeignKey(self.get_trove_dbtables(trove_name)[trove_tab_name].c[c.name],
+                                    name=f'fk_{c.name} -- {mg_name}',**_CASC),nullable=False)
+                         for c,trove_tab_name in mg.trove().trove_reference_columns().items()]
+            print("############################")
+            print(trove_reference_columns)
             meas_tab=Table(
                     f'Meas -- {mg_name}', self.metadata,
                     Column('loadid',INTEGER,ForeignKey(self.get_trove_dbtables(trove_name)['loads'].c.loadid,**_CASC),nullable=False),
                     Column('measid',INTEGER,nullable=False),
                     *subsample_reference_columns,
+                    *trove_reference_columns,
                     Column('rawgroup',INTEGER,nullable=False),
                     *[Column(c.name,c.sql_dtype) for c in mg.meas_columns],
                     PrimaryKeyConstraint('loadid','measid'),

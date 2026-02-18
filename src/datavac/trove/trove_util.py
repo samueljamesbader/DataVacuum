@@ -1,23 +1,42 @@
 from __future__ import annotations
 from pathlib import Path
 from functools import cache
-from typing import Union, TYPE_CHECKING
+from typing import Callable, Union, TYPE_CHECKING
 import argparse
 from fnmatch import fnmatch
+import os
 
 
 if TYPE_CHECKING:
     from datavac.io.measurement_table import MultiUniformMeasurementTable
 
-def get_cached_glob():
+# This class extends pathlib.Path to include the file's modification time in nanoseconds and some info.
+# When the code is updated to 3.14, the necessity of this shim can be re-evaluated,
+# as Path might allow for caching file stats directly by Path.info?
+class PathWithMTime(Path):
+    def __init__(self, *args, mtime_ns:int|None=None, is_dir:bool|None=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mtime_ns=mtime_ns
+        self.cached_is_dir=is_dir
+
+def get_cached_glob(superpath:Path) -> Callable[[Path,str],list[PathWithMTime]]:
+    def get_relpath(p:Path|str) -> Path:
+        try: return Path(p).relative_to(superpath)
+        except ValueError: return Path(p)
+
     @cache
-    def _cached_iterdir(folder:Path):
-        #logger.debug(f"Running iterdir for {folder}")
-        return list(folder.iterdir())
+    def _cached_iterdir(folder: Path):
+        # Use os.scandir for efficient stat retrieval
+        with os.scandir(folder) as it:
+            return [PathWithMTime(get_relpath(entry.path),
+                                  mtime_ns=entry.stat().st_mtime_ns,
+                                  is_dir=entry.is_dir()) for entry in it]
+
     @cache
-    def cached_glob(folder:Path,patt:str):
-        paths=_cached_iterdir(folder)
-        return [p for p in paths if fnmatch(str(p),patt)]
+    def cached_glob(folder: Path, patt: str):
+        entries = _cached_iterdir(folder)
+        return [p for p in entries if fnmatch(str(p), patt)]
+
     return cached_glob
 
 

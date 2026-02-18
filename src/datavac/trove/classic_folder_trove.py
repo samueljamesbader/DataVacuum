@@ -3,18 +3,20 @@ from dataclasses import dataclass, field
 import os
 import re
 from fnmatch import fnmatch
-from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Sequence, Union, cast
 from functools import lru_cache, cache
 from pathlib import Path
 
 from datavac.trove import ReaderCard, Trove
 from datavac.trove.folder_aux_info import FolderAuxInfoReader, MissingFolderInfoException
 from datavac.trove.single_folder_trove import FolderTroveReaderCard, SingleFolderTrove
-from datavac.trove.trove_util import get_cached_glob
+from datavac.trove.trove_util import PathWithMTime, get_cached_glob
 from datavac.util.dvlogging import logger
 
 if TYPE_CHECKING:
     from datavac.io.measurement_table import MultiUniformMeasurementTable
+    from sqlalchemy import MetaData, Table, Connection
+    import pandas as pd
 
 
 @dataclass
@@ -66,11 +68,12 @@ class ClassicFolderTrove(Trove):
                    only_meas_groups:Optional[list[str]]=None,
                    only_sampleload_info:dict[str,Any]={},
                    info_already_known:dict[str,Any]={},
+                   incremental:bool=False,
                    # FolderTrove-specific arguments
                    only_file_names:Optional[list[str]]=None, only_folders: Optional[Sequence[Path]]=None,
-                   cached_glob:Optional[Callable[[Path,str],list[Path]]]=None, dont_recurse:bool=False,
+                   cached_glob:Optional[Callable[[Path,str],list[PathWithMTime]]]=None, dont_recurse:bool=False,
                    dont_prompt_readall:bool=False, exception_callback: Optional[Callable[[str,Exception],None]]=None)\
-             -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]]:
+             -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]],dict[str,dict[str,Any]]]]:
         """Reads data from the trove read_dir.
 
         Args:
@@ -92,7 +95,7 @@ class ClassicFolderTrove(Trove):
                 if (not dont_prompt_readall) and self.prompt_for_readall:
                     if not (input(f'No folder or top-level restriction,'\
                                   ' continue to read EVERYTHING? [y/n] ')\
-                                .strip().lower()=='y'): yield {},{}
+                                .strip().lower()=='y'): yield "",{},{},{}
                 folders=self.get_natural_grouping_factors()
         else: folders=only_folders
 
@@ -105,6 +108,31 @@ class ClassicFolderTrove(Trove):
             tl=folder.relative_to(self.read_dir).parts[0]
             folders_by_toplevel[tl]=folders_by_toplevel.get(tl,[]) + [folder]
         for tl, folders in folders_by_toplevel.items():
+
+            if incremental:
+                # Get file modification times from the database to compare against filesystem modification times for incremental reading
+                from datavac.database.db_util import get_engine_ro
+                from datavac.database.db_structure import DBSTRUCT
+                from datavac.config.data_definition import DDEF
+                from sqlalchemy import select
+                file_tab=DBSTRUCT().get_trove_dbtables(self.name)['files']
+                fileload_tab=DBSTRUCT().get_trove_dbtables(self.name)['fileloads']
+                load_tab=DBSTRUCT().get_trove_dbtables(self.name)['loads']
+                sample_tab=DBSTRUCT().get_sample_dbtable()
+                SAMPLENAME_COL=DDEF().SAMPLE_COLNAME
+                with get_engine_ro().connect() as conn:
+                    db_modtimes_result=conn.execute(select(file_tab.c['FilePath'],file_tab.c['ModifiedTime'],fileload_tab.c['loadid'],
+                                                           load_tab.c['MeasGroup'],sample_tab.c[SAMPLENAME_COL])\
+                                                           .select_from(file_tab.join(fileload_tab).join(load_tab).join(sample_tab))\
+                                                           .where(file_tab.c['ReadgroupName']==tl)).fetchall()
+                    comparison_to_prior_loads:dict[str,dict[str,Any]]={}
+                    for row in db_modtimes_result:
+                        if row[0] not in comparison_to_prior_loads:
+                            comparison_to_prior_loads[row[0]]={'DBModifiedTime':row[1],'State':None,'DBMeasGroups':[row[3]],'DBSampleNames':[row[4]],}
+                        else:
+                            comparison_to_prior_loads[row[0]]['DBMeasGroups'].append(row[3])
+                            comparison_to_prior_loads[row[0]]['DBSampleNames'].append(row[4])
+
 
             # Store info known about the data at each folder in the tree up to the top-level
             @cache
@@ -124,7 +152,7 @@ class ClassicFolderTrove(Trove):
 
             # Recurse down the folder structure reading in each
             try:
-                cached_glob=cached_glob or get_cached_glob()
+                cached_glob=cached_glob or get_cached_glob(self.read_dir)
                 contributions=[]
                 for folder in folders:
                     dirs=[folder]
@@ -132,19 +160,20 @@ class ClassicFolderTrove(Trove):
                         curdir=dirs.pop(0)
                         if not dont_recurse:
                             for file in cached_glob(curdir,'*'):
-                                if file.is_dir():
+                                if file.cached_is_dir:
                                     if re.match(self.ignore_folder_regex,file.name):
                                         logger.debug(f"Ignoring {file} because matches \"{self.ignore_folder_regex}\".")
-                                    else: dirs.append(file)
+                                    else: dirs.append(self.read_dir/file)
                         try:
                             try:
                                 logger.info(f"Reading in {curdir.relative_to(self.read_dir)}")
                             except ValueError:
                                 logger.info(f"Reading in {curdir}")
                             contributions.append(SingleFolderTrove.read_folder_nonrecursive(
-                                folder=curdir, trove_name=self.name,
+                                folder=curdir, trove_name=self.name, incremental_tracker=comparison_to_prior_loads if incremental else None,
                                 only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
                                 only_file_names=only_file_names, info_already_known=get_info_from_folder(curdir),
+                                super_folder_for_filepaths=self.read_dir,
                                 cached_glob=cached_glob, filecache_context_manager=self.filecache_context_manager))
                         except MissingFolderInfoException as e:
                             logger.info(f"Skipping {curdir.relative_to(self.read_dir)} because {str(e)}")
@@ -165,14 +194,21 @@ class ClassicFolderTrove(Trove):
                         if (existing_info:=matname_to_matload_info.get(matname,None)):
                             assert existing_info==matname_to_dirinfo[matname],\
                                 f"Different material infos {existing_info} vs {matname_to_dirinfo[matname]}"
-                        matname_to_matload_info[matname]=matname_to_dirinfo[matname]
+                        else:
+                            matname_to_matload_info[matname]=matname_to_dirinfo[matname]
 
                 # Defragment the dataframe in each measurement group for performance
                 for mg_to_data in matname_to_mg_to_data.values():
                     for data in mg_to_data.values():
                         data.defrag()
 
-                yield str(tl), matname_to_mg_to_data,matname_to_matload_info
+                if incremental:
+                    for fstr, info in comparison_to_prior_loads.items():
+                        if info['State'] is None: info['State']='Removed'
+                    logger.debug(f"Incremental read summary for {tl}:")
+                    for fstr in comparison_to_prior_loads:
+                        logger.debug(f"  {comparison_to_prior_loads[fstr]['State'].ljust(12)} {fstr}")
+                yield str(tl), matname_to_mg_to_data,matname_to_matload_info, (comparison_to_prior_loads if incremental else {})
             except Exception as e:
                 if exception_callback: exception_callback(str(tl), e)
                 else: raise e
@@ -180,3 +216,19 @@ class ClassicFolderTrove(Trove):
     def get_natural_grouping_factors(self) -> list[Any]:
         return sorted([f.name for f in self.read_dir.glob('*')
                         if 'IGNORE' not in f.name], reverse=True)
+    
+    def trove_reference_columns(self) -> dict[str,str]:
+        return SingleFolderTrove.trove_reference_columns(cast(SingleFolderTrove,self))
+
+    def additional_tables(self, int_schema: str, metadata: MetaData, load_tab: Table) -> tuple[dict[str, Table], dict[str, Table]]:
+        return \
+            SingleFolderTrove.additional_tables(cast(SingleFolderTrove,self),int_schema, metadata, load_tab)
+    def transform(self, df: pd.DataFrame, loadid: int, sample_info: dict[str, Any], conn: Connection | None = None, readgrp_name: str | None = None):
+        super().transform(df, loadid, sample_info, conn)
+        return SingleFolderTrove.transform(cast(SingleFolderTrove,self),
+                                           df, loadid, sample_info, conn, readgrp_name)
+    
+    def affected_meas_groups_and_filters(self, samplename: Any, comp: dict[str,dict[str,Any]],
+                                         data_by_mg: dict[str,MultiUniformMeasurementTable], conn: Optional[Connection] = None)\
+            -> tuple[list[str], list[str], dict[str,Sequence[Any]]]:
+        return SingleFolderTrove.affected_meas_groups_and_filters(cast(SingleFolderTrove,self), samplename, comp, data_by_mg, conn)

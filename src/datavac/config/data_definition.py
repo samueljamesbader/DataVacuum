@@ -29,7 +29,7 @@ class ModelingType(Enum):
     DISCRETE = "discrete"
     CATEGORICAL = "categorical"
     
-@dataclass
+@dataclass(eq=False, repr=False)
 class DVColumn:
     name: str
     """The name of the column."""
@@ -48,6 +48,9 @@ class DVColumn:
         """The SQLAlchemy type"""
         from datavac.database.db_structure import pd_to_sql_types
         return pd_to_sql_types[self.pd_dtype]
+    
+    def __hash__(self) -> int:
+        return hash(self.name)
     
 @dataclass
 class SampleReference():

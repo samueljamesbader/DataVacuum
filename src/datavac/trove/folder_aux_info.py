@@ -3,7 +3,7 @@ from typing import NamedTuple
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-from datavac.trove.trove_util import get_cached_glob
+from datavac.trove.trove_util import PathWithMTime, get_cached_glob
 
 class MissingFolderInfoException(Exception): pass
 
@@ -25,7 +25,7 @@ class FolderAuxInfoReader():
         self._folder_name_reader = folder_name_reader
 
     def read(self, folder: Path,
-             cached_glob: Optional[Callable[[Path,str],list[Path]]] = None,
+             cached_glob: Optional[Callable[[Path,str],list[PathWithMTime]]] = None,
              info_already_known: Optional[dict[str,Any]] = None,
              super_folder: Optional[Path]=None) -> dict:
         
@@ -33,7 +33,7 @@ class FolderAuxInfoReader():
         read_from_folder=self._folder_name_reader(folder, read_from_folder)
         
         for i in self._items:
-            cached_glob = cached_glob or get_cached_glob()
+            cached_glob = cached_glob or get_cached_glob(superpath=super_folder) # type: ignore
             assert i.count in ['required','optional']
             if len(potential_finds:=list(cached_glob(folder,(i.filter))))==1:
                 match i.read_action:
