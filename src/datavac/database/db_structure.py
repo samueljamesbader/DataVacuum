@@ -157,8 +157,6 @@ class DBStructure():
                          ForeignKey(self.get_trove_dbtables(trove_name)[trove_tab_name].c[c.name],
                                     name=f'fk_{c.name} -- {mg_name}',**_CASC),nullable=False)
                          for c,trove_tab_name in mg.trove().trove_reference_columns().items()]
-            print("############################")
-            print(trove_reference_columns)
             meas_tab=Table(
                     f'Meas -- {mg_name}', self.metadata,
                     Column('loadid',INTEGER,ForeignKey(self.get_trove_dbtables(trove_name)['loads'].c.loadid,**_CASC),nullable=False),
