@@ -262,3 +262,6 @@ class ClassicFolderTrove(Trove):
                                          data_by_mg: dict[str,MultiUniformMeasurementTable], conn: Optional[Connection] = None)\
             -> tuple[list[str], list[str], dict[str,Sequence[Any]]]:
         return SingleFolderTrove.affected_meas_groups_and_filters(cast(SingleFolderTrove,self), samplename, comp.inner, data_by_mg, conn)
+    
+    def samples_in_read_group(self, readgrp_name: str, conn: Optional[Connection] = None) -> list[str]:
+        return SingleFolderTrove.samples_in_read_group(cast(SingleFolderTrove,self), readgrp_name, conn)

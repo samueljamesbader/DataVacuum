@@ -144,10 +144,11 @@ def update_analysis_tables(specific_analyses:Optional[list[str]]=None, force=Fal
                 create_analysis_view(an_name, conn)
 
 
-def heal(trove_names:Optional[list[str]]=None):
+def heal(trove_names:Optional[list[str]]=None, only_samples:Optional[list[str]]=None):
     import pandas as pd
     from datavac.database.db_upload_meas import read_and_enter_data
     from datavac.database.db_upload_meas import perform_and_enter_extraction, perform_and_enter_analysis
+    from datavac.config.data_definition import DDEF
     sampletab=DBSTRUCT().get_sample_dbtable()
     trove_names= trove_names if trove_names is not None else list(PCONF().data_definition.troves.keys())
     for trove in (v for k,v in PCONF().data_definition.troves.items() if k in trove_names):
@@ -157,7 +158,10 @@ def heal(trove_names:Optional[list[str]]=None):
             logger.debug(f"Healing loads for trove {trove.name}")
         relotab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reload']
         with get_engine_rw().begin() as conn:
-            pd_relo=pd.read_sql(con=conn, sql=select(*relotab.c, *sampletab.c).select_from(relotab.join(sampletab)))
+            sql_relo=select(*relotab.c, *sampletab.c).select_from(relotab.join(sampletab))
+            if only_samples is not None:
+                sql_relo=sql_relo.where(sampletab.c[DDEF().SAMPLE_COLNAME].in_(only_samples))
+            pd_relo=pd.read_sql(con=conn, sql=sql_relo)
         if not len(pd_relo): logger.debug(f"No reloads required")
         else:
             for lgval, grp in pd_relo.groupby(load_grouping):
@@ -174,8 +178,11 @@ def heal(trove_names:Optional[list[str]]=None):
         reextab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['reextr']
         loadtab=DBSTRUCT().get_trove_dbtables(trove_name=trove.name)['loads']
         with get_engine_rw().begin() as conn:
-            pd_reex= pd.read_sql(con=conn, sql=select(*reextab.c, *loadtab.c, *sampletab.c)\
-               .select_from(reextab.join(loadtab).join(sampletab)))
+            sql_reex=sql=select(*reextab.c, *loadtab.c, *sampletab.c)\
+                           .select_from(reextab.join(loadtab).join(sampletab))
+            if only_samples is not None:
+                sql_reex=sql_reex.where(sampletab.c[DDEF().SAMPLE_COLNAME].in_(only_samples))
+            pd_reex= pd.read_sql(con=conn, sql=sql_reex)
         if not len(pd_reex): logger.debug(f"No re-extractions required")
         else:
             for samplename, grp in pd_reex.groupby(DDEF().SAMPLE_COLNAME):
@@ -191,8 +198,11 @@ def heal(trove_names:Optional[list[str]]=None):
             
         reantab=DBSTRUCT().get_higher_analysis_reload_table()
         with get_engine_rw().begin() as conn:
-            pd_rean= pd.read_sql(con=conn, sql=select(*reantab.c,*sampletab.c)\
-               .select_from(reantab.join(sampletab)))
+            sql_rean=select(*reantab.c,*sampletab.c)\
+               .select_from(reantab.join(sampletab))
+            if only_samples is not None:
+                sql_rean=sql_rean.where(sampletab.c[DDEF().SAMPLE_COLNAME].in_(only_samples))
+            pd_rean= pd.read_sql(con=conn, sql=sql_rean)
         if not len(pd_rean): logger.debug(f"No re-analyses required")
         else:
             for samplename, grp in pd_rean.groupby(DDEF().SAMPLE_COLNAME):
@@ -239,8 +249,9 @@ def run_new_analysis(an_name: str):
         
     
     sampletab=DBSTRUCT().get_sample_dbtable()
-    query=select(*sampletab.c).select_from(sampletab.join(sampleid_subquery,
-                                                         sampletab.c.sampleid==sampleid_subquery.c.sampleid))
+    query=select(*sampletab.c).select_from(
+                            sampletab.join(sampleid_subquery, # type: ignore
+                                           sampletab.c.sampleid==sampleid_subquery.c.sampleid))
     with get_engine_rw().connect() as conn:
         sample_infos = pd.read_sql(query, conn)
 

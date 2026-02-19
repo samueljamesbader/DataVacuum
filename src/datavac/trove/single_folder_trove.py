@@ -15,6 +15,7 @@ from datavac.trove import ReaderCard, Trove, TroveIncrementalTracker
 from datavac.trove.trove_util import PathWithMTime, get_cached_glob
 from datavac.util.util import only
 from datavac.util.util import returner_context
+from sqlalchemy import Connection
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -305,7 +306,7 @@ class SingleFolderTrove(Trove):
                   # store as nanoseconds since epoch for easy comparison with filesystem timestamps.  Must be bigint
                   Column('ModifiedTime',BigInteger,nullable=False),
                   # Not really used by SingleFolderTrove but useful for ClassicFolderTrove which reuses this function
-                  Column('ReadgroupName',VARCHAR,nullable=False),
+                  Column('ReadgroupName',VARCHAR,nullable=False,index=True),
                   schema=int_schema)
         t= metadata.tables.get(int_schema+f'.TTTT --- FileLoads_{self.name}')
         addtabs['fileloads']=fileload_tab= t if (t is not None) else \
@@ -392,5 +393,28 @@ class SingleFolderTrove(Trove):
         affected_mgs_without_old_data=[mg_name for mg_name in data_by_mg if mg_name not in mgs_with_old_data]
         return affected_mgs_with_old_data,affected_mgs_without_old_data, {'FilePath': unaffected_files}
         
+    def samples_in_read_group(self, readgrp_name: str, conn: Connection | None = None) -> list[str]:
+        """
+        Returns a list of sample names in the given read group.
+        """
+        from datavac.database.db_structure import DBSTRUCT
+        from datavac.config.data_definition import DDEF
+        from datavac.database.db_connect import get_engine_ro
+        from sqlalchemy import select
+
+        dbtables = DBSTRUCT().get_trove_dbtables(self.name)
+        files_tab = dbtables['files']
+        fileloads_tab = dbtables['fileloads']
+        loads_tab = dbtables['loads']
+        samples_tab = DBSTRUCT().get_sample_dbtable()
+        sample_col = DDEF().sample_identifier_column.name
+
+        stmt = (select(samples_tab.c[sample_col])
+                .select_from(files_tab.join(fileloads_tab).join(loads_tab).join(samples_tab))
+                .where(files_tab.c.ReadgroupName == readgrp_name)
+                .distinct())
+
+        with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
+            return [row[0] for row in conn.execute(stmt).fetchall()]
 
 fqsite_col = DVColumn('FQSite','string','Fully-qualified site name')

@@ -127,14 +127,14 @@ def _upload_binary_helper(sstab: pd.DataFrame, mg_name: str, loadid: int, conn: 
 def upload_measurement(trove: Trove, sampleload_info: Mapping[str,Any],
                        data_by_meas_group: Mapping[str, MeasurementTable],
                        only_meas_groups: Optional[list[str]] = None,
-                       readgrp_name:str|None=None) -> dict[str,int]:
+                       readgrp_name:str|None=None, conn: Optional[Connection]=None) -> dict[str,int]:
     sampletab=DBSTRUCT().get_sample_dbtable()
     loadtab=DBSTRUCT().get_trove_dbtables(trove.name)['loads']
     sample_info={k:v for k,v in sampleload_info.items()
                  if k in PCONF().data_definition.ALL_SAMPLE_COLNAMES}
     load_info={k:v for k,v in sampleload_info.items() if k in PCONF().data_definition.ALL_LOAD_COLNAMES(trove.name)}
 
-    with get_engine_rw().begin() as conn:
+    with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
 
         # Ensure sample exists
         sampleid = enter_sample(conn, **sample_info)
@@ -298,14 +298,14 @@ def upload_extraction(trove: Trove, samplename: Any,
     return mg_name_to_loadid
 
 def pull_affected_meas_groups(trove: Trove, samplename: Any, comp: TroveIncrementalTracker,
-                              data_by_mg: dict[str, MultiUniformMeasurementTable]):
+                              data_by_mg: dict[str, MultiUniformMeasurementTable], conn: Optional[Connection]=None) -> list[str]:
     """ Note: if there's no data in a mg, there will be an entry in data_by_mg with value None."""
     amg_w,amg_wo,filters=trove.affected_meas_groups_and_filters(samplename, comp, data_by_mg)
     
     if len(amg_w):
         from datavac.database.db_connect import get_engine_ro
         from datavac.database.db_get import get_data_as_mumt
-        with get_engine_ro().begin() as conn:
+        with (returner_context(conn) if conn is not None else get_engine_ro().begin()) as conn:
             for mg_name in amg_w:
                 # None if no data
                 from_db= get_data_as_mumt(DDEF().measurement_groups[mg_name], conn=conn, samplename=samplename,
@@ -316,10 +316,10 @@ def pull_affected_meas_groups(trove: Trove, samplename: Any, comp: TroveIncremen
                     if mg_name not in data_by_mg: data_by_mg[mg_name]=None # type: ignore
     return amg_w+amg_wo
 
-def get_existing_sampleloadinfo_for_sample(trove: Trove, samplename: str, only_meas_groups: list[str]):
+def get_existing_sampleloadinfo_for_sample(trove: Trove, samplename: str, only_meas_groups: list[str], conn: Optional[Connection]=None) -> dict[str,Any]:
     from datavac.database.db_connect import get_engine_ro
     import pandas as pd
-    with get_engine_ro().begin() as conn:
+    with (returner_context(conn) if conn is not None else get_engine_ro().begin()) as conn:
         sampletab=DBSTRUCT().get_sample_dbtable()
         loadtab=DBSTRUCT().get_trove_dbtables(trove.name)['loads']
         sel=select(sampletab,loadtab)\
@@ -368,37 +368,55 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
             info_already_known=info_already_known, exception_callback=err_cb if suspend_exceptions else None,
             **(kwargs_by_trove.get(trove_name,{}))):
             try:
-                for sample, data_by_mg in sample_to_mg_to_data.items():
-                    if incremental:
-                        # Note, after pull_affected_meas_groups,
-                        # data_by_mg will only have entries for the affected measurement groups
-                        # and the values may be None's where the post-incremental result is no data
-                        assert comp is not None # for type checker
-                        only_meas_groups=pull_affected_meas_groups(trove, sample, comp, data_by_mg)
-                        if not len(only_meas_groups):
-                            logger.info(f"No affected measurement groups for sample '{sample}' in incremental read, skipping.")
-                            continue
-                        # If incremental reading only recognized that some files were deleted
-                        # then the sampleloadinfo may not be available, so get from DB
-                        if sample_to_sampleloadinfo[sample] is None:
-                            sample_to_sampleloadinfo[sample]=get_existing_sampleloadinfo_for_sample(trove, sample, only_meas_groups=only_meas_groups)
-                    assert PCONF().data_definition.SAMPLE_COLNAME in sample_to_sampleloadinfo[sample], \
-                        f"Sample info for '{sample}' does not have the sample identifier column "\
-                        f"'{PCONF().data_definition.SAMPLE_COLNAME}', just\n{sample_to_sampleloadinfo[sample]}"
-                    # Make use of the fact that None values will result in the prior load being deleted but no new load being entered
-                    mg_to_loadid=upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg,
-                                                    only_meas_groups=only_meas_groups, readgrp_name=readgrp_name)
+                sample_to_mg_to_loadid={}
+                with get_engine_rw().begin() as conn:
+                    for sample, data_by_mg in sample_to_mg_to_data.items():
+                        if incremental:
+                            # Note, after pull_affected_meas_groups,
+                            # data_by_mg will only have entries for the affected measurement groups
+                            # and the values may be None's where the post-incremental result is no data
+                            assert comp is not None # for type checker
+                            only_meas_groups=pull_affected_meas_groups(trove, sample, comp, data_by_mg, conn=conn)
+                            if not len(only_meas_groups):
+                                logger.info(f"No affected measurement groups for sample '{sample}' in incremental read, skipping.")
+                                continue
+                            # If incremental reading only recognized that some files were deleted
+                            # then the sampleloadinfo may not be available, so get from DB
+                            if sample_to_sampleloadinfo[sample] is None:
+                                sample_to_sampleloadinfo[sample]=get_existing_sampleloadinfo_for_sample(trove, sample, only_meas_groups=only_meas_groups, conn=conn)
+                        assert PCONF().data_definition.SAMPLE_COLNAME in sample_to_sampleloadinfo[sample], \
+                            f"Sample info for '{sample}' does not have the sample identifier column "\
+                            f"'{PCONF().data_definition.SAMPLE_COLNAME}', just\n{sample_to_sampleloadinfo[sample]}"
+                        # Make use of the fact that None values will result in the prior load being deleted but no new load being entered
+                        sample_to_mg_to_loadid[sample]=upload_measurement(trove, sample_to_sampleloadinfo[sample], data_by_mg,
+                                                        only_meas_groups=only_meas_groups, readgrp_name=readgrp_name, conn=conn)
 
+                # Release the connection before doing the extractions and analyses,
+                # since those can be time-consuming and we don't want to hold up other uploads
+                for sample, data_by_mg in sample_to_mg_to_data.items():
+
+                    # If we skipped this sample above, we can skip it here too
+                    if sample not in sample_to_mg_to_loadid: continue
+                        
                     # Now extract and enter analyses dependent on the measurement groups that were just entered
                     data_by_mg,mg_to_loadid=perform_and_enter_extraction(trove, samplename=sample,
                                     only_meas_groups=list(data_by_mg.keys()),
                                     pre_obtained_data_by_mg=data_by_mg,
-                                    pre_obtained_mg_to_loadid=mg_to_loadid)
+                                    pre_obtained_mg_to_loadid=sample_to_mg_to_loadid[sample])
                     needed_analyses = list(set(an.name for mg in data_by_mg
                                               for an in DDEF().get_meas_groups_dependent_graph()[DDEF().measurement_groups[mg]]
                                                 if isinstance(an, HigherAnalysis)))
                     perform_and_enter_analysis(sample_info=sample_to_sampleloadinfo[sample], only_analyses=needed_analyses,
                                                pre_obtained_data_by_mgoa=data_by_mg, pre_obtained_mgoa_to_loadanlsid=mg_to_loadid,)
+                
+                # In case extractions/analyses got cut off by an exception on a previous run,
+                # if we're doing incremental, we heal
+                if incremental:
+                    heal_samples = trove.samples_in_read_group(readgrp_name)
+                    logger.info(f"Performing healing for read group '{readgrp_name}' "\
+                                f"with potential samples {heal_samples} since this is an incremental read.")
+                    from datavac.database.db_modify import heal
+                    heal([trove.name], only_samples=heal_samples)
             except Exception as e:
                 if suspend_exceptions: err_cb(readgrp_name, e)
                 else: raise e
