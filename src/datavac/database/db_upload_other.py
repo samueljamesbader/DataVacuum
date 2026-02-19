@@ -80,9 +80,9 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
                         an_views_to_recreate.append(create_analysis_view(mgoa.name, just_DDL_string=True))
                     if dump_extractions_and_analyses:
                         raise NotImplementedError()
-                    removal_statements.append(f'ALTER TABLE {namewsq(coretab)}'\
+                    removal_statements.append(f'ALTER TABLE IF EXISTS {namewsq(coretab)}'\
                                       f' DROP CONSTRAINT IF EXISTS "fk_{ssr.key_column.name} -- {mgoa.name}";')
-                    readdit_statements.append(f'ALTER TABLE {namewsq(coretab)}' \
+                    readdit_statements.append(f'ALTER TABLE IF EXISTS {namewsq(coretab)}' \
                                       f' ADD CONSTRAINT "fk_{ssr.key_column.name} -- {mgoa.name}" FOREIGN KEY ("{ssr.key_column.name}")' \
                                       f' REFERENCES {namewsq(ssrtab)} ("{ssr.key_column.name}") ON DELETE CASCADE;')
                     
@@ -97,7 +97,7 @@ def upload_subsample_reference(ssr_name: str, data: pd.DataFrame, conn: Optional
             if table_cols_same:
                 all_statements.append(str(delete(ssrtab).compile(conn)))
             else:
-                all_statements.append(str(DropTable(ssrtab).compile(conn))+" CASCADE")
+                all_statements.append(str(DropTable(ssrtab,if_exists=True).compile(conn))+" CASCADE")
                 all_statements.append(str(CreateTable(ssrtab).compile(conn)))
             all_statements.append(f'INSERT INTO {namewsq(ssrtab)} SELECT * from tmplay;')
 

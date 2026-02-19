@@ -24,7 +24,8 @@ else:
 
 def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:list[Table],
                  table_depends:dict[Table,list[Table]], pre_filters:Mapping[str,Sequence],
-                 join_hints:dict[Table,str]={},order_by:Optional[list[str]]=None) -> tuple[Select, dict[str, str]]:
+                 join_hints:dict[Table,str]={},order_by:Optional[list[str]]=None,
+                 exclude_columns:Optional[list[str]]=None) -> tuple[Select, dict[str, str]]:
     """ Creates an SQL Alchemy Select joining the tables needed to get the desired factors
 
     Args:
@@ -54,13 +55,14 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
             s=s.where(get_col(pf).in_(values))
         return s
     if columns is not None:
+        assert not exclude_columns, "Cannot specify both columns and exclude_columns"
         cols:list[Column]=[get_col(f) for f in [*columns,*(order_by if order_by is not None else [])]]
     else:
         col_names = set()
         cols: list[Column] = []
         for tab in ordered_tables:
             for c in tab.columns:
-                if c.name not in col_names:
+                if (c.name not in col_names) and (not exclude_columns or c.name not in exclude_columns):
                     cols.append(c); col_names.add(c.name)
 
     starter_needs =  [t for t in ordered_tables if t in absolute_needs
@@ -80,7 +82,7 @@ def joined_select_from_dependencies(columns:Optional[list[str]],absolute_needs:l
     return sel, dtypes
 
 def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, include_sweeps: bool = True,
-                                               include_ssrs: bool = True, sample_descriptors: list[str]= [] )\
+                                               sample_descriptors: list[str]= [] )\
             -> tuple[dict[Table, list[Table]], dict[Table, str]]:
         """Returns the table dependencies and join hints for a given measurement group.
         
@@ -102,7 +104,7 @@ def get_table_depends_and_hints_for_meas_group(meas_group: MeasurementGroup, inc
         table_depends[sampletab:=(DBSTRUCT().get_sample_dbtable())]=[loadtab]
         if include_sweeps and meas_group.involves_sweeps:
             table_depends[sweeptab:=(DBSTRUCT().get_measurement_group_dbtables(meas_group.name)['sweep'])]=[meastab]
-        if include_ssrs:
+        if True:#include_ssrs:
             for ssr_name in meas_group.subsample_reference_names:
                 # Note: just including the sample table here because in case the subsample reference has foreign keys
                 # to some sample info, we need to make sure the sample info is merged before the subsample reference
@@ -195,19 +197,25 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
     from datavac.config.data_definition import DDEF
     from datavac.database.db_connect import get_engine_ro
     from datavac.io.measurement_table import MultiUniformMeasurementTable, UniformMeasurementTable
-
+    from datavac.database.db_structure import DBSTRUCT
 
     td, jh = get_table_depends_and_hints_for_meas_group(meas_group=meas_group,
-                                                        include_sweeps=(include_sweeps and meas_group.involves_sweeps),
-                                                        include_ssrs=include_extr) # if excluding extr, also exclude e.g. layout params
+                                                        include_sweeps=(include_sweeps and meas_group.involves_sweeps))
     pre_filters={DDEF().SAMPLE_COLNAME: [samplename],**filters}
     if not include_extr:
         td = {t: d for t, d in td.items() if 'Extr' not in t.name}
         if include_sweeps and meas_group.involves_sweeps:
             pre_filters['israw'] = [True]
+        exclude_columns=[]
+        for ssr_name in meas_group.subsample_reference_names:
+            ssr=DDEF().subsample_references[ssr_name]
+            ssr_tab = DBSTRUCT().get_subsample_reference_dbtable(ssr_name)
+            exclude_columns.extend([c.name for c in ssr_tab.columns if c.name not in ssr.incoming_columns])
+    else:
+        exclude_columns=[]
     sel, dtypes = joined_select_from_dependencies(columns=None, absolute_needs=list(td), table_depends=td,
                                                   pre_filters=pre_filters, join_hints=jh,
-                                                  order_by=['measid'])
+                                                  order_by=['measid'], exclude_columns=exclude_columns)
     with (returner_context(conn) if conn is not None else get_engine_ro().connect()) as conn:
         data = pd.read_sql(con=conn, sql=sel, dtype=dtypes) # type: ignore
         assert data['loadid'].nunique() <= 1

@@ -209,8 +209,9 @@ class ClassicFolderTrove(Trove):
                                 matname_to_mg_to_data[matname][mg]=dirdata
 
                         if (existing_info:=matname_to_matload_info.get(matname,None)):
-                            assert existing_info==matname_to_dirinfo[matname],\
-                                f"Different material infos {existing_info} vs {matname_to_dirinfo[matname]}"
+                            if matname_to_dirinfo.get(matname,None) is not None:
+                                assert existing_info==matname_to_dirinfo[matname],\
+                                    f"Different material infos {existing_info} vs {matname_to_dirinfo[matname]}"
                         else:
                             matname_to_matload_info[matname]=matname_to_dirinfo[matname]
 

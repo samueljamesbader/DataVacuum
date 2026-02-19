@@ -49,6 +49,8 @@ def cli_read_and_enter_data(*args):
                         help="Restrict to specified measurement group(s)")
     parser.add_argument('--dont-suspend-exceptions', '-dse', action='store_true',
                         help="Stop on first failed upload (vs continue and log errors)")
+    parser.add_argument('--incremental', '-i', action='store_true',
+                        help="Whether this upload is part of an incremental upload, which can allow for optimizations in some troves.")
     from datavac.config.data_definition import DDEF
     for trove in DDEF().troves:
         cli_expander = DDEF().troves[trove].cli_expander
@@ -72,7 +74,7 @@ def cli_read_and_enter_data(*args):
             
     from datavac.database.db_upload_meas import read_and_enter_data
     trove_names= namespace.trove if namespace.trove is not None else list(DDEF().troves.keys())
-    read_and_enter_data(trove_names=namespace.trove, only_meas_groups=namespace.meas_group,
+    read_and_enter_data(trove_names=namespace.trove, only_meas_groups=namespace.meas_group, incremental=namespace.incremental,
                         only_sampleload_info=sampleload_info, suspend_exceptions=not namespace.dont_suspend_exceptions,
                         kwargs_by_trove={t: {k: getattr(namespace, pa['name_or_flags'][0].lstrip('--')) 
                                              for k, pa in DDEF().troves[t].cli_expander.items()}

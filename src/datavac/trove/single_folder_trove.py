@@ -112,7 +112,12 @@ class SingleFolderTrove(Trove):
 
         # Go through all files in the folder
         for f in cached_glob(folder,'*'):
+            
+            # Ignore obviously not-needed files
             if f.cached_is_dir: continue
+            if f.name.startswith("~"): continue # Ignore temp files on windows
+            if only_file_names and f.name not in only_file_names: continue
+            if (not only_file_names) and f.name.startswith("IGNORE"): continue # Ignore on request
 
             if incremental_tracker is not None:
                 fstr=str(f.as_posix())
@@ -126,7 +131,6 @@ class SingleFolderTrove(Trove):
                         incremental_tracker[fstr]['State']='Modified'
                         incremental_tracker[fstr]['LocalModifiedTime']=f.mtime_ns
                 else:
-                    logger.info(f"File {f} is new since last read, including in read")
                     incremental_tracker[fstr]={'State':'New', 'LocalModifiedTime':f.mtime_ns, 'DBMeasGroups':[]}
 
             #if incremental and (f.mtime_ns is not None) and (f.mtime_ns==db_modtimes.get(str(f.as_posix()),None)):
@@ -135,12 +139,6 @@ class SingleFolderTrove(Trove):
 
             # Set up the caching manager for files
             with (filecache_context_manager or nullcontext)():
-
-                # Ignore obviously not-needed files
-                if f.cached_is_dir: continue
-                if f.name.startswith("~"): continue # Ignore temp files on windows
-                if only_file_names and f.name not in only_file_names: continue
-                if (not only_file_names) and f.name.startswith("IGNORE"): continue # Ignore on request
 
                 # Go through the measurement groups, and the readers available for each
                 # And see if any of the readers can read this file
@@ -278,6 +276,13 @@ class SingleFolderTrove(Trove):
                 # If this file got checked for any meas groups, notify about what's been found
                 if len(found_mgs+not_found_mgs):
                     logger.info(f"In {(super_folder_for_filepaths/f).relative_to(folder)}, found {found_mgs}")
+                    #if incremental_tracker is not None:
+                    #    if incremental_tracker[fstr]['State']=='New':
+                    #        logger.info(f"File {f} is new since last read, included in read")
+                else:
+                    if incremental_tracker is not None:
+                        if incremental_tracker[fstr]['State']=='New':
+                            del incremental_tracker[fstr]
         if incremental_tracker is not None:
             folder_str=str((folder.relative_to(super_folder_for_filepaths)).as_posix())
             for fstr,info in incremental_tracker.items():

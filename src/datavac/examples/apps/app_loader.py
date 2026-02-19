@@ -21,19 +21,26 @@ class AppLoader(PanelApp):
 
         folders=list(sorted(self.get_allowed_folders(),reverse=True))
         self.folder_preselector=CrossSelector(options=folders,width=670)
+        self.incremental_checkbox = pn.widgets.Checkbox(name="Incremental upload (no changed metadata!)", value=True)
         self.load_button=pn.widgets.Button(name="Load")
         self.load_button.on_click(self.do_load)
         self.load_log_display=pn.widgets.TextAreaInput(
             width=1000,height=400,sizing_mode='fixed',
             max_length=100000
         )
-        self.page.main.append(pn.Row(pn.Spacer(sizing_mode='stretch_both'),
+        self.page.main.append(pn.Row(pn.Spacer(sizing_mode='stretch_both'), # type: ignore
                                 pn.Column(
                                     pn.Row(
                                         pn.Spacer(sizing_mode='stretch_width'),
                                         pn.Column(
                                             self.folder_preselector,
-                                            pn.Row(pn.HSpacer(),self.load_button,pn.HSpacer(),width=670),
+                                            # place checkbox below the button, centered horizontally
+                                            pn.Row(
+                                                pn.HSpacer(),
+                                                pn.Column(self.load_button, self.incremental_checkbox, align='center'),
+                                                pn.HSpacer(),
+                                                width=670,
+                                            ),
                                         ),
                                         pn.Spacer(sizing_mode='stretch_width'),
                                     ),
@@ -48,6 +55,9 @@ class AppLoader(PanelApp):
         self.load_button.disabled=True
         flags=[]
         try:
+            # Add -i flag if incremental_checkbox is checked
+            if self.incremental_checkbox.value: # type: ignore
+                flags.append("-i")
             fargs=[a for folder in self.folder_preselector.value for a in ['--folder',folder]]
             if not len(fargs): return
             identifier="hmm"
@@ -55,9 +65,9 @@ class AppLoader(PanelApp):
                 sp=subprocess.Popen([f"datavac","db","upload-data",*fargs,*flags],stdout=f1,stderr=f1)
             with open(LOG_DIR/(f'load_{identifier}.txt'),'r') as f2:
                 while sp.poll() is None:
-                    self.load_log_display.value+=f2.read()
+                    self.load_log_display.value+=f2.read() # type: ignore
                     await asyncio.sleep(1)
-                self.load_log_display.value+=f2.read()
+                self.load_log_display.value+=f2.read() # type: ignore
         except Exception as e:
             raise e
         finally:

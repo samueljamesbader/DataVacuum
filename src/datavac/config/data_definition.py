@@ -112,6 +112,9 @@ class SubSampleReference():
     info_columns: list[DVColumn] = field(default_factory=list)
     """List of columns that provide additional information about the subsample reference."""
 
+    incoming_columns: list[str] = field(default_factory=list)
+    """List of column names (from info_columns or key_column) that should be in the MeasurementTable before transformation"""
+
     def get_constraints(self) -> Sequence[Constraint]:
         """Returns a sequence of SQLAlchemy constraints for this subsample reference."""
         return []
@@ -426,9 +429,11 @@ class SemiDeviceDataDefinition(DataDefinition):
                 mapping=dict(conn.execute(select(reftab.c[self.unique_for_mask],reftab.c[self.key_column.name])\
                             .where(reftab.c['MaskSet'] == sample_info['MaskSet'])).all()) # type: ignore
                 table[self.key_column.name] = table[self.unique_for_mask].map(mapping)
+
         if name == 'Dies':
             return SSR_MaskRef(
                 name='Dies', unique_for_mask='DieXY',
+                incoming_columns=['DieXY'],
                 description='A subsample reference for dies in a semiconductor sample.',
                 key_column=DVColumn('dieid', 'int32', 'The unique identifier for each die.'),
                 info_columns=[DVColumn('MaskSet', 'string', 'The mask set used for the die.'),
@@ -442,9 +447,9 @@ class SemiDeviceDataDefinition(DataDefinition):
         elif 'LayoutParams -- ' in name:
             lpg=name.split(" -- ")[-1]
             lpt=self.get_layout_params_table(lpg)
-            #return SSR_MaskRef(
             return SubSampleReference(
                 name=name,#unique_for_mask='Structure',
+                incoming_columns=['Structure'],
                 description=f'Layout parameters for "{lpg}".',
                 key_column=DVColumn('Structure', 'string', 'The structure measured'),
                 info_columns=[DVColumn(c,lpt[c].dtype.name,description=c) for c in lpt.columns
