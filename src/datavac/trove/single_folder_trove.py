@@ -6,10 +6,12 @@ from pathlib import Path
 import re
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Callable, Generator, Mapping, Optional, Sequence, cast
+from collections import UserDict
+from typing import Dict, Any
 
 from datavac.config.data_definition import DVColumn
 from datavac.util.dvlogging import logger, time_it
-from datavac.trove import ReaderCard, Trove
+from datavac.trove import ReaderCard, Trove, TroveIncrementalTracker
 from datavac.trove.trove_util import PathWithMTime, get_cached_glob
 from datavac.util.util import only
 from datavac.util.util import returner_context
@@ -21,6 +23,11 @@ if TYPE_CHECKING:
     import pandas as pd
 
 class NoDataFromFileException(Exception): pass
+
+class SingleFolderTroveIncrementalTracker(UserDict[str, dict[str, Any]], TroveIncrementalTracker):
+    """Incremental tracker for SingleFolderTrove; just a UserDict[str, dict[str, Any]]."""
+    pass
+
 
 @dataclass(kw_only=True)
 class FolderTroveReaderCard(ReaderCard):
@@ -69,7 +76,7 @@ class SingleFolderTrove(Trove):
         try:
             yield str(self.read_dir),*self.read_folder_nonrecursive(
                 folder=self.read_dir, trove_name=self.name, cached_glob=cached_glob,
-                filecache_context_manager=self.filecache_context_manager,incremental=incremental,
+                filecache_context_manager=self.filecache_context_manager,incremental_tracker=None,
                 only_meas_groups=only_meas_groups, only_sampleload_info=only_sampleload_info,
                 only_file_names=only_file_names, info_already_known=info_already_known,),{}
         except Exception as e:
@@ -81,7 +88,8 @@ class SingleFolderTrove(Trove):
                    only_meas_groups:Optional[list[str]]=None, only_sampleload_info:dict[str,Any]={},
                    only_file_names:Optional[list[str]]=None, info_already_known:dict={},
                    cached_glob:Optional[Callable[[Path,str],list[PathWithMTime]]]=None,
-                   incremental_tracker:dict[str,dict[str,Any]]|None=None, super_folder_for_filepaths: Optional[Path] = None, 
+                   incremental_tracker:Optional[SingleFolderTroveIncrementalTracker]=None,
+                   super_folder_for_filepaths: Optional[Path] = None, 
                    filecache_context_manager:Optional[Callable[[],Any]]=None)\
                  -> tuple[dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]]]:
 
@@ -311,7 +319,8 @@ class SingleFolderTrove(Trove):
     def trove_reference_columns(self) -> Mapping[DVColumn,str]:
         return {DVColumn('fileid','int','Source file identifier'): 'files'}
     
-    def transform(self, df: pd.DataFrame, loadid: int, sample_info:dict[str,Any], conn:Optional[Connection]=None, readgrp_name:str|None=None):
+    def transform(self, df: pd.DataFrame, loadid: int, sample_info:dict[str,Any],
+                  conn:Optional[Connection]=None, readgrp_name:str|None=None):
         # df will have columns 'FilePath' and 'ModificationTime'.
         # First, update the "TTTT -- Files" with all the new FilePaths (in one query), retrieving the fileids for the new entries.
         # Then, replace the FilePath column in df with the corresponding fileids.
@@ -346,7 +355,7 @@ class SingleFolderTrove(Trove):
             fileload_tab=self.dbtables('fileloads')
             conn.execute(pgsql_insert(fileload_tab)\
                             .values([{'fileid': fid, 'loadid': loadid} for fid in fileid_from_raw_lookup.values()]))
-    def affected_meas_groups_and_filters(self, samplename: Any, comp: dict[str,dict[str,Any]],
+    def affected_meas_groups_and_filters(self, samplename: Any, comp: SingleFolderTroveIncrementalTracker,
                                          data_by_mg: dict[str,MultiUniformMeasurementTable], conn: Optional[Connection] = None)\
             -> tuple[list[str], list[str], dict[str,Sequence[Any]]]:
         affected_files_maybe_not_in_dbm=[fstr for fstr,info in comp.items()

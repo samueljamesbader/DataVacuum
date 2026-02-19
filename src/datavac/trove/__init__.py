@@ -8,6 +8,10 @@ if TYPE_CHECKING:
     from datavac.io.measurement_table import MultiUniformMeasurementTable
     from sqlalchemy import Table, MetaData, Connection
 
+class TroveIncrementalTracker:
+    """Stub base class for incremental tracking state passed between iter_read and affected_meas_groups_and_filters."""
+    pass
+
 @dataclass
 class ReaderCard():
     reader_func: Optional[Callable[...,list[pd.DataFrame]|dict[str,list[pd.DataFrame]]]] = None
@@ -61,7 +65,10 @@ class Trove():
              only_meas_groups:Optional[list[str]]=None,
              only_sampleload_info:dict[str,Sequence[Any]]={},
              info_already_known:dict={}, incremental:bool=False, **kwargs)\
-                 -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]],dict[str,dict[str,Any]]]]:
+                 -> Generator[tuple[str,dict[str,
+                                             dict[str,MultiUniformMeasurementTable]],
+                                             dict[str,dict[str,str]],
+                                             TroveIncrementalTracker|None]]:
         """Reads data from the trove.
 
         Args:
@@ -113,7 +120,7 @@ class Trove():
         May modify the trove tables, but will not commit the connection (if the connection is provided)."""
         pass
 
-    def affected_meas_groups_and_filters(self, samplename: Any, comp: dict[str,dict[str,Any]],
-                                         data_by_mg: dict[str,MultiUniformMeasurementTable], conn: Optional[Connection] = None)\
-            -> tuple[list[str], list[str], dict[str,Sequence[Any]]]:
+    def affected_meas_groups_and_filters(self, samplename: Any, comp: TroveIncrementalTracker,
+                                         data_by_mg: dict[str, MultiUniformMeasurementTable], conn: Optional[Connection] = None)\
+            -> tuple[list[str], list[str], dict[str, Sequence[Any]]]:
         raise NotImplementedError("Trove.affected_meas_groups() must be implemented by subclasses if incremental upload is desired.")

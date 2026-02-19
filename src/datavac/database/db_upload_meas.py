@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Optional, Se
 from datavac.database.db_connect import get_engine_rw
 from datavac.database.postgresql_upload_utils import upload_binary, upload_csv
 from datavac.measurements.measurement_group import MeasurementGroup
-from datavac.trove import Trove
+from datavac.trove import Trove, TroveIncrementalTracker
 from datavac.util.util import asnamedict, only, returner_context
 from sqlalchemy import VARCHAR, Column, Connection, delete, literal, select, text, values
 from sqlalchemy.dialects.postgresql import insert as pgsql_insert, BYTEA, TIMESTAMP
@@ -297,7 +297,7 @@ def upload_extraction(trove: Trove, samplename: Any,
             conn.execute(text(query_str))
     return mg_name_to_loadid
 
-def pull_affected_meas_groups(trove: Trove, samplename: Any, comp: dict[str,dict[str,Any]],
+def pull_affected_meas_groups(trove: Trove, samplename: Any, comp: TroveIncrementalTracker,
                               data_by_mg: dict[str, MultiUniformMeasurementTable]):
     """ Note: if there's no data in a mg, there will be an entry in data_by_mg with value None."""
     amg_w,amg_wo,filters=trove.affected_meas_groups_and_filters(samplename, comp, data_by_mg)
@@ -373,6 +373,7 @@ def read_and_enter_data(trove_names: Optional[list[str]] = None,
                         # Note, after pull_affected_meas_groups,
                         # data_by_mg will only have entries for the affected measurement groups
                         # and the values may be None's where the post-incremental result is no data
+                        assert comp is not None # for type checker
                         only_meas_groups=pull_affected_meas_groups(trove, sample, comp, data_by_mg)
                         if not len(only_meas_groups):
                             logger.info(f"No affected measurement groups for sample '{sample}' in incremental read, skipping.")
@@ -639,4 +640,3 @@ def perform_and_enter_analysis(sample_info:dict[str,Any], only_analyses: list[st
                     upload_analysis(an, sample_info, an_data, 
                                 pre_obtained_mgoa_to_loadanlsid=mgoa_to_loadanlsid, conn=conn)
 
-                                
