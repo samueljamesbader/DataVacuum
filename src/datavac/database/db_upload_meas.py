@@ -522,6 +522,7 @@ def perform_and_enter_analysis(sample_info:dict[str,Any], only_analyses: list[st
     from datavac.io.measurement_table import MultiUniformMeasurementTable
     
     needs_analysis = set([DDEF().higher_analyses[an_name] for an_name in only_analyses])
+    cant_analyze = set()
     data_by_mgoa: dict[str, MeasurementTable|pd.DataFrame] = {}
     already_tried_no_data = set()
     mgoa_to_loadanlsid:dict[str,int|None]=pre_obtained_mgoa_to_loadanlsid.copy() # type: ignore
@@ -569,6 +570,7 @@ def perform_and_enter_analysis(sample_info:dict[str,Any], only_analyses: list[st
                 logger.warning(f"Analysis '{an.name}' could not be performed for sample '{samplename}' because "\
                                f"not all required measurement groups or analyses were available. "
                                f"Skipping this analysis.")
+                cant_analyze.add(an)
     if len(needs_analysis):
         with (returner_context(conn) if conn is not None else get_engine_rw().begin()) as conn:
             # even though already evaluated analyses, still needs to go in order because anlsid's are acquired on upload
@@ -578,5 +580,11 @@ def perform_and_enter_analysis(sample_info:dict[str,Any], only_analyses: list[st
                 mgoa_to_loadanlsid[an.name]=\
                     upload_analysis(an, sample_info, an_data, 
                                 pre_obtained_mgoa_to_loadanlsid=mgoa_to_loadanlsid, conn=conn)
-
-                                
+    if len(cant_analyze):
+        with (returner_context(conn) if (conn is not None and not conn.closed) else get_engine_rw().begin()) as conn:
+            sampletab=DBSTRUCT().get_sample_dbtable()
+            SAMPLECOL=sampletab.c[PCONF().data_definition.SAMPLE_COLNAME]
+            reantab=DBSTRUCT().get_higher_analysis_reload_table()
+            conn.execute(delete(reantab).where(SAMPLECOL==literal(samplename))\
+                .where(reantab.c['sampleid']==sampletab.c['sampleid'])\
+                .where(reantab.c.Analysis.in_([an.name for an in cant_analyze])))
