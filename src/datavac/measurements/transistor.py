@@ -372,13 +372,13 @@ class KelvinRon(MeasurementWithLinearNormColumn):
             id_strs=[h.split("=")[1] for h in measurements.headers if 'fRon@ID=' in h]
             for id in id_strs:
                 new_headers[f'VGSi@ID={id}']= \
-                    list((measurements[f'VG'].T-float(id)*np.array(measurements['Rs_ext [ohm]'])).T)
+                    list((measurements.h[f'VG'].T-float(id)*np.array(measurements.s['Rs_ext [ohm]'],dtype=np.float32)).T)
         else:
             assert self.merge_rexts_on is None, "This category requires RExt measurements"
             for k in measurements.headers:
-                VS=measurements[k]
+                VS=measurements.h[k]
                 if 'SourceSense' in k:
-                    new_headers[k.replace("VSourceSense","VGSi")]=measurements['VG']-VS
+                    new_headers[k.replace("VSourceSense","VGSi")]=measurements.h['VG']-VS
         measurements.add_extr_headers(**new_headers)
         main_ron_id=self._get_main_ron_id(measurements)
         if (k:=('fRon@ID='+str(main_ron_id))) in measurements.headers:

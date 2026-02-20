@@ -301,10 +301,14 @@ class UniformMeasurementTable(DataFrameBackedMeasurementTable):
         assert all(h not in self.headers for h in new_headers),\
                 f"Can't add extr headers {new_headers.keys()} as they already exist in {self.headers}"
         import pandas as pd
+        import numpy as np
         self._the_dataframe=pd.DataFrame(
             dict(**self._the_dataframe.to_dict('series'),**new_headers)) # type: ignore
         self.extr_headers=list(self.extr_headers)+list(new_headers.keys())
         self._non_scalar_columns.extend(new_headers.keys())
+        if len(self._the_dataframe):
+            for k in new_headers:
+                assert self._the_dataframe[k].iloc[0].dtype == np.float32, f"Only float32 supported for headers, issue with {k} of dtype {self._the_dataframe[k].dtype}"
 
     def get_stacked_sweeps(self,only_extr:bool=False) -> pd.DataFrame:
         import pandas as pd

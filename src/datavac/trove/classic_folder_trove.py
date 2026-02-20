@@ -107,7 +107,7 @@ class ClassicFolderTrove(Trove):
                 if (not dont_prompt_readall) and self.prompt_for_readall:
                     if not (input(f'No folder or top-level restriction,'\
                                   ' continue to read EVERYTHING? [y/n] ')\
-                                .strip().lower()=='y'): yield "",{},{},None
+                                .strip().lower()=='y'): raise Exception("User abort")#yield "",{},{},None
                 folders=self.get_natural_grouping_factors()
         else: folders=only_folders
 
