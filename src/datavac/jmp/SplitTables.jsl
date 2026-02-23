@@ -1,26 +1,31 @@
 Names Default To Here(1); dv=:::dv;
 
+dv:GetFlowName = Function({flow_name=0},{Default Local},
+	// If no flow_name provided, prompt the user to select one
+	If(flow_name==0,
+		possible_flow_names = dv:PySub("from datavac.config.sample_splits import get_flow_names; pfns=get_flow_names()", ret="pfns");
+		Show(possible_flow_names);
+		win = Eval(Eval Expr(New Window("Flow Name", <<modal, <<return result,
+			HListBox(
+				PanelBox("Select Flow", flow_names = ListBox(possible_flow_names, maxSelected(1))),
+			)
+		)));
+		If(win["Button"] == 1,
+			If(Length(win["flow_names"]),
+				flow_name = win["flow_names"][1],
+				Throw("No flow names selected")
+			)
+		)
+	);
+	flow_name
+);
+
 dv:AttachSplitTable=Function({dt=0,flow_name=0},{Default Local},
 	// Get the full material name column
 	fmnc=dv:PySub("from datavac.config.data_definition import DDEF;fmnc=DDEF().sample_identifier_column.name",ret="fmnc");
 	
-	If(flow_name==0,
-		possible_flow_names=dv:PySub("from datavac.config.sample_splits import get_flow_names; pfns=get_flow_names()",ret="pfns");
-		//possible_flow_names=dv:PySub("from datavac.util.conf import CONFIG; pfns=['sam','lex'];",ret="pfns");
-		Show(possible_flow_names);
-		win=Eval(Eval Expr(New Window("Flow Name",<<modal,<<return result,
-			HListBox(
-				PanelBox("Select Flow",flow_names=ListBox(possible_flow_names,maxSelected(1))),
-			)
-		)));
-		If(win["Button"]==1,
-			If(Length(win["flow_names"]),
-				flow_name=win["flow_names"][1]
-			,//Else
-				Throw("No flow names selected")
-			)
-		);
-	);
+	// Use extracted helper to obtain flow_name (if not provided)
+	flow_name = dv:GetFlowName(flow_name);
 
 	dt = If( dt!=0, dt, Current Data Table());
 	sp_tab_name=dt<<Get Name() ||" -- " || flow_name;

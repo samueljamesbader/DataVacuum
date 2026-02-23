@@ -175,6 +175,14 @@ dv:GetDataWithLotGui = Function({mgoa="?", factors = [=>],
 			mgoa=win["mgoalb"][1];);
 	);
 	
+	// If a list of mgoa was supplied, preserve it and use the first element
+	If(Is List(mgoa),
+		mgoa_list = mgoa;
+		mgoa = mgoa_list[1];
+	,
+		mgoa_list = {mgoa};
+	);
+
 	If(factors=="?",
 		win=New Window("Additional filters?",<<Modal,<<Return Result,
 			factorlb=ListBox(dv:GetFactorNames(mgoa,sample_descriptors)),
@@ -244,21 +252,26 @@ dv:GetDataWithLotGui = Function({mgoa="?", factors = [=>],
 	);
 	Show(listed_factors);
 	
-	// Get the scalar table
-	dt=dv:GetScalarData(mgoa, listed_factors, 1, scalar_columns=scalar_columns, sample_descriptors);
-
-	// Get sweeps if requested
+	// Compute flags once
 	include_sweeps=(Contains(checks,"include sweeps")!=0);
-	If(include_sweeps,
-		sweeptab=dv:PullSweeps(dt,mgoa),
-	// Else
-		sweeptab=0);
-	
-	// Attach splits if requested	
 	attach_splits=(Contains(checks,"attach splits")!=0);
-	If(attach_splits,
-		dv:AttachSplitTable(dt);
+
+	// Loop through mgoa_list to get scalar tables, sweeps and attach splits as requested.
+	results={};
+	If(attach_splits,flow_name=dv:GetFlowName());
+	For(mi=1, mi<=NItems(mgoa_list), mi++,
+		cur_mgoa = mgoa_list[mi];
+		dt_i = dv:GetScalarData(cur_mgoa, listed_factors, 1, scalar_columns=scalar_columns, sample_descriptors);
+		If(include_sweeps,
+			sweeptab_i = dv:PullSweeps(dt_i, cur_mgoa),
+			sweeptab_i = 0
+		);
+		If(attach_splits,
+			dv:AttachSplitTable(dt_i,flow_name);
+		);
+		Insert Into(results, dt_i);
+		Insert Into(results, sweeptab_i);
 	);
-	
-	EvalList({dt,sweeptab})
+
+	EvalList(results)
 );
