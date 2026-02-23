@@ -58,7 +58,7 @@ class AppLoader(PanelApp):
             # Add -i flag if incremental_checkbox is checked
             if self.incremental_checkbox.value: # type: ignore
                 flags.append("-i")
-            fargs=[a for folder in self.folder_preselector.value for a in ['--folder',folder]]
+            fargs=['--folder']+[a for folder in self.folder_preselector.value for a in [folder]]
             if not len(fargs): return
             identifier="hmm"
             with open(LOG_DIR/(f'load_{identifier}.txt'),'w') as f1:
