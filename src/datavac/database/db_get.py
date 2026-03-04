@@ -227,7 +227,7 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
             case None: return None # type: ignore
 
     umts=[]
-    checking_measids=True # Can remove this check later for performance
+    checking_measids=False # Checking measids will fail if we're selecting filtered data, as we do for incremental upload.
     if checking_measids: all_measids=[]
     for rg, df in data.groupby("rawgroup"):
         if include_sweeps and meas_group.involves_sweeps:
@@ -245,8 +245,11 @@ def get_data_as_mumt(meas_group: MeasurementGroup, samplename: Any, include_swee
     mumt=MultiUniformMeasurementTable(umts)
     if checking_measids: 
         df=mumt._dataframe
-        assert np.all(df.index == all_measids),\
-            f"Indices for {df.index} does not match measids {df['measid'].iloc[0]}..{df['measid'].iloc[-1]} while getting data for {meas_group.name}, {samplename}"
+        try:
+            assert np.all(df.index == all_measids),\
+                f"Indices for {df.index} does not match measids {df['measid'].iloc[0]}..{df['measid'].iloc[-1]} while getting data for {meas_group.name}, {samplename}"
+        except AssertionError as e:
+            raise e
     return mumt
 
 
