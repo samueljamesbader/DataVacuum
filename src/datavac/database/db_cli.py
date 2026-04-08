@@ -40,6 +40,21 @@ def cli_ensure_clear_database(*args):
     from datavac.database.db_create import ensure_clear_database
     ensure_clear_database()
 
+def cli_delete_sample(*args):
+    parser = argparse.ArgumentParser(description="Delete a sample from the database.")
+    parser.add_argument('sample_name', type=str, help="The name of the sample to delete.")
+    namespace = parser.parse_args(args)
+
+    from datavac.database.db_connect import get_engine_rw
+    from datavac.database.db_upload_meas import delete_sample
+    from datavac.config.project_config import PCONF
+    sample_identifier_col = PCONF().data_definition.sample_identifier_column.name
+    sample_info = {sample_identifier_col: namespace.sample_name}
+    with get_engine_rw().begin() as conn:
+        deleted = delete_sample(conn, sample_info)
+    if not deleted:
+        print(f"Warning: no sample '{namespace.sample_name}' found in the database.")
+
 
 def cli_read_and_enter_data(*args): 
     parser = argparse.ArgumentParser(description="Read and enter data.")
@@ -159,6 +174,7 @@ DB_CLI = CLIIndex({
     #'force': cli_force_database,
     'create': cli_create_all,
     'clear': cli_ensure_clear_database,
+    'delete-sample (ds)': cli_delete_sample,
     'upload-data (ud)': cli_read_and_enter_data,
     'update-layout-params (ulp)': cli_update_layout_params,
     'update-measurement-groups (umg)': cli_update_measurement_groups,

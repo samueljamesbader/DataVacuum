@@ -227,7 +227,7 @@ class ClassicFolderTrove(Trove):
                     logger.debug(f"Incremental read summary for {tl}:")
                     for fstr in comparison_to_prior_loads.inner:
                         logger.debug(f"  {comparison_to_prior_loads.inner[fstr]['State'].ljust(12)} {fstr}")
-                yield str(tl), matname_to_mg_to_data,matname_to_matload_info, comparison_to_prior_loads
+                yield str(tl), matname_to_mg_to_data, matname_to_matload_info, comparison_to_prior_loads
             except Exception as e:
                 if exception_callback: exception_callback(str(tl), e)
                 else: raise e

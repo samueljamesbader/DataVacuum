@@ -59,8 +59,7 @@ def delete_sample(conn: Connection, sample_info: dict[str,Any]):
     sampletab=DBSTRUCT().get_sample_dbtable()
     res=conn.execute(delete(sampletab)\
                      .where(sampletab.c[samplename_col]==sample_info[samplename_col]))
-                     #.returning(sampletab.c.date_user_changed)).all()
-    #if len(res): return res[0][0]
+    return res.rowcount > 0
 
 def delete_prior_loads(trove: Trove, sample_info: Optional[dict[str,Any]],
                        conn: Connection, only_meas_groups:Optional[list[str]]=None):
