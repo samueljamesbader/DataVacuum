@@ -126,24 +126,47 @@ def cli_update_analysis_tables(*args):
 
     
 def cli_sql(*args):
-    from datavac.database.db_util import read_sql
+    from datavac.database.db_util import read_sql, run_query as run_sql
     import traceback
     parser=argparse.ArgumentParser(description='Runs a SQL query')
-    #parser.add_argument('query',help='SQL query to run')
-    #parser.add_argument('-c','--commit',action='store_true',help='Commit the transaction')
+    parser.add_argument('-so',action='store_true',help='whether to use schema-owner access')
+    parser.add_argument('-c','--commit',action='store_true',help='Commit the transaction')
+    parser.add_argument('--query','-q',type=str, nargs='?', default=None, help='The SQL query to run. If not provided, will enter interactive mode.')
     namespace=parser.parse_args(args)
 
-    inp=input("Query?: ").strip()
-    while inp!='q':
-        if inp!='':
-            try:
-                result=read_sql(inp)#,commit=namespace.commit)
-            except:
-                # print stack trace
-                traceback.print_exc()
+    if namespace.query is not None:
+        try:
+            if namespace.so:
+                from datavac.database.db_connect import get_engine_so
+                from datavac.util.util import returner_context
+                with (get_engine_so().connect()) as conn:
+                    result=run_sql(namespace.query, conn=conn,commit=namespace.commit)
             else:
-                print(result)
+                result=read_sql(namespace.query)
+        except Exception as e:
+            print(f"Failed to run query: {e}")
+            traceback.print_exc()
+        else:
+            print(result)
+    else:
         inp=input("Query?: ").strip()
+        while inp!='q':
+            if inp!='':
+                try:
+                    if namespace.so:
+                        from datavac.database.db_connect import get_engine_so
+                        from datavac.util.util import returner_context
+                        with (get_engine_so().connect()) as conn:
+                            result=run_sql(inp, conn=conn,commit=namespace.commit)
+                    else:
+                        result=read_sql(inp)
+                except:
+                    # print stack trace
+                    traceback.print_exc()
+                else:
+                    print(result)
+            inp=input("Query?: ").strip()
+        
 
 def cli_run_new_analysis(*args):
     from datavac.database.db_modify import run_new_analysis

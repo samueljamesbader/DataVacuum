@@ -86,6 +86,7 @@ class IdVg(MeasurementWithLinearNormColumn):
             DVColumn('Ioff_lin [A]', 'float64', f'Off-state drain current (linear, {VDlin_desc})'),
             DVColumn('Ioff_lin/W [A/m]', 'float64', f'Off-state drain current per width (linear, {VDlin_desc})'),
             DVColumn('Ioffmin [A]', 'float64', 'Minimum off-state current'),
+            DVColumn('Ioffmin/W [A/m]', 'float64', 'Minimum off-state current per width'),
             DVColumn('Ioffstart [A]', 'float64', f'Start off-state current (saturation, {VDsat_desc})'),
             DVColumn('Ioffstart_lin [A]', 'float64', f'Start off-state current (linear, {VDlin_desc})'),
             DVColumn('Ion/Ioff', 'float64', 'On/Off current ratio'),
@@ -97,6 +98,7 @@ class IdVg(MeasurementWithLinearNormColumn):
             DVColumn('VGstart [V]', 'float64', 'VG at start'),
             DVColumn('VTgm_sat', 'float64', f'VT at gm peak (saturation, {VDsat_desc})'),
             DVColumn('GM_peak [S]', 'float64', 'Peak transconductance'),
+            DVColumn('GM_peak/W [S/m]', 'float64', 'Peak transconductance per width'),
             DVColumn('SS_lin [mV/dec]', 'float64', f'Subthreshold swing (linear, {VDlin_desc})'),
             DVColumn('SSstart_lin [mV/dec]', 'float64', f'SS at start (linear, {VDlin_desc})'),
             DVColumn('Igoffstart [A]', 'float64', f'Gate off current (saturation, {VDsat_desc})'),
@@ -183,8 +185,8 @@ class IdVg(MeasurementWithLinearNormColumn):
         assert np.sign(DVG)==(-1 if self.pol=='p' else 1), "VG should sweep off-to-on"
 
         if has_idsat:
-            gm_sat=savgol_filter(IDsat,*gmsavgol,deriv=1)/DVG
-            invswing=savgol_filter(np.log10(np.abs(IDsat.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
+            gm_sat=savgol_filter(np.nan_to_num(IDsat),*gmsavgol,deriv=1)/DVG
+            invswing=savgol_filter(np.log10(np.nan_to_num(np.abs(IDsat.T/W).T)+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
         else:
             gm_sat=VG*np.nan
             invswing=VG*np.nan
@@ -212,6 +214,7 @@ class IdVg(MeasurementWithLinearNormColumn):
         measurements['Ioff_lin [A]']=measurements['Ion [A]']*np.nan if (ind0 is False) or (not has_idlin) else np.abs(IDlin[:,ind0])
         measurements['Ioff_lin/W [A/m]']=measurements['Ioff_lin [A]']/W
         measurements['Ioffmin [A]']=np.min(np.abs(IDsat),axis=1)
+        measurements['Ioffmin/W [A/m]']=measurements['Ioffmin [A]']/W
         measurements['Ioffstart [A]']=np.abs(IDsat[:,0])
         measurements['Ioffstart_lin [A]']=np.abs(IDlin[:,0])
         measurements['Ion/Ioff']=measurements['Ion [A]']/(np.abs(measurements['Ioff [A]'])+tol)
@@ -235,7 +238,7 @@ class IdVg(MeasurementWithLinearNormColumn):
                 -1000*(measurements[f'VTcc{k}_sat']-measurements[f'VTcc{k}_lin'])/(VDsat-VDlin)
         measurements['VTgm_sat']=vt_gmpeak
         measurements['GM_peak [S]']=gmpeak
-        #measurements['GM_peak/W [S/m]']=gmpeak/W
+        measurements['GM_peak/W [S/m]']=gmpeak/W
         measurements['SS [mV/dec]']=1e3/np.max(invswing,axis=1)
         with np.errstate(divide='ignore', invalid='ignore'):
             measurements['SS_lin [mV/dec]']=1e3/np.max(invswing_lin,axis=1)
