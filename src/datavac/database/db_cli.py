@@ -38,6 +38,14 @@ def cli_ensure_clear_database(*args):
     parser = argparse.ArgumentParser(description="Clears out the database, removing all data and objects.")
     namespace = parser.parse_args(args)
     from datavac.database.db_create import ensure_clear_database
+    from datavac.util.caching import cli_clear_local_cache
+    from datavac.config.project_config import PCONF
+
+    # Clearing cache deletes USER_CERTS if it is a subdirectory of USER_CACHE, so ensure exists
+    # TODO: Clean this up by clarifying responsibilities for PCONF directories
+    cli_clear_local_cache()
+    PCONF().USER_CERTS.mkdir(parents=True,exist_ok=True)
+
     ensure_clear_database()
 
 def cli_delete_sample(*args):
