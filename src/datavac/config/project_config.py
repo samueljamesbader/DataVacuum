@@ -9,6 +9,7 @@ from pathlib import Path
 from datavac.config.cert_depo import CertDepo
 from datavac.appserve.dvsecrets.vaults.vault import Vault
 from datavac.config.server_config import ServerConfig
+from datavac.llm.llm_manager import LLMManager
 import platformdirs
 
 if TYPE_CHECKING: 
@@ -21,6 +22,7 @@ class ProjectConfiguration():
     vault: Vault = field(default_factory=Vault)
     cert_depo: CertDepo = field(default_factory=CertDepo)
     server_config: ServerConfig = field(default_factory=ServerConfig)
+    llm_manager: Optional[LLMManager] = None
 
     def __post_init__(self):
         appname=self.deployment_name or 'DEFAULT'
