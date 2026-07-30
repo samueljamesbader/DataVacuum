@@ -220,3 +220,14 @@ class PanelCallbackHandler(BaseCallbackHandler):
         NotImplementedError, will not call super() here.
         """
         self._on_start(serialized, kwargs)
+
+class HideToolsCallbackHandler(PanelCallbackHandler):
+    """
+    A custom callback handler that hides the tools in the chat interface.
+    """
+    def __init__(self, instance: pn.chat.ChatInterface):
+        super().__init__(instance)
+        self.instance = instance
+
+    def on_tool_start(self, serialized: dict[str, Any], input_str: str, *args, **kwargs): pass
+    def on_tool_end(self, output: str, *args, **kwargs): pass

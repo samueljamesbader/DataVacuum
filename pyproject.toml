@@ -103,7 +103,12 @@ machinelearn =[
     # BSD-3-Clause license, need to avoid exposing to untrusted data
     # https://www.cve.org/CVERecord/SearchResults?query=scikit-learn
     "scikit-learn ~= 1.6.1",
-] 
+]
+
+llm =[
+    "langchain",
+    "langgraph",
+]
 
 [project.scripts]
 datavac = "datavac.util.entrypoint:entrypoint_datavac_cli"
