@@ -285,7 +285,8 @@ class IdVd(SemiDevMeasurementGroup):
         from datavac.util.maths import YatX
         has_ig=any('IG' in k for k in measurements.headers)
         VGstrs=[k.split("=")[-1] for k in measurements.headers if k.startswith('fID')]
-        for VGofflabel,VGoff in self.VGoffs.items():
+        VGminstr=min(VGstrs,key=lambda vgs:(-1 if self.pol=='p' else 1)*float(vgs))
+        for VGofflabel,VGoff in (self.VGoffs|{'@VGmin':float(VGminstr)}).items():
             try: VGoffstr=only([k for k in VGstrs if np.isclose(float(k),VGoff)])
             except:
                 for VDDlabel,VDD in self.VDDs.items():
@@ -303,7 +304,7 @@ class IdVd(SemiDevMeasurementGroup):
     def available_extr_columns(self) -> dict[str, DVColumn]:
         return {**super().available_extr_columns(),
                 **asnamedict(
-                    *[c for VGofflabel,VGoff in self.VGoffs.items()
+                    *[c for VGofflabel,VGoff in (self.VGoffs|{'@VGmin':'VGmin'}).items()
                         for VDDlabel,VDD in self.VDDs.items()
                         for c in [
                             DVColumn(f'Ileak{VGofflabel}{VDDlabel} [A]', 'float64',

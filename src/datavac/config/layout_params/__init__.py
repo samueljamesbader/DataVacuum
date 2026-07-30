@@ -36,7 +36,7 @@ class LayoutParameters:
         if param_names:
             params=params[[pn for pn in param_names if pn in params.columns]].copy()
             for param in param_names:
-                if param not in params.columns:
+                if (param!="Structure") and (param not in params.columns):
                     if on_missing=='error':
                         raise Exception(f"Missing parameter {param}")
                     elif on_missing=='NA':
