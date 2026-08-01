@@ -64,7 +64,9 @@ class Trove():
     def iter_read(self,
              only_meas_groups:Optional[list[str]]=None,
              only_sampleload_info:dict[str,Sequence[Any]]={},
-             info_already_known:dict={}, incremental:bool=False, **kwargs)\
+             info_already_known:dict={}, incremental:bool=False,
+             exception_callback: Optional[Callable[[str,Exception],None]]=None,
+             **kwargs)\
                  -> Generator[tuple[str,dict[str,
                                              dict[str,MultiUniformMeasurementTable]],
                                              dict[str,dict[str,str]],

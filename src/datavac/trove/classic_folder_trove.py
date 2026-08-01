@@ -80,11 +80,11 @@ class ClassicFolderTrove(Trove):
                    only_meas_groups:Optional[list[str]]=None,
                    only_sampleload_info:dict[str,Any]={},
                    info_already_known:dict[str,Any]={},
-                   incremental:bool=False,
+                   incremental:bool=False, exception_callback: Optional[Callable[[str,Exception],None]]=None,
                    # FolderTrove-specific arguments
                    only_file_names:Optional[list[str]]=None, only_folders: Optional[Sequence[Path]]=None,
                    cached_glob:Optional[Callable[[Path,str],list[PathWithMTime]]]=None, dont_recurse:bool=False,
-                   dont_prompt_readall:bool=False, exception_callback: Optional[Callable[[str,Exception],None]]=None)\
+                   dont_prompt_readall:bool=False)\
              -> Generator[tuple[str,dict[str,dict[str,MultiUniformMeasurementTable]],dict[str,dict[str,str]],ClassicFolderTroveIncrementalTracker|None]]:
         """Reads data from the trove read_dir.
 
