@@ -39,7 +39,7 @@ class LLMApp(PanelApp):
             self.callback_handler = HideToolsCallbackHandler(instance)
         logger.info(f"User {user} asked: {contents}")
         await self.agent.ainvoke({'messages':[{'role':'user','content':contents}]},
-                                 config=dict(callbacks=[self.callback_handler],thread_id=0)) # type: ignore
+                                 config=dict(callbacks=[self.callback_handler],configurable={'thread_id':0})) # type: ignore
 
     
 if 'bokeh' in  __name__:

@@ -22,7 +22,7 @@ class LLMManager:
             It also contains "analyses", which are tables that typically summarize information
             from one or more measurements.                                         
 
-            You can query the database to answer user questions. If requested, you can also provide guidance,
+            You can query the database to answer user questions.Or, if requested, you can also provide guidance,
             because you are an expert in Python and JMP JSL and SQL, who can instruct users on writing code
             to query the database and visualize results in their language of choice.
             You can also directly answer questions about the structure of the database, such as
@@ -36,6 +36,9 @@ class LLMManager:
             `describe_an` tool to get more information about a specific analysis
             (including its tables and columns).
             You can also use the `readonly_sql` tool to run read-only SQL queries against the database.
+
+            If you have run a 2-3 tool calls without outputing any content for the user, it's a helpful to
+            keep them updated on the steps you're taking so they don't think you're stuck.
             ''')
 
         from datavac.llm.llm_dbtools import describe_mg, describe_an, list_mgoas, readonly_sql

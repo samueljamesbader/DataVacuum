@@ -15,6 +15,7 @@ def trycatchtool(func:Callable[..., str]) -> BaseTool:
             from datavac.util.dvlogging import logger
             # log the whole traceback not just the exception message, return just the message
             logger.error(f"Exception in tool {func.__name__}: {e}\n{traceback.format_exc()}")
+            import pdb; pdb.set_trace()
             return f"Error in tool {func.__name__}"
     return tool(wrapper)
 
