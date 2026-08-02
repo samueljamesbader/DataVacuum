@@ -50,10 +50,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence, cast
 
 from langchain_core.callbacks.base import BaseCallbackHandler
-from panel.chat.message import DEFAULT_AVATARS
+from panel.chat.message import DEFAULT_AVATARS, ChatMessage
 from panel.layout import Accordion
 from panel.util.warnings import deprecated
 
@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from langchain_core.outputs.llm_result import LLMResult
     from panel.chat.feed import ChatFeed
     from panel.chat.interface import ChatInterface
+    from panel.viewable import Viewable
 
 
 class PanelCallbackHandler(BaseCallbackHandler):
@@ -118,7 +119,7 @@ class PanelCallbackHandler(BaseCallbackHandler):
     def _on_start(self, serialized, kwargs):
         model = kwargs.get("invocation_params", {}).get("model_name", "")
         self._is_streaming = serialized.get("kwargs", {}).get("streaming")
-        messages = self.instance.objects
+        messages:Sequence[ChatMessage] = self.instance.objects # type: ignore
         if messages[-1].user != self._active_user:
             self._message = None
         if self._active_user and model not in self._active_user:
@@ -225,9 +226,20 @@ class HideToolsCallbackHandler(PanelCallbackHandler):
     """
     A custom callback handler that hides the tools in the chat interface.
     """
-    def __init__(self, instance: pn.chat.ChatInterface):
+    def __init__(self, instance: ChatInterface):
         super().__init__(instance)
         self.instance = instance
+
+    def _reset_active(self):
+        super()._reset_active()
+        # Pin a single loading placeholder to the bottom between agent steps;
+        # Panel's callback cleanup removes it once the agent loop completes.
+        ph:Viewable = self.instance._placeholder # type: ignore
+        try:
+            while ph in cast(Sequence,self.instance.objects):
+                self.instance.remove(ph)
+            self.instance.append(ph)
+        except Exception: pass
 
     def on_tool_start(self, serialized: dict[str, Any], input_str: str, *args, **kwargs): pass
     def on_tool_end(self, output: str, *args, **kwargs): pass
