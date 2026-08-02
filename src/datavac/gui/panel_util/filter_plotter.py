@@ -261,7 +261,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
             self._dtypes=[d.dtypes.to_dict() for d in self._pre_sources]
             self._need_to_update_data=False
 
-    def get_raw_column_names(self):
+    def get_raw_column_names(self) -> Sequence[Sequence[str]|bool]:
+        """ Returns a list of lists of raw column names, one list for each measurement group.
+        If a measurement group has no raw columns, returns False for that group. """
         raise NotImplementedError
 
     def get_scalar_column_names(self):
@@ -294,6 +296,9 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                                  unstack_headers=(rc != False), sample_descriptors=sds,
                                  **{k:v for k,v in factors.items() if k in allowed_factors_for_this}))
         logger.info(f"Got data from hose, lengths {[len(d) for d in data]}")
+        print("HELLO REMOVE THIS:")
+        print(data)
+        data[0].to_csv("tmp2.csv")
 
         for d in data:
             if sort_by in d.columns:
@@ -763,7 +768,7 @@ class ImageFilterPlotter(FilterPlotter):
     def get_scalar_column_names(self):
         return [super().get_scalar_column_names()[0]+['image_filename']+list(self.additional_rcopts)]
     def get_raw_column_names(self):
-        return [[]]
+        return [False]
 
     @staticmethod
     def row_to_img(row):

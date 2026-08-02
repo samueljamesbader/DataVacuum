@@ -428,6 +428,9 @@ class SemiDeviceDataDefinition(DataDefinition):
                 reftab=DBSTRUCT().get_subsample_reference_dbtable(self.name)
                 mapping=dict(conn.execute(select(reftab.c[self.unique_for_mask],reftab.c[self.key_column.name])\
                             .where(reftab.c['MaskSet'] == sample_info['MaskSet'])).all()) # type: ignore
+                assert self.unique_for_mask in table.columns,\
+                    f"Column '{self.unique_for_mask}', required for mapping to '{self.key_column.name}'"\
+                    f" for SubSampleReference '{self.name}', not found."
                 table[self.key_column.name] = table[self.unique_for_mask].map(mapping)
 
         if name == 'Dies':

@@ -246,6 +246,7 @@ class LayoutParameters(GeneralLayoutParameters):
 _layout_params:'LayoutParameters'=None
 _layout_params_timestamp:float=None
 def get_layout_params(force_regenerate=False, conn:'Optional[Connection]'=None):
+    raise Exception("This function is deprecated.  Use LP() instead")
     global _layout_params
     if force_regenerate or (_layout_params is None):
         from datavac.util.caching import pickle_db_cached

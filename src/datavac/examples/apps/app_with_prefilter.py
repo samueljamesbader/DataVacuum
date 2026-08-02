@@ -1,5 +1,5 @@
 from functools import reduce
-from typing import Optional, Sequence, Union, cast
+from typing import Mapping, Optional, Sequence, Union, cast
 
 import panel as pn
 from panel.io import hold
@@ -17,12 +17,12 @@ class PanelAppWithLotPrefilter(PanelApp,hvparam.Parameterized):
     _need_to_update_lot_filter=hvparam.Event()
     _tabs: pn.Tabs
     lot_col: str = 'Lot'
-    def __init__(self, plotters: dict[str, FilterPlotter],initial_prefilter_lots:Optional[Sequence[str]]=None,*args,**kwargs):
+    def __init__(self, plotters: Mapping[str, FilterPlotter],initial_prefilter_lots:Optional[Sequence[str]]=None,*args,**kwargs):
         super().__init__()
         hvparam.Parameterized.__init__(self,*args,**kwargs)
         self.lots_preselector=VerticalCrossSelector(
             value=[], options=[], width=170, height=500)
-        self._plotters:dict[str,FilterPlotter]=plotters
+        self._plotters:Mapping[str,FilterPlotter]=plotters
         lot_prefetch_measgroup=[self.lot_prefetch_measgroup]*len(self._plotters)\
             if type(self.lot_prefetch_measgroup) is str else self.lot_prefetch_measgroup
         for (name, pltr),pfmg in zip(self._plotters.items(),lot_prefetch_measgroup):
