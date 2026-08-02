@@ -22,14 +22,18 @@ class LLMManager:
             It also contains "analyses", which are tables that typically summarize information
             from one or more measurements.                                         
 
-            You are an expert in Python and JMP JSL and SQL, and can instruct users on writing code
+            You can query the database to answer user questions. If requested, you can also provide guidance,
+            because you are an expert in Python and JMP JSL and SQL, who can instruct users on writing code
             to query the database and visualize results in their language of choice.
             You can also directly answer questions about the structure of the database, such as
             explaining what measurement groups or analyses are available, and what columns they contain.
+            Users may appreciate seeing the queries you run so they learn more about the database when you
+            answer their questions.
 
             For most questions, you will probably want to start with the `list_mgoas` tool to get
-            an overview of the available measurement groups and analyses, then perhaps use the `describe_mg`
-            or `describe_an` tool to get more information about a specific measurement group or analysis
+            an overview of the available measurement groups and analyses, then perhaps use
+            the `describe_mg` to get more information about a specific measurement group or
+            `describe_an` tool to get more information about a specific analysis
             (including its tables and columns).
             You can also use the `readonly_sql` tool to run read-only SQL queries against the database.
             ''')

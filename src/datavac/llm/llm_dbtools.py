@@ -1,6 +1,24 @@
-from langchain_core.tools import tool
+from __future__ import annotations
+from typing import Callable
 
-@tool
+from langchain_core.tools import tool, BaseTool
+from functools import wraps
+
+
+def trycatchtool(func:Callable[..., str]) -> BaseTool:
+    """Wraps a tool function to log or return exceptions instead of raising them."""
+    @wraps(func)
+    def wrapper(*args, **kwargs) -> str:
+        try: return func(*args, **kwargs)
+        except Exception as e:
+            import traceback
+            from datavac.util.dvlogging import logger
+            # log the whole traceback not just the exception message, return just the message
+            logger.error(f"Exception in tool {func.__name__}: {e}\n{traceback.format_exc()}")
+            return f"Error in tool {func.__name__}"
+    return tool(wrapper)
+
+@trycatchtool
 def list_mgoas() -> str:
     """List all measurement groups and analyses and their descriptions."""
     from datavac.config.data_definition import DDEF
@@ -14,7 +32,7 @@ def list_mgoas() -> str:
         response += f"- (analysis) {an_name}: {an.description}\n"
     return response
 
-@tool
+@trycatchtool
 def describe_mg(mg_name: str) -> str:
     """Describe the measurement group.
     
@@ -31,7 +49,8 @@ def describe_mg(mg_name: str) -> str:
     from sqlalchemy.schema import CreateTable
     from datavac.database.db_connect import get_engine_ro
     logger.info(f"Describing measurement group: {mg_name}")
-    mg = DDEF().measurement_groups[mg_name]
+    try: mg = DDEF().measurement_groups[mg_name]
+    except KeyError as e: return f"Measurement group '{mg_name}' not found."
     response = f"""
         |||'{mg_name}' is the name of a measurement group with the following description: "{mg.description}".
         |||The measurements are indexed in the table {namewsq(mg.dbtable('meas'))} with the following DDL:
@@ -59,7 +78,7 @@ def describe_mg(mg_name: str) -> str:
         """.replace('        |||', '')
     return response
 
-@tool
+@trycatchtool
 def describe_an(an_name: str) -> str:
     """Describe the analysis.
 
@@ -76,7 +95,8 @@ def describe_an(an_name: str) -> str:
     from sqlalchemy.schema import CreateTable
     from datavac.database.db_connect import get_engine_ro
     logger.info(f"Describing analysis: {an_name}")
-    an = DDEF().higher_analyses[an_name]
+    try: an = DDEF().higher_analyses[an_name]
+    except KeyError: return f"Analysis '{an_name}' not found."
     avail = an.available_analysis_columns()
     response = f"""
         |||'{an_name}' is the name of an analysis with the following description: "{an.description}".
@@ -102,7 +122,7 @@ def describe_an(an_name: str) -> str:
         """.replace('        |||', '')
     return response
 
-@tool
+@trycatchtool
 def readonly_sql(query: str) -> str:
     """Run a read-only SQL query against the DataVacuum database (postgresql) and return the results as a string.
     
