@@ -70,6 +70,13 @@ def nparam_helper(df):
         GammaOpt=df['GammaOptMag']*np.exp(1j*df['GammaOptAngle'])
         df['ReGammaOpt']=np.real(GammaOpt)
         df['ImGammaOpt']=np.imag(GammaOpt)
+    if not ('ReYOpt' in df and 'ImYOpt' in df):
+        GammaOpt=df['ReGammaOpt']+1j*df['ImGammaOpt']
+        YOpt=1/50*(1-GammaOpt)/(1+GammaOpt)
+        df['ReYOpt']=np.real(YOpt)
+        df['ImYOpt']=np.imag(YOpt)
+    if not ('LangeN' in df):
+        df['LangeN'] = df['Rn']*df['ReYOpt']
 
 def simple_rf_mosfet_extraction(df,width):
 
