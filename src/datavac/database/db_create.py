@@ -150,8 +150,16 @@ def create_analysis_view(an_name: str, conn: Optional[Connection]=None, just_DDL
 def create_all():
     """Create all database tables and schemas."""
     with avoid_db_if_possible():
-        with get_engine_so().begin() as conn:
-            _setup_foundation(conn)
+        from sqlalchemy.exc import OperationalError
+        try:
+            with get_engine_so().begin() as conn:
+                _setup_foundation(conn)
+        except OperationalError as e:
+            raise RuntimeError(
+                "Failed to connect as schema owner.\n"
+                "Note: if it's a fresh empty DB & you're relying on DataVacuum to create the users, start with 'datavac db clear'\n"
+                "Here's the original error message:\n"
+                f"{e}")
 
         for sr_name in PCONF().data_definition.sample_references:
             DBSTRUCT().get_sample_reference_dbtable(sr_name)
