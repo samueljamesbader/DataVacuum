@@ -529,3 +529,5 @@ class MultiUniformMeasurementTable(MeasurementTable):
             prev_meas_id+=len(umt)
         import pandas as pd
         return pd.concat(subs,ignore_index=True)
+
+MUMT=MultiUniformMeasurementTable
