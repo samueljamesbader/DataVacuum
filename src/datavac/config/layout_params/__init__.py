@@ -20,25 +20,21 @@ class LayoutParameters:
     def __init__(self, force_regenerate: bool = False):
         super().__init__()
 
-    def merge_with_layout_params(self, meas_df:pd.DataFrame, for_measurement_group: MeasurementGroup,
+    def merge_with_layout_params(self, meas_df:pd.DataFrame, layout_param_group: str,
                                  param_names: Optional[list[str]] = None, on_missing: str = 'error'):
         #structures_to_get=meas_df['Structure'].unique()
         #params=self.get_params(structures_to_get,allow_partial=False,for_measurement_group=for_measurement_group)
         from typing import cast
         import pandas as pd
-        from datavac.measurements.measurement_group import SemiDevMeasurementGroup
-        layout_param_group:Optional[str] = cast(SemiDevMeasurementGroup,for_measurement_group).layout_param_group
-        assert layout_param_group is not None, \
-            f"No layout parameter group specified for measurement group {for_measurement_group.name}"
         if layout_param_group not in self._tables_by_meas:
-            raise Exception(f"No layout parameters for measurement group {for_measurement_group}")
+            raise Exception(f"No layout parameters for layout parameter group {layout_param_group}")
         params=self._tables_by_meas[layout_param_group]
         if param_names:
             params=params[[pn for pn in param_names if pn in params.columns]].copy()
             for param in param_names:
                 if (param!="Structure") and (param not in params.columns):
                     if on_missing=='error':
-                        raise Exception(f"Missing parameter {param}")
+                        raise Exception(f"Missing parameter {param}.  Available columns: {list(self._tables_by_meas[layout_param_group].columns)}")
                     elif on_missing=='NA':
                         params[param]=pd.NA
                     elif on_missing=='ignore':

@@ -248,7 +248,9 @@ class DBStructure():
             anls_column_names = an.analysis_column_names
             avail=an.available_analysis_columns()
             try:
-                anls_columns = [Column(avail[c].name, avail[c].sql_dtype) for c in anls_column_names]
+                subsample_reference_column_names = set([c.name for c in subsample_reference_columns])
+                anls_columns = [Column(avail[c].name, avail[c].sql_dtype)\
+                                for c in anls_column_names if c not in subsample_reference_column_names]
             except KeyError as e:
                 raise KeyError(f"Analysis '{an_name}' requested columns {anls_column_names},\n"
                                f"but only the following are available: {list(avail.keys())},\nerrored on {str(e)}") from e
