@@ -12,7 +12,7 @@ import numpy as np
 import pickle
 import traceback
 import yaml
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Optional, Tuple, cast
 
 if TYPE_CHECKING:
     from sqlalchemy import Connection
@@ -61,11 +61,12 @@ class LayoutParameters(GeneralLayoutParameters):
         with open(yaml_path,'r') as f:
             self._yaml_str=f.read()
             self._yaml=yaml.safe_load(self._yaml_str)
-        self._cat_tables: dict[(str,str),pd.DataFrame] ={}
-        self._dut_to_catkey: dict[(str,str),(str,str)] ={}
+        self._cat_tables: dict[Tuple[str,str],pd.DataFrame] ={}
+        self._dut_to_catkey: dict[Tuple[str,str],Tuple[str,str]] ={}
         self._tables_by_meas: dict[str,pd.DataFrame] ={}
         self._rows_by_mask: dict[str,list[str]] ={}
         self._generated_timestamp=datetime.now().timestamp()
+        self._sourcing: dict[Tuple[str,str],str]={}
 
         for mask,paths_by_mask in self._yaml['layout_param_paths'].items():
             self._rows_by_mask[mask]=[]
@@ -98,6 +99,7 @@ class LayoutParameters(GeneralLayoutParameters):
                         self._cat_tables[(mask,sh)]=table
                         for structure,r in table.iterrows():
                             self._dut_to_catkey[(structure,mask)]=(mask,sh)
+                        self._sourcing[(mask,sh)]=path
                     if f.name.endswith(".xlsx"):
                         xls=pd.ExcelFile(f,engine='openpyxl')
                         for sh in xls.book.sheetnames:
