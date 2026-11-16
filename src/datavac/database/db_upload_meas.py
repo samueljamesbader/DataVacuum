@@ -630,7 +630,7 @@ def perform_and_enter_analysis(sample_info:dict[str,Any], only_analyses: list[st
                                         int(only(cast(MultiUniformMeasurementTable,data).s['loadid'].unique()))\
                                             if dep_mgoa in DDEF().measurement_groups else\
                                         int(only(cast(pd.DataFrame,data)['anlsid'].unique()))
-                        if data is not None: data_by_mgoa[dep_mgoa]=data
+                        if (data is not None) and len(data)>0: data_by_mgoa[dep_mgoa]=data
                         elif required:  possible_to_perform = False
             if possible_to_perform:
                 logger.info(f"{an.name} analysis ({samplename})")
