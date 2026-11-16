@@ -166,7 +166,10 @@ class IdVg(MeasurementWithLinearNormColumn):
         if IGlin.shape[1]==1 and np.isnan(IGlin[0]): has_iglin=False
 
         # Requirements on VG
-        assert np.sum(np.abs(np.diff(VG,axis=0)))==0, "Might assume all rows of VG are same for uniform meas"
+        try:
+            assert np.max(np.abs(np.diff(VG,axis=0)))<np.max(np.abs(VG))*1e-4, "Might assume all rows of VG are same for uniform meas"
+        except AssertionError as e:
+            raise e
         VG1d=VG[0,:]
         if self.vgoff is not None:
             ind0=np.argmax(VG1d==self.vgoff)
@@ -191,7 +194,10 @@ class IdVg(MeasurementWithLinearNormColumn):
             gm_sat=VG*np.nan
             invswing=VG*np.nan
         if has_idlin:
-            invswing_lin=savgol_filter(np.log10(np.abs(IDlin.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
+            try:
+                invswing_lin=savgol_filter(np.log10(np.abs(IDlin.T/W).T+self.Iswf),*sssavgol,deriv=1)/np.abs(DVG)
+            except ValueError:
+                invswing_lin=VG*np.nan
             if self.add_gm_header:
                 gm_lin=savgol_filter(IDlin,*gmsavgol,deriv=1)/DVG
                 measurements.add_extr_headers(**{f'fGM@VD={VDlin_str}':list(gm_lin)})
