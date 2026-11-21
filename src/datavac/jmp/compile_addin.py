@@ -189,6 +189,13 @@ def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
             'icon':None
         },
     ]
+    configured_menus=[]
+    for menu in jmp_conf.get('menus',[]):
+        if 'General' in menu:
+            assert len(menu)==1
+            general_commands.extend(menu['General'])
+        else:
+            configured_menus.append(menu)
     menus=[
         *([{
             'name':'Init',
@@ -196,7 +203,7 @@ def make_addin_jmp_cust(addin_folder, addin_id, envname, jmp_conf, env_values):
             'text': f'dv:force_init=1;Include( dv:addin_home||"/addinLoad.jsl");',
             'icon':None
         }] if env_values.get("DATAVACUUM_JMP_DEFER_INIT","NO")=='YES' else []),
-        {'General':general_commands},*jmp_conf.get('menus',[])]
+        {'General':general_commands},*configured_menus]
     with (open(addin_folder/"addin.jmpcust",'wb') as f):
         import xml.etree.ElementTree as gfg
         root=gfg.Element("jm:menu_and_toolbar_customizations")
