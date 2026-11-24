@@ -20,6 +20,10 @@ def set_level(level):
         level=getattr(logging,level.upper())
     _ch.setLevel(level)
 
+def set_log_stream(stream):
+    """Redirect log output, e.g. to stderr when stdout is reserved for a protocol."""
+    _ch.setStream(stream)
+
 @contextmanager
 def level_context(level):
     _level=_ch.level

@@ -18,6 +18,10 @@ def cli_launch_apps():
     from datavac.appserve.panel_serve import launch
     launch()
 
+def cli_mcp(*args):
+    from datavac.llm.mcp_server import cli_mcp as _cli_mcp
+    _cli_mcp(*args)
+
 def entrypoint_datavac_cli():
     from datavac.database.db_cli import DB_CLI
     from datavac.config.contexts import CONTEXT_CLI
@@ -31,6 +35,7 @@ def entrypoint_datavac_cli():
         'vault (v)': VAULT_CLI,
         'compile_jmp (cj)': cli_compile_jmp_addin,
         'launch_apps (la)': cli_launch_apps,
+        'mcp': cli_mcp,
     })(*sys.argv)
 
 

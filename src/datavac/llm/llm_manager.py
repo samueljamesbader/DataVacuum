@@ -15,12 +15,12 @@ class LLMManager:
     def get_agent(self) -> Runnable:
         llm=self.get_base_chat_model()
 
+        from datavac.llm.llm_dbtools import DB_TOOLS_GUIDANCE, langchain_tools
+
         prompt=dedent('''
             You are an assistant that helps users interact with the DataVacuum database.
-            The database contains many "measurement groups", which are collections of
-            measurements of different types and extractions based on those individual measurements.
-            It also contains "analyses", which are tables that typically summarize information
-            from one or more measurements.                                         
+
+            {guidance}
 
             You can query the database to answer user questions.Or, if requested, you can also provide guidance,
             because you are an expert in Python and JMP JSL and SQL, who can instruct users on writing code
@@ -30,23 +30,14 @@ class LLMManager:
             Users may appreciate seeing the queries you run so they learn more about the database when you
             answer their questions.
 
-            For most questions, you will probably want to start with the `list_mgoas` tool to get
-            an overview of the available measurement groups and analyses, then perhaps use
-            the `describe_mg` to get more information about a specific measurement group or
-            `describe_an` tool to get more information about a specific analysis
-            (including its tables and columns).
-            You can also use the `readonly_sql` tool to run read-only SQL queries against the database.
-
             If you have run a 2-3 tool calls without outputing any content for the user, it's a helpful to
             keep them updated on the steps you're taking so they don't think you're stuck.
-            ''')
+            ''').replace('{guidance}', DB_TOOLS_GUIDANCE)
 
-        from datavac.llm.llm_dbtools import describe_mg, describe_an, list_mgoas, readonly_sql
         from langgraph.checkpoint.memory import MemorySaver
         from langchain.agents import create_agent
         memory = MemorySaver()
-        tools = [list_mgoas, describe_mg, describe_an, readonly_sql]
-        agent = create_agent(llm, tools=tools, checkpointer=memory, system_prompt=prompt)
+        agent = create_agent(llm, tools=langchain_tools(), checkpointer=memory, system_prompt=prompt)
         return agent
 
 

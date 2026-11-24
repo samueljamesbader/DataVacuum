@@ -92,7 +92,6 @@ kerberos_clientside = [
 test = [
     "pytest",
     "pytest-dotenv",
-    "pytest-env",
     "playwright",
     "pytest-playwright",
 ]
@@ -111,6 +110,11 @@ machinelearn =[
 llm =[
     "langchain",
     "langgraph",
+]
+
+mcp =[
+    # Needed to run `datavac mcp`; 4.2+ requires an mcp SDK that keeps stray stdout off the stdio protocol channel
+    "fastmcp >= 4.2",
 ]
 
 [project.scripts]

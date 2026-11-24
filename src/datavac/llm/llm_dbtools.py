@@ -1,12 +1,41 @@
+"""Plain-function tools for interacting with the DataVacuum database.
+
+This module is the single source of truth for the tools and has no LangChain or FastMCP dependency.
+Frameworks wrap the functions in `DB_TOOLS`: `langchain_tools()` for the chat agent,
+and `datavac.llm.mcp_server` for the MCP server.
+"""
 from __future__ import annotations
 from typing import Callable
-
-from langchain_core.tools import tool, BaseTool
 from functools import wraps
+from textwrap import dedent
 
+DB_TOOLS_GUIDANCE = dedent('''
+    The database contains many "measurement groups", which are collections of
+    measurements of different types and extractions based on those individual measurements.
+    It also contains "analyses", which are tables that typically summarize information
+    from one or more measurements.
 
-def trycatchtool(func:Callable[..., str]) -> BaseTool:
-    """Wraps a tool function to log or return exceptions instead of raising them."""
+    For most questions, you will probably want to start with the `list_mgoas` tool to get
+    an overview of the available measurement groups and analyses, then perhaps use
+    the `describe_mg` to get more information about a specific measurement group or
+    `describe_an` tool to get more information about a specific analysis
+    (including its tables and columns).
+    You can also use the `readonly_sql` tool to run read-only SQL queries against the database.
+
+    Tips for `readonly_sql`:
+    - Escape every literal '%' as '%%' (e.g. `ilike '%%text%%'`); a bare '%' fails with an "immutabledict is not a sequence" error.
+    - Quote names with spaces, punctuation or mixed case exactly, e.g. `vac."Samples"`.
+    - If a query fails with "relation ... does not exist" for a name the user gave informally, verify the exact name with
+      `select table_schema, table_name from information_schema.tables where position('<partial name>' in table_name) > 0`.
+      Names often differ slightly (e.g. singular vs. plural).
+    - Long results are truncated in the output (head and tail with `...`). To see everything, paginate with
+      `row_number() over (order by col)` plus `limit`/`offset` rather than one unbounded query.
+    ''').strip()
+
+DB_TOOLS: list[Callable[..., str]] = []
+
+def dbtool(func:Callable[..., str]) -> Callable[..., str]:
+    """Registers a tool function in `DB_TOOLS`, wrapped to log and return exceptions instead of raising them."""
     @wraps(func)
     def wrapper(*args, **kwargs) -> str:
         try: return func(*args, **kwargs)
@@ -15,9 +44,14 @@ def trycatchtool(func:Callable[..., str]) -> BaseTool:
             from datavac.util.dvlogging import logger
             # log the whole traceback not just the exception message, return just the message
             logger.error(f"Exception in tool {func.__name__}: {e}\n{traceback.format_exc()}")
-            #import pdb; pdb.set_trace()
             return f"Error in tool {func.__name__}"
-    return tool(wrapper)
+    DB_TOOLS.append(wrapper)
+    return wrapper
+
+def langchain_tools() -> list:
+    """The registered tools as LangChain tools."""
+    from langchain_core.tools import tool
+    return [tool(f) for f in DB_TOOLS]
 
 def _create_table_ddl(table) -> str:
     """CREATE TABLE DDL for a table, rendered for PostgreSQL without needing a DB engine or credentials."""
@@ -25,7 +59,7 @@ def _create_table_ddl(table) -> str:
     from sqlalchemy.schema import CreateTable
     return str(CreateTable(table).compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
-@trycatchtool
+@dbtool
 def list_mgoas() -> str:
     """List all measurement groups and analyses and their descriptions."""
     from datavac.config.data_definition import DDEF
@@ -39,7 +73,7 @@ def list_mgoas() -> str:
         response += f"- (analysis) {an_name}: {an.description}\n"
     return response
 
-@trycatchtool
+@dbtool
 def describe_mg(mg_name: str) -> str:
     """Describe the measurement group.
     
@@ -83,7 +117,7 @@ def describe_mg(mg_name: str) -> str:
         """.replace('        |||', '')
     return response
 
-@trycatchtool
+@dbtool
 def describe_an(an_name: str) -> str:
     """Describe the analysis.
 
@@ -125,7 +159,7 @@ def describe_an(an_name: str) -> str:
         """.replace('        |||', '')
     return response
 
-@trycatchtool
+@dbtool
 def readonly_sql(query: str) -> str:
     """Run a read-only SQL query against the DataVacuum database (postgresql) and return the results as a string.
     
@@ -143,6 +177,6 @@ def readonly_sql(query: str) -> str:
 if __name__ == "__main__":
     import os
     #os.environ['DATAVACUUM_CONTEXT'] = 'builtin:demo2'
-    #print(describe_mg.invoke('IdVg'))
-    print(describe_an.invoke('Gam Sort A1'))
-    #print(readonly_sql.invoke('SELECT * FROM vac."Samples" LIMIT 5'))
+    #print(describe_mg('IdVg'))
+    print(describe_an('Gam Sort A1'))
+    #print(readonly_sql('SELECT * FROM vac."Samples" LIMIT 5'))
