@@ -15,9 +15,15 @@ def trycatchtool(func:Callable[..., str]) -> BaseTool:
             from datavac.util.dvlogging import logger
             # log the whole traceback not just the exception message, return just the message
             logger.error(f"Exception in tool {func.__name__}: {e}\n{traceback.format_exc()}")
-            import pdb; pdb.set_trace()
+            #import pdb; pdb.set_trace()
             return f"Error in tool {func.__name__}"
     return tool(wrapper)
+
+def _create_table_ddl(table) -> str:
+    """CREATE TABLE DDL for a table, rendered for PostgreSQL without needing a DB engine or credentials."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+    return str(CreateTable(table).compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
 @trycatchtool
 def list_mgoas() -> str:
@@ -47,19 +53,17 @@ def describe_mg(mg_name: str) -> str:
     from datavac.database.db_util import namewsq
     from datavac.config.data_definition import DDEF
     from datavac.database.db_create import create_meas_group_view
-    from sqlalchemy.schema import CreateTable
-    from datavac.database.db_connect import get_engine_ro
     logger.info(f"Describing measurement group: {mg_name}")
     try: mg = DDEF().measurement_groups[mg_name]
     except KeyError as e: return f"Measurement group '{mg_name}' not found."
     response = f"""
         |||'{mg_name}' is the name of a measurement group with the following description: "{mg.description}".
         |||The measurements are indexed in the table {namewsq(mg.dbtable('meas'))} with the following DDL:
-        |||{CreateTable(mg.dbtable('meas')).compile(get_engine_ro(), compile_kwargs={"literal_binds": True})}
+        |||{_create_table_ddl(mg.dbtable('meas'))}
         |||The extracted parameters from the measurements are in {namewsq(mg.dbtable('extr'))} with the following DDL:
-        |||{CreateTable(mg.dbtable('extr')).compile(get_engine_ro(), compile_kwargs={"literal_binds": True})}
+        |||{_create_table_ddl(mg.dbtable('extr'))}
         |||{'\n'.join((f'Further information is available in the table {namewsq(DDEF().subsample_references[ssr].dbtable())} with the following DDL:'+\
-            str(CreateTable(DDEF().subsample_references[ssr].dbtable()).compile(get_engine_ro(), compile_kwargs={"literal_binds": True})))
+            _create_table_ddl(DDEF().subsample_references[ssr].dbtable()))
              for ssr in mg.subsample_reference_names)}
         
 
@@ -93,8 +97,6 @@ def describe_an(an_name: str) -> str:
     from datavac.database.db_util import namewsq
     from datavac.config.data_definition import DDEF
     from datavac.database.db_create import create_analysis_view
-    from sqlalchemy.schema import CreateTable
-    from datavac.database.db_connect import get_engine_ro
     logger.info(f"Describing analysis: {an_name}")
     try: an = DDEF().higher_analyses[an_name]
     except KeyError: return f"Analysis '{an_name}' not found."
@@ -102,9 +104,9 @@ def describe_an(an_name: str) -> str:
     response = f"""
         |||'{an_name}' is the name of an analysis with the following description: "{an.description}".
         |||The analysis results are stored in the table {namewsq(an.dbtables('anls'))} with the following DDL:
-        |||{CreateTable(an.dbtables('anls')).compile(get_engine_ro(), compile_kwargs={"literal_binds": True})}
+        |||{_create_table_ddl(an.dbtables('anls'))}
         |||{'\n'.join((f'Further information is available in the table {namewsq(DDEF().subsample_references[ssr].dbtable())} with the following DDL:'+\
-            str(CreateTable(DDEF().subsample_references[ssr].dbtable()).compile(get_engine_ro(), compile_kwargs={"literal_binds": True})))
+            _create_table_ddl(DDEF().subsample_references[ssr].dbtable()))
              for ssr in an.subsample_reference_names)}
 
 
