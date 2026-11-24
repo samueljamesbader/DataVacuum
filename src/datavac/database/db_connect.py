@@ -30,7 +30,7 @@ class PostgreSQLConnectionInfo():
     
     @property
     def driver(self)->str:
-        return 'postgresql'
+        return 'postgresql+psycopg2'
     
     @property
     def sslargs(self) -> dict:
