@@ -1,6 +1,9 @@
 import asyncio
 import os
+import re
 import subprocess
+import time
+from datetime import datetime
 from pathlib import Path
 
 import panel as pn
@@ -8,14 +11,32 @@ from panel.widgets import CrossSelector
 
 from datavac.appserve.app import PanelApp
 
-# TODO: This should be somewhere more central unless it's specifically load logs
-LOG_DIR=Path(os.environ['DATAVACUUM_LOG_DIR'])
-LOG_DIR.mkdir(parents=False,exist_ok=True)
-READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])
-
 class AppLoader(PanelApp):
 
+    LOG_MAX_AGE_SECONDS=7*24*60*60
+
+    @staticmethod
+    def new_log_path(prefix: str) -> Path:
+        """Returns a unique log path for the current user, after removing that user's logs
+        with the same prefix that are more than a week old."""
+        log_dir=Path(os.environ['DATAVACUUM_LOG_DIR'])
+        log_dir.mkdir(parents=False,exist_ok=True)
+        username=re.sub(r'[^\w.@-]','',str(pn.state.user or 'anonymous')) or 'anonymous'
+        identifier=f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{username}"
+        AppLoader._cleanup_old_logs(log_dir,prefix,username)
+        return log_dir/f'{prefix}{identifier}.txt'
+
+    @staticmethod
+    def _cleanup_old_logs(log_dir: Path, prefix: str, username: str):
+        pattern=re.compile(rf'{re.escape(prefix)}\d{{8}}_\d{{6}}_\d{{6}}_{re.escape(username)}\.txt')
+        cutoff=time.time()-AppLoader.LOG_MAX_AGE_SECONDS
+        for f in log_dir.iterdir():
+            try:
+                if pattern.fullmatch(f.name) and f.stat().st_mtime<cutoff: f.unlink()
+            except OSError: pass # In use or already removed; not worth failing a load over
+
     def get_allowed_folders(self):
+        READ_DIR=Path(os.environ['DATAVACUUM_READ_DIR'])
         return [f.name for f in READ_DIR.iterdir() if f.is_dir()]
     def get_page(self):
 
@@ -60,10 +81,10 @@ class AppLoader(PanelApp):
                 flags.append("-i")
             fargs=['--folder']+[a for folder in self.folder_preselector.value for a in [folder]]
             if not len(fargs): return
-            identifier="hmm"
-            with open(LOG_DIR/(f'load_{identifier}.txt'),'w') as f1:
+            log_path=AppLoader.new_log_path('loadud_')
+            with open(log_path,'w') as f1:
                 sp=subprocess.Popen([f"datavac","db","upload-data",*fargs,*flags],stdout=f1,stderr=f1)
-            with open(LOG_DIR/(f'load_{identifier}.txt'),'r') as f2:
+            with open(log_path,'r') as f2:
                 while sp.poll() is None:
                     self.load_log_display.value+=f2.read() # type: ignore
                     await asyncio.sleep(1)
