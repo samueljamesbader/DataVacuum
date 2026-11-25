@@ -71,11 +71,14 @@ class SampleSplitManager():
     def get_split_table_columns_from_external(self, flow_name: str) -> list[DVColumn]:
         raise NotImplementedError("This method should be implemented in a subclass")
     def _get_split_table_columns_from_database(self, flow_name: str) -> list[DVColumn]:
-        from datavac.config.data_definition import DDEF
-        split_table = self._get_split_table(flow_name)
+        from sqlalchemy import inspect
         from datavac.config.data_definition import DVColumn
-        return [DVColumn(name=col, pd_dtype=str(split_table[col].dtype), description=col)
-                for col in split_table.columns if col != DDEF().SAMPLE_COLNAME]
+        from datavac.database.db_connect import get_engine_ro
+        from datavac.database.db_structure import DBSTRUCT, sql_to_pd_types
+        with get_engine_ro().begin() as conn:
+            db_cols = inspect(conn).get_columns(f'SplitTable -- {flow_name}', schema=DBSTRUCT().int_schema)
+        return [DVColumn(name=c['name'], pd_dtype=sql_to_pd_types[c['type'].__class__], description=c['name']) # type:ignore
+                for c in db_cols if c['name'] != 'sampleid']
     _cached_external_split_table_columns: dict[str, list[DVColumn]] = field(default_factory=dict, init=False)
     _cached_database_split_table_columns: dict[str, list[DVColumn]] = field(default_factory=dict, init=False)
     def _get_split_table_columns(self, flow_name: str, force_external: bool=False) -> list[DVColumn]:
