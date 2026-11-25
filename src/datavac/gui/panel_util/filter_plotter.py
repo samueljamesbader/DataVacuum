@@ -199,11 +199,11 @@ class FilterPlotter(CompositeWidgetWithInstanceParameters):
                 with time_it(f"Updating factors"):
                     for param in self.filter_settings:
                         try:
-                            factors=sorted([f for f in all_factors[param] if f==f])
+                            factors=sorted([f for f in all_factors[param] if pd.notna(f) and f==f])
                         except:
                             raise Exception(f"Failed at sorting {param}: {all_factors[param]}")
                         if len(factors)!=len(all_factors[param]):
-                            logger.debug(f"Excluding {[f for f in factors if f!=f]} from factors for {param}")
+                            logger.debug(f"Excluding {[f for f in all_factors[param] if not pd.notna(f) or f!=f]} from factors for {param}")
                         getattr(self.param,param).objects=factors
                         #if not(len(factors)):
                         #    setattr(self,param,None)
