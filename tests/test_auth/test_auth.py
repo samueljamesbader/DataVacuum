@@ -96,7 +96,7 @@ def setup_auth_test():
                 'oauth_redirect_uri':f'http://localhost:{PCONF().server_config.port}/',
                 'cookie_secret':'MyCookieSecret',}
         def get_access_key_sign_seed(self) -> bytes:
-            return b'TestSeed'
+            return b'TestSeed-padded-to-meet-32-byte-HS256-minimum'
     from datavac.config.project_config import ProjectConfiguration, PCONF
     PCONF(ProjectConfiguration(deployment_name='datavac_authtest',
         data_definition=None,  # type: ignore
@@ -233,9 +233,12 @@ def test_ak_api():
     try:
         from datavac.appserve.dvsecrets.ak_client_side import cli_print_user, get_user
         from datavac.appserve.dvsecrets.ak_client_side import AccessKeyExpiredError
+        from unittest.mock import patch
         with pytest.raises(AccessKeyExpiredError):
             get_user(client_retries=0)
-        get_user(client_retries=1)
+        # The retry refreshes the key via webbrowser.get(); route that to headless Playwright
+        with mock_webbrowser_with_playwright() as mock_browser, patch('webbrowser.get', return_value=mock_browser):
+            get_user(client_retries=1)
         cli_print_user()
     finally:
         server.stop()
